@@ -34,6 +34,13 @@ Mobile-first booking app for a premium yoga/fitness studio. API-first so a futur
 
 **Prisma client** is generated in `lib/generated/prisma` (not `node_modules`). Import from `@/lib/generated/prisma`.
 
+**Prisma 7 client requires a Driver Adapter** — no URL-string constructor. Instantiate via `@prisma/adapter-pg`:
+```ts
+const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
+const prisma = new PrismaClient({ adapter });
+```
+Runtime app code uses `DATABASE_URL` (Supabase pooler, port 6543). Migrations and the seed use `DIRECT_URL` (direct, port 5432) — wired via `prisma.config.ts`.
+
 ## Booking engine rules (§5)
 
 Pure tested functions in `/lib`, separate from API routes (reusable by RN + cron). Test: full class, duplicate, concurrent, cancel-in-window, cancel-late, no-show burn.
