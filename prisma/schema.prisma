@@ -1,7 +1,5 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
+// FitLab — MVP schema (SPEC §4)
+// Prisma 7 generates the client into lib/generated/prisma (see CLAUDE.md).
 
 generator client {
   provider = "prisma-client"
@@ -10,4 +8,186 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  // In Prisma 7 the connection URL is configured in prisma.config.ts,
+  // not here. Migrations use DIRECT_URL; runtime Prisma Client uses
+  // DATABASE_URL (pooled) via `new PrismaClient({ datasourceUrl })`.
+}
+
+// ─── Enums ─────────────────────────────────────────────────────────────────────
+
+enum Role {
+  super_admin
+  admin
+  coach
+  member
+}
+
+/// All six booking states. `cancelled` and `no_show` free the spot;
+/// the other four count as "active" against capacity.
+enum BookingStatus {
+  booked
+  pending_deposit
+  paid
+  attended
+  no_show
+  cancelled
+}
+
+enum BookingSource {
+  card
+  onsite_deposit
+}
+
+enum PaymentStatus {
+  pending
+  paid
+  refunded
+  failed
+}
+
+// ─── Core ──────────────────────────────────────────────────────────────────────
+
+model Studio {
+  id                 String @id @default(cuid())
+  name               String
+  slug               String @unique
+  /// Hours before class start within which a cancellation forfeits the deposit (SPEC §5.4).
+  cancelWindowHours  Int    @default(24)
+
+  classes ScheduledClass[]
+}
+
+/// Class type / category — "Виняса Флоу", "Пилатес", …
+model Practice {
+  id      String @id @default(cuid())
+  name    String @unique
+  slug    String @unique
+
+  classes ScheduledClass[]
+}
+
+model Trainer {
+  id          String   @id @default(cuid())
+  name        String
+  photoUrl    String?
+  bio         String?
+  specialties String[]
+
+  // A trainer MAY be linked to a login account (1:1, optional).
+  user        User?
+
+  // Many-to-many: some classes have two trainers ("Даниил & Юна").
+  classes     ScheduledClass[] @relation("ClassTrainers")
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model ScheduledClass {
+  id              String   @id @default(cuid())
+  startAt         DateTime
+  /// Duration in MINUTES, stored explicitly (export varies 45–240; never assume).
+  durationMinutes Int
+  capacity        Int
+  /// Stored in minor units (cents/стотинки) to avoid float drift.
+  depositAmount   Int
+  isSpecialEvent  Boolean  @default(false)
+  eventNotes      String?
+
+  practiceId      String
+  practice        Practice @relation(fields: [practiceId], references: [id])
+
+  studioId        String
+  studio          Studio   @relation(fields: [studioId], references: [id])
+
+  trainers        Trainer[] @relation("ClassTrainers")
+  bookings        Booking[]
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([startAt])
+  @@index([studioId, startAt])
+}
+
+model Booking {
+  id               String         @id @default(cuid())
+  userId           String
+  user             User           @relation(fields: [userId], references: [id])
+
+  scheduledClassId String
+  scheduledClass   ScheduledClass @relation(fields: [scheduledClassId], references: [id])
+
+  status           BookingStatus
+  source           BookingSource
+
+  paymentId        String?        @unique
+  payment          Payment?       @relation(fields: [paymentId], references: [id])
+
+  createdAt        DateTime       @default(now())
+  cancelledAt      DateTime?
+
+  /// Prevents double-booking the same class by the same user (SPEC §5.2).
+  @@unique([userId, scheduledClassId])
+  @@index([scheduledClassId, status])
+}
+
+model Payment {
+  id                    String        @id @default(cuid())
+  /// Minor units, mirrors ScheduledClass.depositAmount.
+  amount                Int
+  currency              String        // ISO 4217, e.g. "BGN"
+  status                PaymentStatus
+
+  stripePaymentIntentId String?       @unique
+  stripeCheckoutId      String?       @unique
+
+  booking               Booking?
+
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+}
+
+model User {
+  id              String    @id @default(cuid())
+  /// E.164. Primary identifier — SMS OTP is the primary auth.
+  phone           String    @unique
+  phoneVerifiedAt DateTime?
+  /// Optional fallback for magic-link login.
+  email           String?   @unique
+  fullName        String?
+  role            Role      @default(member)
+
+  /// Optional 1:1 link to a Trainer record (a coach who also logs in).
+  trainerId       String?   @unique
+  trainer         Trainer?  @relation(fields: [trainerId], references: [id])
+
+  bookings        Booking[]
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+// ─── Phase 2 stubs (table-ready, unused in MVP) ───────────────────────────────
+// Tables exist so adding the features later doesn't require a painful migration.
+// Do NOT wire them into business logic in MVP (SPEC §7).
+
+model Membership {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+}
+
+model Waitlist {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+}
+
+model RecurringRule {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
 }
