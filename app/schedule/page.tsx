@@ -5,6 +5,7 @@ import {
   sofiaDateKey,
 } from "@/lib/format";
 import { BookingStatus } from "@/lib/generated/prisma/enums";
+import { AuthChip } from "@/app/_components/AuthChip";
 import { ScheduleSurface } from "./_components/ScheduleSurface";
 import type { DayBucket } from "./_components/AgendaView";
 import type { ClassCardRow } from "./_components/ClassCard";
@@ -93,6 +94,7 @@ export default async function SchedulePage() {
     <ScheduleSurface
       agendaDays={agendaBuckets(rows)}
       weekDays={weekBuckets(rows)}
+      authChip={<AuthChip />}
     />
   );
 }

@@ -11,9 +11,12 @@ type View = "list" | "week";
 export function ScheduleSurface({
   agendaDays,
   weekDays,
+  authChip,
 }: {
   agendaDays: DayBucket[];
   weekDays: DayBucket[]; // exactly 7, Mon→Sun
+  /** Server-rendered auth status chip (Вход / Профил). */
+  authChip?: React.ReactNode;
 }) {
   const [view, setView] = useState<View>("list");
 
@@ -21,15 +24,21 @@ export function ScheduleSurface({
     <main className="mx-auto w-full max-w-[440px] px-5 pb-12 pt-6 font-sans text-[color:var(--brand-ink)]">
       {/* ─── Header ───────────────────────────────────────────── */}
       <header className="mb-7">
-        <div className="flex items-center justify-center">
-          <Image
-            src="/logo.png"
-            alt="FitLab Varna"
-            width={180}
-            height={90}
-            priority
-            className="h-16 w-auto"
-          />
+        {/* Auth chip pinned top-right; logo stays centred. */}
+        <div className="relative">
+          <div className="flex items-center justify-center">
+            <Image
+              src="/logo.png"
+              alt="FitLab Varna"
+              width={180}
+              height={90}
+              priority
+              className="h-16 w-auto"
+            />
+          </div>
+          {authChip && (
+            <div className="absolute right-0 top-0">{authChip}</div>
+          )}
         </div>
         <Heartbeat className="mx-auto mt-2 h-3 w-40 opacity-90" />
       </header>

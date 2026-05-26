@@ -150,10 +150,14 @@ model Payment {
 
 model User {
   id              String    @id @default(cuid())
-  /// E.164. Primary identifier — SMS OTP is the primary auth.
-  phone           String    @unique
+  /// Link to the Supabase auth user. Set on first sign-in via the callback.
+  supabaseUserId  String?   @unique
+  /// E.164. Primary identifier once SMS OTP is live. Nullable so that
+  /// magic-link users (email-first) can sign in before they verify a phone.
+  phone           String?   @unique
   phoneVerifiedAt DateTime?
-  /// Optional fallback for magic-link login.
+  /// Email — magic-link fallback; primary identifier for users who haven't
+  /// verified a phone yet.
   email           String?   @unique
   fullName        String?
   role            Role      @default(member)
