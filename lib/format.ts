@@ -40,3 +40,49 @@ export function formatSofiaTime(d: Date): string {
 export function sofiaDateKey(d: Date): string {
   return DAY_KEY.format(d);
 }
+
+/**
+ * Build a Date at noon UTC from a "YYYY-MM-DD" key. Noon is comfortably inside
+ * the day in every timezone, so any later formatSofiaDay() call reads back the
+ * same calendar date regardless of the host server's TZ.
+ */
+export function dateFromKey(key: string): Date {
+  return new Date(`${key}T12:00:00Z`);
+}
+
+/**
+ * Seven "YYYY-MM-DD" Sofia-local dates: Monday → Sunday of the calendar week
+ * that contains "now". Used by the Седмица view, which renders a fixed
+ * Mon–Sun grid regardless of which days have classes.
+ */
+export function sofiaCurrentWeekDates(): string[] {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Sofia",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      weekday: "short",
+    })
+      .formatToParts(new Date())
+      .map((p) => [p.type, p.value]),
+  );
+  const dayOffsetFromMon: Record<string, number> = {
+    Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6,
+  };
+  const offset = dayOffsetFromMon[parts.weekday] ?? 0;
+  const y = Number(parts.year);
+  const m = Number(parts.month);
+  const d = Number(parts.day);
+
+  const out: string[] = [];
+  for (let i = 0; i < 7; i++) {
+    // UTC arithmetic on date-only values — never crosses TZ boundaries.
+    const dt = new Date(Date.UTC(y, m - 1, d - offset + i));
+    const yy = dt.getUTCFullYear();
+    const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
+    const dd = String(dt.getUTCDate()).padStart(2, "0");
+    out.push(`${yy}-${mm}-${dd}`);
+  }
+  return out;
+}

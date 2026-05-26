@@ -105,11 +105,12 @@ function pickCapacity(practiceSlug: string): number {
   return 18;
 }
 
-// ─── Schedule (3 days, anchored at "tomorrow Sofia") ──────────────────────────
-// dayOffset: 0 = tomorrow, 1 = day after, 2 = three days out.
+// ─── Schedule (7 days, anchored at "tomorrow Sofia") ──────────────────────────
+// dayOffset: 0 = tomorrow, 6 = a week out. Re-runnable: any row that already
+// exists at (studioId, startAt, practiceId) is updated in place.
 
 type ScheduleRow = {
-  dayOffset: 0 | 1 | 2;
+  dayOffset: 0 | 1 | 2 | 3 | 4 | 5 | 6;
   localTime: string;          // "HH:mm" Sofia local
   durationMinutes: number;
   practiceSlug: string;
@@ -146,13 +147,37 @@ const SCHEDULE: ScheduleRow[] = [
     trainerNames: ["Даниил"], isSpecialEvent: true, eventNotes: "Workshop — смяна на зала",
   },
   { dayOffset: 2, localTime: "19:30", durationMinutes: 60,  practiceSlug: "in-yoga",            trainerNames: ["Елена"] },
+
+  // Day 3
+  { dayOffset: 3, localTime: "07:30", durationMinutes: 55,  practiceSlug: "hatha-yoga",         trainerNames: ["Иван"] },
+  { dayOffset: 3, localTime: "10:00", durationMinutes: 70,  practiceSlug: "pilates",            trainerNames: ["Мария"] },
+  { dayOffset: 3, localTime: "18:30", durationMinutes: 90,  practiceSlug: "vinyasa-flow",       trainerNames: ["Юна"] },
+  { dayOffset: 3, localTime: "19:45", durationMinutes: 60,  practiceSlug: "in-yoga",            trainerNames: ["Елена"] },
+
+  // Day 4
+  { dayOffset: 4, localTime: "08:00", durationMinutes: 55,  practiceSlug: "vinyasa-flow",       trainerNames: ["Даниил"] },
+  { dayOffset: 4, localTime: "11:00", durationMinutes: 70,  practiceSlug: "tai-chi",            trainerNames: ["Иван"] },
+  { dayOffset: 4, localTime: "18:00", durationMinutes: 80,  practiceSlug: "terapevtichna-yoga", trainerNames: ["Елена"] },
+  { dayOffset: 4, localTime: "20:00", durationMinutes: 60,  practiceSlug: "hatha-yoga",         trainerNames: ["Даниил"] },
+
+  // Day 5 (weekend pace — fewer slots, longer sessions)
+  { dayOffset: 5, localTime: "09:00", durationMinutes: 70,  practiceSlug: "vinyasa-flow",       trainerNames: ["Юна"] },
+  { dayOffset: 5, localTime: "11:00", durationMinutes: 55,  practiceSlug: "pilates",            trainerNames: ["Мария"] },
+  {
+    dayOffset: 5, localTime: "12:30", durationMinutes: 90,  practiceSlug: "hatha-yoga",
+    trainerNames: ["Иван"], isSpecialEvent: true, eventNotes: "Weekend дълга практика — 90 мин",
+  },
+
+  // Day 6
+  { dayOffset: 6, localTime: "09:30", durationMinutes: 80,  practiceSlug: "in-yoga",            trainerNames: ["Елена"] },
+  { dayOffset: 6, localTime: "11:00", durationMinutes: 90,  practiceSlug: "vinyasa-flow",       trainerNames: ["Даниил", "Юна"] }, // dual trainer
 ];
 
 // ─── Run ──────────────────────────────────────────────────────────────────────
 
 async function main() {
   const tomorrow = addDays(todaySofiaDate(), 1);
-  console.log(`Seeding 3 days of classes anchored at Sofia date ${tomorrow}.`);
+  console.log(`Seeding 7 days of classes anchored at Sofia date ${tomorrow}.`);
 
   const studio = await prisma.studio.upsert({
     where: { slug: STUDIO.slug },
