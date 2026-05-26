@@ -34,6 +34,10 @@ yarn-error.log*
 .env*
 !.env.example
 
+# Claude Code: ignore session/permissions state, but keep shared project config
+.claude/*
+!.claude/launch.json
+
 # vercel
 .vercel
 

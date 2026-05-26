@@ -75,8 +75,8 @@ function addDays(yyyyMmDd: string, days: number): string {
 // ─── Catalog ──────────────────────────────────────────────────────────────────
 
 const STUDIO = {
-  slug: "yoga-vibe-san-stefano",
-  name: "Yoga Vibe / San Stefano",
+  slug: "fitlab-varna",
+  name: "FitLab Varna",
   cancelWindowHours: 24,
 };
 
