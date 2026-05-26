@@ -29,14 +29,27 @@ export function ClassCard({
   const full = remaining <= 0;
   // Normalize Date | string (boundary serialization may strip the Date prototype)
   const startAt = typeof row.startAt === "string" ? new Date(row.startAt) : row.startAt;
+  const isPast = startAt.getTime() < Date.now();
 
   return (
-    <li className="group overflow-hidden rounded-2xl bg-white shadow-[0_1px_2px_rgba(123,45,142,0.05),0_4px_16px_-8px_rgba(236,72,153,0.18)] transition-shadow hover:shadow-[0_1px_2px_rgba(123,45,142,0.06),0_8px_24px_-8px_rgba(236,72,153,0.28)]">
+    <li
+      className={`group overflow-hidden rounded-2xl bg-white transition-shadow ${
+        isPast
+          ? "opacity-60 shadow-none"
+          : "shadow-[0_1px_2px_rgba(123,45,142,0.05),0_4px_16px_-8px_rgba(236,72,153,0.18)] hover:shadow-[0_1px_2px_rgba(123,45,142,0.06),0_8px_24px_-8px_rgba(236,72,153,0.28)]"
+      }`}
+    >
       <div className="relative">
-        {/* Heartbeat-echo accent bar — content zone only, never under the CTA */}
+        {/* Heartbeat-echo accent bar — content zone only, never under the CTA.
+            Past classes get a muted bar so the brand signature still appears
+            but doesn't read as "alive". */}
         <span
           aria-hidden
-          className="absolute inset-y-3 left-0 w-[3px] rounded-full bg-gradient-to-b from-[color:var(--brand-magenta)] to-[color:var(--brand-pink)]"
+          className={`absolute inset-y-3 left-0 w-[3px] rounded-full ${
+            isPast
+              ? "bg-[color:var(--brand-purple)]/20"
+              : "bg-gradient-to-b from-[color:var(--brand-magenta)] to-[color:var(--brand-pink)]"
+          }`}
         />
 
         <div className={`flex items-start gap-3 ${compact ? "px-4 pb-3 pt-3" : "gap-4 px-5 pb-4 pt-4"}`}>
@@ -91,7 +104,11 @@ export function ClassCard({
         )}
       </div>
 
-      {full ? (
+      {isPast ? (
+        <div className="flex w-full items-center justify-center gap-2 bg-[color:var(--brand-pink-soft)]/60 px-5 py-3 font-display text-[11px] font-bold uppercase tracking-wider text-[color:var(--brand-purple)]/55">
+          Класът приключи
+        </div>
+      ) : full ? (
         <div className="flex min-h-12 w-full items-center justify-center gap-2 bg-[color:var(--brand-pink-soft)] px-5 py-3.5 font-display text-sm font-bold uppercase tracking-wider text-[color:var(--brand-magenta)]/70">
           Класът е пълен
         </div>

@@ -15,6 +15,7 @@
 import "dotenv/config";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../lib/generated/prisma/client";
+import { sofiaCurrentWeekDates } from "../lib/format";
 
 // Prisma 7's prisma-client provider takes a Driver Adapter, not a URL string.
 // Migrations need the direct (non-pooled) connection; runtime app code uses
@@ -176,8 +177,11 @@ const SCHEDULE: ScheduleRow[] = [
 // ─── Run ──────────────────────────────────────────────────────────────────────
 
 async function main() {
-  const tomorrow = addDays(todaySofiaDate(), 1);
-  console.log(`Seeding 7 days of classes anchored at Sofia date ${tomorrow}.`);
+  // Anchor on Monday of the current Sofia calendar week. dayOffset 0 = Mon,
+  // 6 = Sun. Re-running mid-week therefore keeps the past part of the week
+  // populated too, which Седмица needs to render past classes.
+  const weekStart = sofiaCurrentWeekDates()[0];
+  console.log(`Seeding 7 days of classes anchored at Sofia Monday ${weekStart}.`);
 
   const studio = await prisma.studio.upsert({
     where: { slug: STUDIO.slug },
@@ -216,7 +220,7 @@ async function main() {
       return { id: t.id };
     });
 
-    const dateISO = addDays(tomorrow, row.dayOffset);
+    const dateISO = addDays(weekStart, row.dayOffset);
     const startAt = sofiaLocalToUtc(`${dateISO} ${row.localTime}`);
     const data = {
       startAt,
