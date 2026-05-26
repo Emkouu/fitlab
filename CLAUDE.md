@@ -69,6 +69,25 @@ Pure tested functions in `/lib`, separate from API routes (reusable by RN + cron
 
 After step 10, MVP done. Only then consider Phase 2.
 
+## Booking flow reference (steps 4–6)
+
+Design intent for the „Избор" tap → confirmation flow. Do **not** build any of this until we reach those roadmap steps; this note exists so the visual reference isn't lost.
+
+- Tapping „Избор" opens a **„Запазване на място"** modal/sheet.
+- The modal shows class details: **studio, practice, date, time, duration**. (Trainer name optional; reuse what the card already shows.)
+- A **payment-method selector** with two options (D1):
+  1. **Плати депозит с карта сега** → Stripe Checkout → webhook → `paid`.
+  2. **Плати на място — до деня преди класа** → `pending_deposit`.
+- Visible **cancellation rules** under the choice: cancel ≥ studio.`cancelWindowHours` (default 24h) → deposit safe; later → forfeited; **no-show forfeits deposit**.
+- Primary action: **Потвърди**. Spot is held the moment the booking row is created (see SPEC §5 atomicity + unique-key rules).
+
+**Auth is SMS OTP, no passwords (D2).** The reference system we're looking at has password fields and an all-at-once registration step — **do not copy that**. Our model is:
+
+- Not logged in → tap „Избор" → SMS OTP screen → on success, the same „Запазване на място" modal opens with the user already authenticated.
+- Logged in → modal shows class details + deposit choice + Потвърди. **No password input. No email-and-password form. No combined "register + book" screen.**
+
+Phone (E.164) is the only login identifier; email is a magic-link fallback configured later, never collected in the booking modal.
+
 ## Hard rules
 
 - Do not build Phase 2 features (passes/memberships, waitlist, recurring generator, SMS reminders, push, websockets, analytics, multi-location, native app, PWA). Leave seams, no code.
