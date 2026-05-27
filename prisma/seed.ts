@@ -79,7 +79,7 @@ function addDays(yyyyMmDd: string, days: number): string {
 const STUDIO = {
   slug: "fitlab-varna",
   name: "FitLab Varna",
-  cancelWindowHours: 24,
+  cancelWindowHours: 4,
 };
 
 const PRACTICES = [

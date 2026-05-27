@@ -96,12 +96,23 @@ export default async function SchedulePage() {
     data: { user },
   } = await supabase.auth.getUser();
 
+  // Fetch user's deposit balance if authenticated
+  let userBalance = 0;
+  if (user) {
+    const fitlabUser = await prisma.user.findUnique({
+      where: { supabaseUserId: user.id },
+      select: { depositBalance: true },
+    });
+    userBalance = fitlabUser?.depositBalance ?? 0;
+  }
+
   return (
     <ScheduleSurface
       agendaDays={agendaBuckets(rows)}
       weekDays={weekBuckets(rows)}
       authChip={<AuthChip />}
       isAuthed={!!user}
+      userBalance={userBalance}
     />
   );
 }

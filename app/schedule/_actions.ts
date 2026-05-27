@@ -39,7 +39,7 @@ export type BookClassActionResult =
  */
 export async function bookClassAction(input: {
   scheduledClassId: string;
-  source: "card" | "onsite_deposit";
+  source: "card" | "onsite_deposit" | "balance";
 }): Promise<BookClassActionResult> {
   // 1. Auth gate.
   const supabase = await createClient();
@@ -57,7 +57,7 @@ export async function bookClassAction(input: {
   // 2. Resolve Supabase auth user → FitLab User row.
   const profile = await prisma.user.findUnique({
     where: { supabaseUserId: user.id },
-    select: { id: true },
+    select: { id: true, depositBalance: true },
   });
   if (!profile) {
     return {
@@ -68,8 +68,12 @@ export async function bookClassAction(input: {
   }
 
   // 3. Hand off to the engine — atomic capacity check + insert.
-  const source =
-    input.source === "card" ? BookingSource.card : BookingSource.onsite_deposit;
+  let source: BookingSource;
+  if (input.source === "balance") {
+    source = BookingSource.balance;
+  } else {
+    source = input.source === "card" ? BookingSource.card : BookingSource.onsite_deposit;
+  }
 
   const r = await createBooking(prisma, {
     userId: profile.id,
@@ -79,6 +83,24 @@ export async function bookClassAction(input: {
 
   if (!r.ok) {
     return r;
+  }
+
+  // If booking used balance source, deduct from user's balance
+  if (input.source === "balance") {
+    const classData = await prisma.scheduledClass.findUnique({
+      where: { id: input.scheduledClassId },
+      select: { depositAmount: true },
+    });
+    if (classData) {
+      await prisma.user.update({
+        where: { id: profile.id },
+        data: {
+          depositBalance: {
+            decrement: classData.depositAmount,
+          },
+        },
+      });
+    }
   }
 
   // 4. Card path → mint a Stripe Checkout session.

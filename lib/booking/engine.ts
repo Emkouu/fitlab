@@ -76,7 +76,7 @@ export async function createBooking(
   const { userId, scheduledClassId, source } = input;
 
   const initialStatus =
-    source === BookingSource.card
+    source === BookingSource.card || source === BookingSource.balance
       ? BookingStatus.booked
       : BookingStatus.pending_deposit;
 

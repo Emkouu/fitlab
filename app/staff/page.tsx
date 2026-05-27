@@ -75,14 +75,16 @@ export default async function StaffIndexPage() {
     <main className="mx-auto w-full max-w-[440px] px-5 pb-12 pt-6 font-sans text-[color:var(--brand-ink)]">
       <header className="mb-7">
         <div className="flex items-center justify-center">
-          <Image
-            src="/logo.png"
-            alt="FitLab Varna"
-            width={180}
-            height={90}
-            priority
-            className="h-16 w-auto"
-          />
+          <Link href="/" className="hover:opacity-80 transition-opacity">
+            <Image
+              src="/logo.png"
+              alt="FitLab Varna"
+              width={180}
+              height={90}
+              priority
+              className="h-16 w-auto"
+            />
+          </Link>
         </div>
         <Heartbeat className="mx-auto mt-2 h-3 w-40 opacity-90" />
       </header>

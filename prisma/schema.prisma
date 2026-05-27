@@ -2,8 +2,9 @@
 // Prisma 7 generates the client into lib/generated/prisma (see CLAUDE.md).
 
 generator client {
-  provider = "prisma-client"
-  output   = "../lib/generated/prisma"
+  provider        = "prisma-client"
+  output          = "../lib/generated/prisma"
+  previewFeatures = ["partialIndexes"]
 }
 
 datasource db {
@@ -36,6 +37,7 @@ enum BookingStatus {
 enum BookingSource {
   card
   onsite_deposit
+  balance
 }
 
 enum PaymentStatus {
@@ -52,7 +54,7 @@ model Studio {
   name               String
   slug               String @unique
   /// Hours before class start within which a cancellation forfeits the deposit (SPEC §5.4).
-  cancelWindowHours  Int    @default(24)
+  cancelWindowHours  Int    @default(4)
 
   classes ScheduledClass[]
 }
@@ -128,7 +130,8 @@ model Booking {
   cancelledAt      DateTime?
 
   /// Prevents double-booking the same class by the same user (SPEC §5.2).
-  @@unique([userId, scheduledClassId])
+  /// Only applies to active (non-cancelled) bookings, allowing re-booking after cancellation.
+  @@unique([userId, scheduledClassId], map: "unique_active_booking", where: raw("status != 'cancelled'"))
   @@index([scheduledClassId, status])
 }
 
@@ -165,6 +168,9 @@ model User {
   /// Optional 1:1 link to a Trainer record (a coach who also logs in).
   trainerId       String?   @unique
   trainer         Trainer?  @relation(fields: [trainerId], references: [id])
+
+  /// Deposit balance in minor units (EUR cents). Accumulated from refunded bookings.
+  depositBalance  Int       @default(0)
 
   bookings        Booking[]
 

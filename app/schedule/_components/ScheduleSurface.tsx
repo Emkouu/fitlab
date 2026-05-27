@@ -1,8 +1,10 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { AnimatePresence, motion } from "framer-motion";
 import { Heartbeat } from "@/app/_components/Heartbeat";
 import { AgendaView, type DayBucket } from "./AgendaView";
 import { WeekView } from "./WeekView";
@@ -17,6 +19,7 @@ export function ScheduleSurface({
   weekDays,
   authChip,
   isAuthed,
+  userBalance = 0,
 }: {
   agendaDays: DayBucket[];
   weekDays: DayBucket[]; // exactly 7, Mon→Sun
@@ -25,6 +28,8 @@ export function ScheduleSurface({
   /** Server-computed auth state. Drives the „Избор" branch: open modal
    *  if true, redirect to /login otherwise. */
   isAuthed: boolean;
+  /** User's deposit balance in EUR cents. */
+  userBalance?: number;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -70,14 +75,16 @@ export function ScheduleSurface({
         {/* Auth chip pinned top-right; logo stays centred. */}
         <div className="relative">
           <div className="flex items-center justify-center">
-            <Image
-              src="/logo.png"
-              alt="FitLab Varna"
-              width={180}
-              height={90}
-              priority
-              className="h-16 w-auto"
-            />
+            <Link href="/" className="hover:opacity-80 transition-opacity">
+              <Image
+                src="/logo.png"
+                alt="FitLab Varna"
+                width={180}
+                height={90}
+                priority
+                className="h-16 w-auto"
+              />
+            </Link>
           </div>
           {authChip && (
             <div className="absolute right-0 top-0">{authChip}</div>
@@ -109,14 +116,32 @@ export function ScheduleSurface({
       </div>
 
       {/* ─── Active view ──────────────────────────────────────── */}
-      {view === "list" ? (
-        <AgendaView days={agendaDays} onBook={handleBook} />
-      ) : (
-        <WeekView days={weekDays} onBook={handleBook} />
-      )}
+      <AnimatePresence mode="wait">
+        {view === "list" ? (
+          <motion.div
+            key="list"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            <AgendaView days={agendaDays} onBook={handleBook} />
+          </motion.div>
+        ) : (
+          <motion.div
+            key="week"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            <WeekView days={weekDays} onBook={handleBook} />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Single global modal, controlled by openClass. */}
-      <BookingModal row={openClass} onClose={() => setOpenClass(null)} />
+      <BookingModal row={openClass} onClose={() => setOpenClass(null)} userBalance={userBalance} />
     </main>
   );
 }

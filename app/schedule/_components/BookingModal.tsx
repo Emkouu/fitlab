@@ -2,17 +2,18 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { AnimatePresence, motion } from "framer-motion";
 import { formatEurMinor, formatSofiaDay, formatSofiaTime } from "@/lib/format";
 import { bookClassAction } from "../_actions";
 import type { ClassCardRow } from "./ClassCard";
 
-type Source = "card" | "onsite_deposit";
+type Source = "card" | "onsite_deposit" | "balance";
 
 type Phase =
-  | { kind: "form" }
-  | { kind: "submitting" }
-  | { kind: "success" }
-  | { kind: "error"; message: string; reason: string };
+   | { kind: "form" }
+   | { kind: "submitting" }
+   | { kind: "success" }
+   | { kind: "error"; message: string; reason: string };
 
 /**
  * „Запазване на място" modal (CLAUDE.md booking-flow-reference). Renders as
@@ -23,9 +24,11 @@ type Phase =
 export function BookingModal({
   row,
   onClose,
+  userBalance = 0,
 }: {
   row: ClassCardRow | null;
   onClose: () => void;
+  userBalance?: number;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const router = useRouter();
@@ -39,13 +42,16 @@ export function BookingModal({
     if (!d) return;
     if (row && !d.open) {
       // Reset state every time we open with a (possibly different) class.
-      setSource("card");
+      // If user has enough balance, default to using it
+      const initialSource =
+        userBalance >= row.depositAmount ? ("balance" as Source) : ("card" as Source);
+      setSource(initialSource);
       setPhase({ kind: "form" });
       d.showModal();
     } else if (!row && d.open) {
       d.close();
     }
-  }, [row]);
+  }, [row, userBalance]);
 
   // Reflect native dialog closes (ESC, backdrop click) back into parent state.
   useEffect(() => {
@@ -137,6 +143,18 @@ export function BookingModal({
             ) : (
               <>
                 <ClassSummary row={row} />
+                {/* Class full banner */}
+                {row.capacity - row._count.bookings <= 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="mb-5 rounded-2xl bg-red-50 px-4 py-3 border border-red-200"
+                  >
+                    <p className="font-display text-[13px] font-bold text-red-700">
+                      Класът е пълен. Не можеш да се запишеш.
+                    </p>
+                  </motion.div>
+                )}
                 <Section
                   title="Депозит"
                   trailing={
@@ -145,9 +163,17 @@ export function BookingModal({
                     </span>
                   }
                 >
-                  <DepositPicker value={source} onChange={setSource} disabled={phase.kind === "submitting"} />
+                  <DepositPicker 
+                    value={source} 
+                    onChange={setSource} 
+                    disabled={phase.kind === "submitting"} 
+                    userBalance={userBalance}
+                    classDeposit={row.depositAmount}
+                  />
                   <p className="mt-2 text-[12px] leading-relaxed text-[color:var(--brand-purple)]/65">
-                    {source === "card"
+                    {source === "balance"
+                      ? "Използваш своя баланс от отменени записи."
+                      : source === "card"
                       ? "Плащаш сега чрез Stripe. Депозитът се връща, ако отмениш в срок."
                       : "Оставяш депозита в студиото деня преди класа."}
                   </p>
@@ -166,12 +192,14 @@ export function BookingModal({
                   </ul>
                 </Section>
                 {phase.kind === "error" && (
-                  <p
+                  <motion.p
+                    initial={{ opacity: 0, y: -8 }}
+                    animate={{ opacity: 1, y: 0 }}
                     role="alert"
                     className="mb-4 rounded-2xl bg-[color:var(--brand-pink-soft)] px-4 py-3 text-[13px] text-[color:var(--brand-magenta)]"
                   >
                     {phase.message}
-                  </p>
+                  </motion.p>
                 )}
               </>
             )}
@@ -183,7 +211,7 @@ export function BookingModal({
               <button
                 type="button"
                 onClick={handleConfirm}
-                disabled={phase.kind === "submitting"}
+                disabled={phase.kind === "submitting" || row.capacity - row._count.bookings <= 0}
                 className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[color:var(--brand-magenta)] px-5 py-3.5 font-display text-sm font-bold uppercase tracking-wider text-white transition-colors hover:bg-[color:var(--brand-purple)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--brand-magenta)] focus-visible:ring-offset-2 disabled:opacity-60"
               >
                 {phase.kind === "submitting" ? (
@@ -259,11 +287,17 @@ function DepositPicker({
   value,
   onChange,
   disabled,
+  userBalance = 0,
+  classDeposit = 0,
 }: {
   value: Source;
   onChange: (s: Source) => void;
   disabled: boolean;
+  userBalance?: number;
+  classDeposit?: number;
 }) {
+  const hasEnoughBalance = userBalance >= classDeposit;
+
   return (
     <div className="relative">
       <select
@@ -272,6 +306,9 @@ function DepositPicker({
         disabled={disabled}
         className="block w-full appearance-none rounded-2xl border border-[color:var(--brand-pink)]/60 bg-white px-4 py-3 pr-10 text-sm font-medium text-[color:var(--brand-ink)] focus:border-[color:var(--brand-magenta)] focus:outline-none focus:ring-2 focus:ring-[color:var(--brand-magenta)]/30 disabled:opacity-60"
       >
+        {hasEnoughBalance && (
+          <option value="balance">Използвай баланс ({(userBalance / 100).toFixed(2)} €)</option>
+        )}
         <option value="card">Плати с карта сега</option>
         <option value="onsite_deposit">Плати на място (ден преди)</option>
       </select>
@@ -291,7 +328,9 @@ function SuccessState({ row, source }: { row: ClassCardRow; source: Source }) {
         Записан/а за <strong>{row.practice.name}</strong>.
       </p>
       <p className="mt-1 text-[12px] text-[color:var(--brand-purple)]/55">
-        {source === "card"
+        {source === "balance"
+          ? "Депозитът е платен с твоя баланс."
+          : source === "card"
           ? "Депозитът ще се обработи онлайн (Stripe Checkout идва в следваща стъпка)."
           : "Не забравяй депозита на място — ден преди класа."}
       </p>
