@@ -88,6 +88,21 @@ Design intent for the „Избор" tap → confirmation flow. Do **not** build
 
 Phone (E.164) is the only login identifier; email is a magic-link fallback configured later, never collected in the booking modal.
 
+### Verdict vs money action (steps 7–8)
+
+The booking engine in `lib/booking/` returns booleans — `depositForfeited` from `cancelBooking`, `depositBurned` from `markAttendance` — **without touching money**. They are *verdicts*, not actions.
+
+When Stripe is wired (step 7) and staff attendance lands (step 8), the real money action depends on **both** the verdict *and* `Booking.source`:
+
+| `source`           | `Booking.status` (typical) | verdict = false (safe / attended) | verdict = true (forfeited / no-show) |
+|--------------------|---------------------------|-----------------------------------|-------------------------------------|
+| `card`             | `booked` → `paid`         | refund the Stripe charge          | keep the charge (studio retains)    |
+| `onsite_deposit`   | `pending_deposit`         | no money action (never charged)   | no money action (never charged)*    |
+
+\* For on-site deposits, "forfeit" is a non-event for *us* because no card was charged. Studio staff handles cash in the room; the engine's job is just to set the booking status correctly so reports stay consistent.
+
+Implication: the Stripe refund/keep logic lives in step 7 (webhook + a `lib/payments/` helper) and gates on `source === "card"` before doing anything. The engine never imports Stripe.
+
 ## Hard rules
 
 - Do not build Phase 2 features (passes/memberships, waitlist, recurring generator, SMS reminders, push, websockets, analytics, multi-location, native app, PWA). Leave seams, no code.
