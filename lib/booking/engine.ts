@@ -3,8 +3,20 @@ import {
   type Booking,
   type PrismaClient,
 } from "@/lib/generated/prisma/client";
-import { BookingSource, BookingStatus } from "@/lib/generated/prisma/enums";
+import {
+  BookingSource,
+  BookingStatus,
+  PaymentStatus,
+} from "@/lib/generated/prisma/enums";
 import { ACTIVE_BOOKING_STATUSES } from "./statuses";
+
+/**
+ * How long a card-source booking can sit in `booked` status without a paid
+ * Payment before the next createBooking on the same class will sweep it.
+ * Stripe's Checkout sessions we mint expire at 1h; 15 min is a tighter
+ * window so a popular class doesn't sit half-full of orphan holds.
+ */
+const ABANDONED_HOLD_MAX_AGE_MS = 15 * 60 * 1000;
 
 /**
  * FitLab booking engine — SPEC §5.
@@ -96,6 +108,34 @@ export async function createBooking(
           message: "Класът вече е започнал.",
         };
       }
+
+      // Opportunistic JIT cleanup: any card-source `booked` rows on this
+      // class that are older than ABANDONED_HOLD_MAX_AGE_MS and don't have
+      // a paid Payment are abandoned holds — release them so the spot
+      // doesn't stay frozen.
+      //
+      // Runs inside the row-locked transaction so concurrent bookers can't
+      // both see the same stale row as "live"; whichever caller arrives
+      // first sweeps and frees the spot, later callers see fresh state.
+      // On-site (pending_deposit) bookings are intentionally NOT swept —
+      // those are paid in cash on arrival, no timeout policy.
+      const staleCutoff = new Date(Date.now() - ABANDONED_HOLD_MAX_AGE_MS);
+      await tx.booking.updateMany({
+        where: {
+          scheduledClassId,
+          status: BookingStatus.booked,
+          source: BookingSource.card,
+          createdAt: { lt: staleCutoff },
+          OR: [
+            { paymentId: null },
+            { payment: { status: { not: PaymentStatus.paid } } },
+          ],
+        },
+        data: {
+          status: BookingStatus.cancelled,
+          cancelledAt: new Date(),
+        },
+      });
 
       const activeCount = await tx.booking.count({
         where: {

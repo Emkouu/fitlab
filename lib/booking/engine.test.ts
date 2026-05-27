@@ -1,7 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@/lib/generated/prisma/client";
-import { BookingStatus, BookingSource } from "@/lib/generated/prisma/enums";
+import {
+  BookingStatus,
+  BookingSource,
+  PaymentStatus,
+} from "@/lib/generated/prisma/enums";
 import { createBooking, cancelBooking, markAttendance } from "./engine";
 
 /**
@@ -22,6 +26,7 @@ const prisma = new PrismaClient({
 
 const createdUserIds = new Set<string>();
 const createdClassIds = new Set<string>();
+const createdPaymentIds = new Set<string>();
 
 let testStudioId: string;
 let testPracticeId: string;
@@ -86,8 +91,9 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  // Delete in FK order: Booking → ScheduledClass → User.
-  // Bookings created by any of our test users OR on any of our test classes.
+  // FK order: Booking → Payment (Booking.paymentId is SetNull on delete, so
+  // bookings clear first), then ScheduledClass → User. Payments are killed
+  // last because we tracked the IDs explicitly.
   if (createdUserIds.size > 0 || createdClassIds.size > 0) {
     await prisma.booking.deleteMany({
       where: {
@@ -96,6 +102,11 @@ afterAll(async () => {
           { scheduledClassId: { in: Array.from(createdClassIds) } },
         ],
       },
+    });
+  }
+  if (createdPaymentIds.size > 0) {
+    await prisma.payment.deleteMany({
+      where: { id: { in: Array.from(createdPaymentIds) } },
     });
   }
   if (createdClassIds.size > 0) {
@@ -111,6 +122,14 @@ afterAll(async () => {
   // Leave the test Studio + Practice; cheap to reuse next run.
   await prisma.$disconnect();
 });
+
+/** Force a booking row's createdAt to N minutes in the past — for cleanup tests. */
+async function backdateBooking(bookingId: string, minutesAgo: number) {
+  await prisma.booking.update({
+    where: { id: bookingId },
+    data: { createdAt: new Date(Date.now() - minutesAgo * 60_000) },
+  });
+}
 
 /* ───────────────────────────── tests ───────────────────────────── */
 
@@ -314,6 +333,113 @@ describe("booking engine", () => {
       select: { status: true },
     });
     expect(updated?.status).toBe(BookingStatus.no_show);
+  });
+
+  it("opportunistically releases abandoned card holds (> 15 min, no paid Payment) on the next createBooking", async () => {
+    const classId = await makeClass({ capacity: 1 });
+    const userA = await makeUser();
+
+    const r1 = await createBooking(prisma, {
+      userId: userA,
+      scheduledClassId: classId,
+      source: BookingSource.card,
+    });
+    expect(r1.ok).toBe(true);
+    if (!r1.ok) return;
+
+    // Simulate an abandoned Stripe Checkout: 20 minutes since creation,
+    // no Payment row (paymentId is null).
+    await backdateBooking(r1.booking.id, 20);
+
+    // Sanity check: without the JIT cleanup the class would read as full.
+    const userB = await makeUser();
+    const r2 = await createBooking(prisma, {
+      userId: userB,
+      scheduledClassId: classId,
+      source: BookingSource.card,
+    });
+    expect(r2.ok).toBe(true);
+
+    // A's row should now be cancelled and have cancelledAt set.
+    const aAfter = await prisma.booking.findUnique({
+      where: { id: r1.booking.id },
+      select: { status: true, cancelledAt: true },
+    });
+    expect(aAfter?.status).toBe(BookingStatus.cancelled);
+    expect(aAfter?.cancelledAt).not.toBeNull();
+  });
+
+  it("does NOT sweep card holds that have a paid Payment, even if old", async () => {
+    const classId = await makeClass({ capacity: 1 });
+    const userA = await makeUser();
+
+    const r1 = await createBooking(prisma, {
+      userId: userA,
+      scheduledClassId: classId,
+      source: BookingSource.card,
+    });
+    expect(r1.ok).toBe(true);
+    if (!r1.ok) return;
+
+    // Link a paid Payment to A's booking, then backdate it past the
+    // cleanup window. Status stays `booked` (the engine doesn't flip
+    // booked → paid; the webhook does) — but a paid Payment still
+    // protects it from the sweeper.
+    const payment = await prisma.payment.create({
+      data: {
+        amount: 2000,
+        currency: "EUR",
+        status: PaymentStatus.paid,
+        booking: { connect: { id: r1.booking.id } },
+      },
+    });
+    createdPaymentIds.add(payment.id);
+    await backdateBooking(r1.booking.id, 30);
+
+    const userB = await makeUser();
+    const r2 = await createBooking(prisma, {
+      userId: userB,
+      scheduledClassId: classId,
+      source: BookingSource.card,
+    });
+    expect(r2.ok).toBe(false);
+    if (!r2.ok) expect(r2.reason).toBe("full");
+
+    const aAfter = await prisma.booking.findUnique({
+      where: { id: r1.booking.id },
+      select: { status: true },
+    });
+    expect(aAfter?.status).toBe(BookingStatus.booked);
+  });
+
+  it("does NOT sweep on-site bookings — only card-source holds are abandoned-eligible", async () => {
+    const classId = await makeClass({ capacity: 1 });
+    const userA = await makeUser();
+
+    const r1 = await createBooking(prisma, {
+      userId: userA,
+      scheduledClassId: classId,
+      source: BookingSource.onsite_deposit,
+    });
+    expect(r1.ok).toBe(true);
+    if (!r1.ok) return;
+
+    await backdateBooking(r1.booking.id, 60);
+
+    const userB = await makeUser();
+    const r2 = await createBooking(prisma, {
+      userId: userB,
+      scheduledClassId: classId,
+      source: BookingSource.card,
+    });
+    expect(r2.ok).toBe(false);
+    if (!r2.ok) expect(r2.reason).toBe("full");
+
+    const aAfter = await prisma.booking.findUnique({
+      where: { id: r1.booking.id },
+      select: { status: true },
+    });
+    expect(aAfter?.status).toBe(BookingStatus.pending_deposit);
   });
 
   it("attended does not burn the deposit", async () => {

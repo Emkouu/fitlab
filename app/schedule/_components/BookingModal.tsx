@@ -77,6 +77,12 @@ export function BookingModal({
         source,
       });
       if (result.ok) {
+        // Card path returns redirectTo → hand off to Stripe Checkout.
+        if (result.redirectTo) {
+          window.location.href = result.redirectTo;
+          return;
+        }
+        // On-site path: just show success + close.
         setPhase({ kind: "success" });
         router.refresh();
         setTimeout(() => {

@@ -7,6 +7,7 @@ import { Heartbeat } from "@/app/_components/Heartbeat";
 import { AgendaView, type DayBucket } from "./AgendaView";
 import { WeekView } from "./WeekView";
 import { BookingModal } from "./BookingModal";
+import { PaymentBanner } from "./PaymentBanner";
 import type { ClassCardRow } from "./ClassCard";
 
 type View = "list" | "week";
@@ -84,6 +85,9 @@ export function ScheduleSurface({
         </div>
         <Heartbeat className="mx-auto mt-2 h-3 w-40 opacity-90" />
       </header>
+
+      {/* ─── Payment banner (post-Stripe-Checkout landing) ─────── */}
+      <PaymentBanner />
 
       {/* ─── Toggle ───────────────────────────────────────────── */}
       <div className="mb-6 flex items-center justify-center">
