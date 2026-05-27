@@ -12,18 +12,24 @@ export type ClassCardRow = {
   durationMinutes: number;
   capacity: number;
   eventNotes: string | null;
+  depositAmount: number;
   practice: { name: string };
   trainers: { name: string }[];
+  studio: { name: string; cancelWindowHours: number };
   _count: { bookings: number };
 };
 
 export function ClassCard({
   row,
   compact = false,
+  onBook,
 }: {
   row: ClassCardRow;
   /** Tighter spacing for the dense week view. */
   compact?: boolean;
+  /** Called when the user taps „Избор". Owner (ScheduleSurface) decides
+   *  whether to open the modal (auth'd) or bounce to /login. */
+  onBook: (row: ClassCardRow) => void;
 }) {
   const remaining = row.capacity - row._count.bookings;
   const full = remaining <= 0;
@@ -113,7 +119,7 @@ export function ClassCard({
           Класът е пълен
         </div>
       ) : (
-        <BookButton />
+        <BookButton onClick={() => onBook(row)} />
       )}
     </li>
   );

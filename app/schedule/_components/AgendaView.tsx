@@ -1,6 +1,9 @@
 import { formatSofiaDay, sofiaDateKey } from "@/lib/format";
 import { ClassCard, type ClassCardRow } from "./ClassCard";
 
+// Re-export so other modules can import either path.
+export type { ClassCardRow };
+
 // "понеделник, 26.05.2026 г." → ["понеделник", "26.05.2026"]
 function splitDay(formatted: string): { weekday: string; date: string } {
   const m = formatted.match(/^([^,]+),\s*(.+?)(?:\s*г\.?)?$/);
@@ -10,7 +13,13 @@ function splitDay(formatted: string): { weekday: string; date: string } {
 
 export type DayBucket = { key: string; day: Date | string; rows: ClassCardRow[] };
 
-export function AgendaView({ days }: { days: DayBucket[] }) {
+export function AgendaView({
+  days,
+  onBook,
+}: {
+  days: DayBucket[];
+  onBook: (row: ClassCardRow) => void;
+}) {
   if (days.length === 0) return <EmptyAgenda />;
 
   return (
@@ -36,7 +45,7 @@ export function AgendaView({ days }: { days: DayBucket[] }) {
             </header>
             <ul className="space-y-2.5">
               {rows.map((r) => (
-                <ClassCard key={r.id} row={r} />
+                <ClassCard key={r.id} row={r} onBook={onBook} />
               ))}
             </ul>
           </section>

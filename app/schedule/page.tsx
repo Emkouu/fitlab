@@ -6,6 +6,7 @@ import {
 } from "@/lib/format";
 import { BookingStatus } from "@/lib/generated/prisma/enums";
 import { AuthChip } from "@/app/_components/AuthChip";
+import { createClient } from "@/lib/supabase/server";
 import { ScheduleSurface } from "./_components/ScheduleSurface";
 import type { DayBucket } from "./_components/AgendaView";
 import type { ClassCardRow } from "./_components/ClassCard";
@@ -37,6 +38,7 @@ async function loadRelevant(): Promise<ClassCardRow[]> {
     include: {
       practice: { select: { name: true } },
       trainers: { orderBy: { name: "asc" }, select: { name: true } },
+      studio: { select: { name: true, cancelWindowHours: true } },
       _count: {
         select: {
           bookings: { where: { status: { in: ACTIVE_STATUSES } } },
@@ -89,12 +91,17 @@ function weekBuckets(rows: ClassCardRow[]): DayBucket[] {
 }
 
 export default async function SchedulePage() {
-  const rows = await loadRelevant();
+  const [rows, supabase] = await Promise.all([loadRelevant(), createClient()]);
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
   return (
     <ScheduleSurface
       agendaDays={agendaBuckets(rows)}
       weekDays={weekBuckets(rows)}
       authChip={<AuthChip />}
+      isAuthed={!!user}
     />
   );
 }

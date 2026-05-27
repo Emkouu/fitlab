@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { formatSofiaDay, sofiaDateKey } from "@/lib/format";
-import { ClassCard } from "./ClassCard";
+import { ClassCard, type ClassCardRow } from "./ClassCard";
 import type { DayBucket } from "./AgendaView";
 
 /**
@@ -16,7 +16,13 @@ import type { DayBucket } from "./AgendaView";
  *
  * Server filters startAt >= now, so today's column never shows past slots.
  */
-export function WeekView({ days }: { days: DayBucket[] }) {
+export function WeekView({
+  days,
+  onBook,
+}: {
+  days: DayBucket[];
+  onBook: (row: ClassCardRow) => void;
+}) {
   const todayKey = sofiaDateKey(new Date());
   const stripRef = useRef<HTMLDivElement>(null);
 
@@ -52,6 +58,7 @@ export function WeekView({ days }: { days: DayBucket[] }) {
             bucket={bucket}
             isToday={bucket.key === todayKey}
             isPast={bucket.key < todayKey}
+            onBook={onBook}
           />
         ))}
       </div>
@@ -63,10 +70,12 @@ function DayColumn({
   bucket,
   isToday,
   isPast,
+  onBook,
 }: {
   bucket: DayBucket;
   isToday: boolean;
   isPast: boolean;
+  onBook: (row: ClassCardRow) => void;
 }) {
   const d = typeof bucket.day === "string" ? new Date(bucket.day) : bucket.day;
   const { weekday, date } = splitDayShort(formatSofiaDay(d));
@@ -120,7 +129,7 @@ function DayColumn({
       ) : (
         <ul className="space-y-2.5">
           {bucket.rows.map((r) => (
-            <ClassCard key={r.id} row={r} compact />
+            <ClassCard key={r.id} row={r} compact onBook={onBook} />
           ))}
         </ul>
       )}

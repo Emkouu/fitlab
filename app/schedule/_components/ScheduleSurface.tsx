@@ -1,10 +1,13 @@
 "use client";
 
 import Image from "next/image";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Heartbeat } from "@/app/_components/Heartbeat";
 import { AgendaView, type DayBucket } from "./AgendaView";
 import { WeekView } from "./WeekView";
+import { BookingModal } from "./BookingModal";
+import type { ClassCardRow } from "./ClassCard";
 
 type View = "list" | "week";
 
@@ -12,13 +15,52 @@ export function ScheduleSurface({
   agendaDays,
   weekDays,
   authChip,
+  isAuthed,
 }: {
   agendaDays: DayBucket[];
   weekDays: DayBucket[]; // exactly 7, Mon→Sun
   /** Server-rendered auth status chip (Вход / Профил). */
   authChip?: React.ReactNode;
+  /** Server-computed auth state. Drives the „Избор" branch: open modal
+   *  if true, redirect to /login otherwise. */
+  isAuthed: boolean;
 }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [view, setView] = useState<View>("list");
+  const [openClass, setOpenClass] = useState<ClassCardRow | null>(null);
+
+  /** Flat index for lookup by id (resume-after-login + future deep-links). */
+  const rowsById = (() => {
+    const m = new Map<string, ClassCardRow>();
+    for (const d of agendaDays) for (const r of d.rows) m.set(r.id, r);
+    for (const d of weekDays) for (const r of d.rows) m.set(r.id, r);
+    return m;
+  })();
+
+  // Auto-open modal on ?openBooking=<id> (post-login resume).
+  useEffect(() => {
+    const id = searchParams.get("openBooking");
+    if (!id || !isAuthed) return;
+    const row = rowsById.get(id);
+    if (!row) return;
+    setOpenClass(row);
+    // Drop the param so a manual refresh doesn't keep popping the modal.
+    const params = new URLSearchParams(searchParams);
+    params.delete("openBooking");
+    const qs = params.toString();
+    router.replace(`/schedule${qs ? `?${qs}` : ""}`, { scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, isAuthed]);
+
+  function handleBook(row: ClassCardRow) {
+    if (!isAuthed) {
+      const next = `/schedule?openBooking=${encodeURIComponent(row.id)}`;
+      router.push(`/login?next=${encodeURIComponent(next)}`);
+      return;
+    }
+    setOpenClass(row);
+  }
 
   return (
     <main className="mx-auto w-full max-w-[440px] px-5 pb-12 pt-6 font-sans text-[color:var(--brand-ink)]">
@@ -64,10 +106,13 @@ export function ScheduleSurface({
 
       {/* ─── Active view ──────────────────────────────────────── */}
       {view === "list" ? (
-        <AgendaView days={agendaDays} />
+        <AgendaView days={agendaDays} onBook={handleBook} />
       ) : (
-        <WeekView days={weekDays} />
+        <WeekView days={weekDays} onBook={handleBook} />
       )}
+
+      {/* Single global modal, controlled by openClass. */}
+      <BookingModal row={openClass} onClose={() => setOpenClass(null)} />
     </main>
   );
 }
