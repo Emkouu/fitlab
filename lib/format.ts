@@ -86,3 +86,17 @@ export function sofiaCurrentWeekDates(): string[] {
   }
   return out;
 }
+
+/* ─── Money ─────────────────────────────────────────────────────────────── */
+
+// Bulgarian locale formats the EUR symbol after the value with a space:
+// "20,00 €" — matches how the audience sees prices in BG.
+const EUR_FMT = new Intl.NumberFormat("bg-BG", {
+  style: "currency",
+  currency: "EUR",
+});
+
+/** 2000 → "20,00 €". Input is EUR cents (ScheduledClass.depositAmount shape). */
+export function formatEurMinor(minor: number): string {
+  return EUR_FMT.format(minor / 100);
+}

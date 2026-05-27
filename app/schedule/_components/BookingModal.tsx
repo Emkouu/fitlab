@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { formatSofiaDay, formatSofiaTime } from "@/lib/format";
+import { formatEurMinor, formatSofiaDay, formatSofiaTime } from "@/lib/format";
 import { bookClassAction } from "../_actions";
 import type { ClassCardRow } from "./ClassCard";
 
@@ -131,7 +131,14 @@ export function BookingModal({
             ) : (
               <>
                 <ClassSummary row={row} />
-                <Section title="Депозит">
+                <Section
+                  title="Депозит"
+                  trailing={
+                    <span className="font-display text-sm font-bold text-[color:var(--brand-magenta)]">
+                      {formatEurMinor(row.depositAmount)}
+                    </span>
+                  }
+                >
                   <DepositPicker value={source} onChange={setSource} disabled={phase.kind === "submitting"} />
                   <p className="mt-2 text-[12px] leading-relaxed text-[color:var(--brand-purple)]/65">
                     {source === "card"
@@ -220,12 +227,23 @@ function ClassSummary({ row }: { row: ClassCardRow }) {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  trailing,
+  children,
+}: {
+  title: string;
+  trailing?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <section className="mb-5 last:mb-0">
-      <h4 className="mb-2 font-display text-[11px] font-bold uppercase tracking-wider text-[color:var(--brand-purple)]/70">
-        {title}
-      </h4>
+      <div className="mb-2 flex items-baseline justify-between gap-3">
+        <h4 className="font-display text-[11px] font-bold uppercase tracking-wider text-[color:var(--brand-purple)]/70">
+          {title}
+        </h4>
+        {trailing}
+      </div>
       {children}
     </section>
   );

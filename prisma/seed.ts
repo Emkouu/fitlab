@@ -9,7 +9,8 @@
  * NOTE: `capacity` and `depositAmount` are NOT in the studio's real export.
  * The values below are PLACEHOLDERS so step 3 has something to render. The
  * owner MUST review and replace them with real per-class values before MVP
- * go-live. Money is stored in minor units (стотинки), so 2000 = 20.00 BGN.
+ * go-live. Money is in EUR everywhere: depositAmount holds EUR cents,
+ * so 2000 = €20.00. Stripe will also be configured for EUR (step 7).
  */
 
 import "dotenv/config";
@@ -98,7 +99,7 @@ const TRAINERS = [
   { name: "Елена",  specialties: ["Терапевтична Йога", "Ин Йога"] },
 ];
 
-const DEFAULT_DEPOSIT_MINOR = 2000; // 20.00 BGN placeholder; owner to confirm.
+const DEFAULT_DEPOSIT_MINOR = 2000; // €20.00 placeholder; owner to confirm.
 
 function pickCapacity(practiceSlug: string): number {
   if (practiceSlug === "terapevtichna-yoga") return 12;
@@ -135,8 +136,8 @@ const SCHEDULE: ScheduleRow[] = [
   {
     dayOffset: 1, localTime: "18:30", durationMinutes: 80,
     practiceSlug: "terapevtichna-yoga", trainerNames: ["Елена"],
-    eventNotes: "Карти не важат — депозит 30 лв.",
-    depositAmountOverride: 3000, // 30.00 BGN — must match the eventNotes.
+    eventNotes: "Карти не важат — депозит 30 €.",
+    depositAmountOverride: 3000, // €30.00 — must match the eventNotes.
   },
   { dayOffset: 1, localTime: "20:00", durationMinutes: 100, practiceSlug: "vinyasa-flow",       trainerNames: ["Даниил"] },
 

@@ -89,7 +89,7 @@ model ScheduledClass {
   /// Duration in MINUTES, stored explicitly (export varies 45–240; never assume).
   durationMinutes Int
   capacity        Int
-  /// Stored in minor units (cents/стотинки) to avoid float drift.
+  /// Stored in minor units (EUR cents) to avoid float drift. 2000 = €20.00.
   depositAmount   Int
   isSpecialEvent  Boolean  @default(false)
   eventNotes      String?
@@ -136,7 +136,7 @@ model Payment {
   id                    String        @id @default(cuid())
   /// Minor units, mirrors ScheduledClass.depositAmount.
   amount                Int
-  currency              String        // ISO 4217, e.g. "BGN"
+  currency              String        @default("EUR") // ISO 4217; FitLab is EUR everywhere.
   status                PaymentStatus
 
   stripePaymentIntentId String?       @unique
