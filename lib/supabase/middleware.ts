@@ -4,8 +4,12 @@ import { NextResponse, type NextRequest } from "next/server";
 /**
  * Anything under these prefixes requires a signed-in user. Anonymous visitors
  * are redirected to /login?next=<original path>. /schedule and / stay public.
+ *
+ * /staff requires more than just being signed-in — the staff role check
+ * lives in the page itself (middleware doesn't hit Prisma). Putting /staff
+ * here just enforces "must be signed in" as a first hurdle.
  */
-const PROTECTED_PREFIXES = ["/account", "/booking"];
+const PROTECTED_PREFIXES = ["/account", "/booking", "/staff"];
 
 /** /login is for anonymous users; signed-in visitors bounce to /schedule. */
 const AUTH_ONLY_PREFIXES = ["/login"];
