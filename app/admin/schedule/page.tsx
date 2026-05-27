@@ -19,12 +19,19 @@ export default async function AdminSchedulePage() {
 
   const now = new Date();
   const thirtyDaysFromNow = new Date(Date.now() + THIRTY_DAYS_MS);
-  const studioId = "fitlab-varna"; // MVP: single studio
+
+  // ─── Look up studio by slug (not hardcoded ID) ─────────────────────────
+  const studio = await prisma.studio.findUnique({
+    where: { slug: "fitlab-varna" },
+  });
+  if (!studio) {
+    throw new Error("Studio not found");
+  }
 
   // ─── Fetch all upcoming classes (7–30 days) ─────────────────────────────
   const classes = await prisma.scheduledClass.findMany({
     where: {
-      studioId,
+      studioId: studio.id,
       startAt: { gte: now, lte: thirtyDaysFromNow },
     },
     include: {

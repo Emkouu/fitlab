@@ -20,7 +20,15 @@ export default async function AdminPage() {
 
   const now = new Date();
   const sevenDaysFromNow = new Date(Date.now() + SEVEN_DAYS_MS);
-  const studioId = "fitlab-varna"; // MVP: single studio
+
+  // ─── Look up studio by slug (not hardcoded ID) ─────────────────────────
+  const studio = await prisma.studio.findUnique({
+    where: { slug: "fitlab-varna" },
+  });
+  if (!studio) {
+    throw new Error("Studio not found");
+  }
+  const studioId = studio.id;
 
   // ─── KPI: Upcoming classes (7 days) ──────────────────────────────────────
   const upcomingClasses = await prisma.scheduledClass.count({
