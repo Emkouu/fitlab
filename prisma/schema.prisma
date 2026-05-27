@@ -107,6 +107,7 @@ model ScheduledClass {
 
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+  cancelledAt     DateTime?
 
   @@index([startAt])
   @@index([studioId, startAt])

@@ -33,7 +33,10 @@ const ACTIVE_STATUSES: BookingStatus[] = [
 async function loadRelevant(): Promise<ClassCardRow[]> {
   const tenDaysAgo = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000);
   return prisma.scheduledClass.findMany({
-    where: { startAt: { gte: tenDaysAgo } },
+    where: {
+      startAt: { gte: tenDaysAgo },
+      cancelledAt: null, // Only show non-cancelled classes to public
+    },
     orderBy: { startAt: "asc" },
     include: {
       practice: { select: { name: true } },
