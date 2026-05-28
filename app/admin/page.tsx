@@ -135,15 +135,15 @@ export default async function AdminPage() {
       </div>
 
       {/* Quick Actions */}
-      <div>
+      <div className="space-y-3">
         <Link
           href="/admin/schedule"
           className="block rounded-2xl bg-[color:var(--brand-purple)] px-5 py-3 text-center font-display font-semibold text-white shadow-[0_4px_16px_-8px_rgba(236,72,153,0.28)] transition-all hover:shadow-[0_8px_24px_-8px_rgba(236,72,153,0.35)]"
         >
           Виж графика
         </Link>
+        <AdminActions />
       </div>
-      <AdminActions />
     </main>
   );
 }
