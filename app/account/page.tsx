@@ -42,11 +42,11 @@ export default async function AccountPage() {
     orderBy: { createdAt: "desc" },
   });
 
-  // Split bookings into upcoming and past
+  // Split bookings into upcoming and past, excluding cancelled
   const now = Date.now();
   const upcomingBookings = bookings.filter((b) => {
     const startTime = new Date(b.scheduledClass.startAt).getTime();
-    return startTime > now;
+    return startTime > now && b.status !== "cancelled";
   });
   const pastBookings = bookings.filter((b) => {
     const startTime = new Date(b.scheduledClass.startAt).getTime();
