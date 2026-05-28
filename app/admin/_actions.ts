@@ -572,22 +572,19 @@ export async function deleteTrainerAction(
   }
 
   try {
-    // ─── Check if trainer is used in any ScheduledClass ────────────────────
-    const classCount = await prisma.scheduledClass.count({
+    // ─── Check if trainer is used in any active (non-cancelled) class ──────
+    const activeClassCount = await prisma.scheduledClass.count({
       where: {
-        trainers: {
-          some: {
-            id: trainerId,
-          },
-        },
+        trainers: { some: { id: trainerId } },
+        cancelledAt: null,
       },
     });
 
-    if (classCount > 0) {
+    if (activeClassCount > 0) {
       return {
         ok: false,
         reason: "trainer_in_use",
-        message: "Не може да изтриеш: треньор е закрепен за класове.",
+        message: `Треньорът води ${activeClassCount} активни класа. Премахни го от класовете, преди да го изтриеш.`,
       };
     }
 
@@ -870,13 +867,13 @@ export async function deletePracticeAction(
     return { ok: false, message: "Нямаш достъп до тази функция." };
   }
 
-  const classCount = await prisma.scheduledClass.count({
-    where: { practiceId },
+  const activeClassCount = await prisma.scheduledClass.count({
+    where: { practiceId, cancelledAt: null },
   });
-  if (classCount > 0) {
+  if (activeClassCount > 0) {
     return {
       ok: false,
-      message: `Тази практика се използва в ${classCount} класа. Премахни я от класовете, преди да я изтриеш.`,
+      message: `Тази практика се използва в ${activeClassCount} активни класа. Премахни я от класовете, преди да я изтриеш.`,
     };
   }
 
