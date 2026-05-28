@@ -25,6 +25,11 @@ import {
   updateClientSchema,
   type UpdateClientInput,
 } from "@/lib/validation/clientForm";
+import {
+  practiceFormSchema,
+  type PracticeFormInput,
+} from "@/lib/validation/practiceForm";
+import { generateSlug } from "@/lib/utils/slug";
 import { sofiaToUtc } from "@/lib/format/sofiaTime";
 
 export type CancelClassResult =
@@ -788,4 +793,115 @@ export async function adminCancelBookingAction(
         ? "Записването е отменено. Депозитът е удържан (късно)."
         : "Записването е отменено.",
   };
+}
+
+/* ───────────────────────── Practice management ───────────────────────── */
+
+export type UpsertPracticeResult =
+  | { ok: true; practiceId: string; message: string }
+  | { ok: false; message: string };
+
+export async function upsertPracticeAction(
+  input: PracticeFormInput,
+): Promise<UpsertPracticeResult> {
+  const admin = await getAdminUser();
+  if (!admin) {
+    return { ok: false, message: "Нямаш достъп до тази функция." };
+  }
+
+  const parsed = practiceFormSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, message: "Невалидни данни. Провери полетата." };
+  }
+  const data = parsed.data;
+  const slug = data.slug || generateSlug(data.name);
+  const isCreate = !data.id;
+
+  try {
+    const existing = await prisma.practice.findUnique({ where: { slug } });
+    if (existing && (isCreate || existing.id !== data.id)) {
+      return { ok: false, message: "Slug вече се използва от друга практика." };
+    }
+
+    const existingName = await prisma.practice.findUnique({
+      where: { name: data.name },
+    });
+    if (existingName && (isCreate || existingName.id !== data.id)) {
+      return { ok: false, message: "Името вече се използва от друга практика." };
+    }
+
+    const practice = isCreate
+      ? await prisma.practice.create({ data: { name: data.name, slug } })
+      : await prisma.practice.update({
+          where: { id: data.id! },
+          data: { name: data.name, slug },
+        });
+
+    console.log(
+      `[admin-audit] upsertPractice by=${admin.id} practice=${practice.id} mode=${isCreate ? "create" : "update"}`,
+    );
+
+    revalidatePath("/admin/practices");
+
+    return {
+      ok: true,
+      practiceId: practice.id,
+      message: isCreate ? "Практиката е създадена." : "Практиката е обновена.",
+    };
+  } catch (err) {
+    const e = err as { code?: string };
+    if (e.code === "P2002") {
+      return { ok: false, message: "Името или slug вече се използват." };
+    }
+    console.error("[upsertPractice] error:", err);
+    return { ok: false, message: "Грешка при запазване. Опитай отново." };
+  }
+}
+
+export type DeletePracticeResult =
+  | { ok: true; message: string }
+  | { ok: false; message: string };
+
+export async function deletePracticeAction(
+  practiceId: string,
+): Promise<DeletePracticeResult> {
+  const admin = await getAdminUser();
+  if (!admin) {
+    return { ok: false, message: "Нямаш достъп до тази функция." };
+  }
+
+  const classCount = await prisma.scheduledClass.count({
+    where: { practiceId },
+  });
+  if (classCount > 0) {
+    return {
+      ok: false,
+      message: `Тази практика се използва в ${classCount} класа. Премахни я от класовете, преди да я изтриеш.`,
+    };
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.trainer.findMany({
+        where: { specialties: { some: { id: practiceId } } },
+        select: { id: true },
+      }).then(async (trainers) => {
+        for (const t of trainers) {
+          await tx.trainer.update({
+            where: { id: t.id },
+            data: { specialties: { disconnect: { id: practiceId } } },
+          });
+        }
+      });
+      await tx.practice.delete({ where: { id: practiceId } });
+    });
+  } catch (err) {
+    console.error("[deletePractice] error:", err);
+    return { ok: false, message: "Грешка при изтриване. Опитай отново." };
+  }
+
+  console.log(`[admin-audit] deletePractice by=${admin.id} practice=${practiceId}`);
+  revalidatePath("/admin/practices");
+
+  return { ok: true, message: "Практиката е изтрита." };
 }
