@@ -10,6 +10,7 @@ import {
   AttendancePanel,
   type AttendanceRow,
 } from "../_components/AttendancePanel";
+import { AdminBreadcrumb } from "../../_components/AdminBreadcrumb";
 
 export const dynamic = "force-dynamic";
 
@@ -83,12 +84,10 @@ export default async function AdminAttendanceClassPage({
         <Heartbeat className="mx-auto mt-2 h-3 w-40 opacity-90" />
       </header>
 
-      <Link
-        href="/admin/attendance"
-        className="mb-3 inline-flex items-center gap-1 font-display text-[11px] font-bold uppercase tracking-wider text-[color:var(--brand-purple)]/70 hover:text-[color:var(--brand-magenta)]"
-      >
-        ← Всички класове
-      </Link>
+      <AdminBreadcrumb
+        parentLabel="Присъствия"
+        parentHref="/admin/attendance"
+      />
 
       <section className="mb-5 rounded-2xl bg-white px-5 py-4 shadow-[0_1px_2px_rgba(123,45,142,0.05),0_4px_16px_-8px_rgba(236,72,153,0.18)]">
         <p className="font-mono text-[11px] uppercase tracking-wider text-[color:var(--brand-purple)]/60">

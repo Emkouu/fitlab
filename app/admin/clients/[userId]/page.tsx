@@ -84,11 +84,7 @@ export default async function AdminClientDetailPage({
         <Heartbeat className="mx-auto mt-2 h-3 w-40 opacity-90" />
       </header>
 
-      <AdminBreadcrumb
-        parentLabel="Клиенти"
-        parentHref="/admin/clients"
-        currentLabel={user.fullName ?? user.email ?? "—"}
-      />
+      <AdminBreadcrumb parentLabel="Клиенти" parentHref="/admin/clients" />
 
       <ClientDetail
         user={{

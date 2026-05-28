@@ -102,11 +102,7 @@ export default async function AdminTrainersEditPage({ params }: EditPageProps) {
         </div>
       </header>
 
-      <AdminBreadcrumb
-        parentLabel="Треньори"
-        parentHref="/admin/trainers"
-        currentLabel={trainer.name}
-      />
+      <AdminBreadcrumb parentLabel="Треньори" parentHref="/admin/trainers" />
 
       <div className="mb-6">
         <h1 className="font-display text-2xl font-bold tracking-tight">

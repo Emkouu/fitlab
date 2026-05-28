@@ -30,11 +30,7 @@ export default async function AdminPracticesNewPage() {
         </div>
       </header>
 
-      <AdminBreadcrumb
-        parentLabel="Практики"
-        parentHref="/admin/practices"
-        currentLabel="Нова практика"
-      />
+      <AdminBreadcrumb parentLabel="Практики" parentHref="/admin/practices" />
 
       <div className="mb-6">
         <h1 className="font-display text-2xl font-bold tracking-tight">

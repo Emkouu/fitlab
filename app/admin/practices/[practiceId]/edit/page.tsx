@@ -54,11 +54,7 @@ export default async function AdminPracticesEditPage({ params }: EditPageProps) 
         </div>
       </header>
 
-      <AdminBreadcrumb
-        parentLabel="Практики"
-        parentHref="/admin/practices"
-        currentLabel={practice.name}
-      />
+      <AdminBreadcrumb parentLabel="Практики" parentHref="/admin/practices" />
 
       <div className="mb-6">
         <h1 className="font-display text-2xl font-bold tracking-tight">

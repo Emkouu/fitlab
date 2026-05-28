@@ -54,11 +54,7 @@ export default async function AdminTrainersNewPage() {
         </div>
       </header>
 
-      <AdminBreadcrumb
-        parentLabel="Треньори"
-        parentHref="/admin/trainers"
-        currentLabel="Нов треньор"
-      />
+      <AdminBreadcrumb parentLabel="Треньори" parentHref="/admin/trainers" />
 
       <div className="mb-6">
         <h1 className="font-display text-2xl font-bold tracking-tight">

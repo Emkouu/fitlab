@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { getAdminUser } from "@/lib/auth/getAdminUser";
 import { PracticeList } from "./_components/PracticeList";
+import { AdminBreadcrumb } from "../_components/AdminBreadcrumb";
 
 export const metadata = { title: "FitLab Varna — Управление на практики" };
 
@@ -39,7 +40,7 @@ export default async function AdminPracticesPage({
   return (
     <main className="mx-auto w-full max-w-[440px] px-5 pb-12 pt-6 font-sans text-[color:var(--brand-ink)]">
       <header className="mb-7">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-center">
           <Link href="/" className="hover:opacity-80 transition-opacity">
             <Image
               src="/logo.png"
@@ -50,14 +51,10 @@ export default async function AdminPracticesPage({
               className="h-16 w-auto"
             />
           </Link>
-          <Link
-            href="/admin"
-            className="text-sm text-[color:var(--brand-purple)] hover:underline"
-          >
-            Назад
-          </Link>
         </div>
       </header>
+
+      <AdminBreadcrumb parentLabel="Admin" parentHref="/admin" />
 
       <div className="mb-6">
         <h1 className="font-display text-2xl font-bold tracking-tight">

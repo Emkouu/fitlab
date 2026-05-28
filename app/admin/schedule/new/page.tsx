@@ -44,11 +44,7 @@ export default async function AdminScheduleNewPage() {
         </div>
       </header>
 
-      <AdminBreadcrumb
-        parentLabel="График"
-        parentHref="/admin/schedule"
-        currentLabel="Нов клас"
-      />
+      <AdminBreadcrumb parentLabel="График" parentHref="/admin/schedule" />
 
       <div className="mb-6">
         <h1 className="font-display text-2xl font-bold tracking-tight">

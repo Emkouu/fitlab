@@ -7,6 +7,7 @@ import { BookingStatus } from "@/lib/generated/prisma/enums";
 import { ACTIVE_BOOKING_STATUSES } from "@/lib/booking";
 import { Heartbeat } from "@/app/_components/Heartbeat";
 import { formatSofiaDay, formatSofiaTime } from "@/lib/format";
+import { AdminBreadcrumb } from "../_components/AdminBreadcrumb";
 
 export const dynamic = "force-dynamic";
 
@@ -69,12 +70,7 @@ export default async function AdminAttendanceIndexPage() {
         <Heartbeat className="mx-auto mt-2 h-3 w-40 opacity-90" />
       </header>
 
-      <Link
-        href="/admin"
-        className="mb-3 inline-flex items-center gap-1 font-display text-[11px] font-bold uppercase tracking-wider text-[color:var(--brand-purple)]/70 hover:text-[color:var(--brand-magenta)]"
-      >
-        ← Admin
-      </Link>
+      <AdminBreadcrumb parentLabel="Admin" parentHref="/admin" />
 
       <div className="mb-5 mt-2 flex items-baseline justify-between">
         <h1 className="font-display text-2xl font-bold tracking-tight">

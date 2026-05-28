@@ -94,11 +94,7 @@ export default async function AdminScheduleEditPage({ params }: EditPageProps) {
         </div>
       </header>
 
-      <AdminBreadcrumb
-        parentLabel="График"
-        parentHref="/admin/schedule"
-        currentLabel={`${scheduledClass.practice.name} ${formatSofiaTime(scheduledClass.startAt)}`}
-      />
+      <AdminBreadcrumb parentLabel="График" parentHref="/admin/schedule" />
 
       <div className="mb-6">
         <h1 className="font-display text-2xl font-bold tracking-tight">
