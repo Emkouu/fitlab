@@ -2,52 +2,33 @@ import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { getStaffUser } from "@/lib/auth/getStaffUser";
-import { Role, BookingStatus } from "@/lib/generated/prisma/enums";
+import { getAdminUser } from "@/lib/auth/getAdminUser";
+import { BookingStatus } from "@/lib/generated/prisma/enums";
 import { ACTIVE_BOOKING_STATUSES } from "@/lib/booking";
 import { Heartbeat } from "@/app/_components/Heartbeat";
 import { formatSofiaDay, formatSofiaTime } from "@/lib/format";
 
-// Always fresh: attendance state changes constantly while staff is here.
 export const dynamic = "force-dynamic";
 
 export const metadata = { title: "FitLab Varna — Присъствия" };
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** Statuses that haven't been marked attended / no_show yet. */
 const UNMARKED_STATUSES = [
   BookingStatus.booked,
   BookingStatus.pending_deposit,
   BookingStatus.paid,
 ];
 
-export default async function StaffIndexPage() {
-  // ─── Server-side role gate. Never trust the client. ────────────────────
-  const staff = await getStaffUser();
-  if (!staff) {
-    // Anonymous → middleware already bounced to /login.
-    // Member with a session → silent bounce to /schedule.
-    redirect("/schedule");
-  }
+export default async function AdminAttendanceIndexPage() {
+  const admin = await getAdminUser();
+  if (!admin) redirect("/schedule");
 
   const now = new Date();
   const cutoff = new Date(Date.now() - SEVEN_DAYS_MS);
 
-  // ─── Coach scoping: only past classes the staff member taught. Admins
-  //     and super_admins see everything across the studio. ───────────────
-  const trainerFilter =
-    staff.role === Role.coach
-      ? staff.trainerId
-        ? { trainers: { some: { id: staff.trainerId } } }
-        : { id: "__none__" } // coach without a Trainer link sees nothing
-      : {};
-
   const classes = await prisma.scheduledClass.findMany({
-    where: {
-      startAt: { gte: cutoff, lt: now },
-      ...trainerFilter,
-    },
+    where: { startAt: { gte: cutoff, lt: now } },
     include: {
       practice: { select: { name: true } },
       trainers: { orderBy: { name: "asc" }, select: { name: true } },
@@ -61,7 +42,6 @@ export default async function StaffIndexPage() {
     take: 60,
   });
 
-  // Annotate each class with how many of its participants still need a verdict.
   const byClass = await Promise.all(
     classes.map(async (c) => {
       const unmarked = await prisma.booking.count({
@@ -89,27 +69,31 @@ export default async function StaffIndexPage() {
         <Heartbeat className="mx-auto mt-2 h-3 w-40 opacity-90" />
       </header>
 
-      <div className="mb-5 flex items-baseline justify-between">
+      <Link
+        href="/admin"
+        className="mb-3 inline-flex items-center gap-1 font-display text-[11px] font-bold uppercase tracking-wider text-[color:var(--brand-purple)]/70 hover:text-[color:var(--brand-magenta)]"
+      >
+        ← Admin
+      </Link>
+
+      <div className="mb-5 mt-2 flex items-baseline justify-between">
         <h1 className="font-display text-2xl font-bold tracking-tight">
           Присъствия
         </h1>
-        <RoleBadge role={staff.role} />
       </div>
 
       <p className="mb-5 text-sm text-[color:var(--brand-purple)]/70">
-        {staff.role === Role.coach
-          ? "Класовете, които си водил/а в последните 7 дни."
-          : "Всички приключили класове в последните 7 дни."}
+        Всички приключили класове в последните 7 дни.
       </p>
 
       {byClass.length === 0 ? (
-        <EmptyState role={staff.role} hasTrainerLink={!!staff.trainerId} />
+        <EmptyState />
       ) : (
         <ul className="space-y-2.5">
           {byClass.map((c) => (
             <li key={c.id}>
               <Link
-                href={`/staff/${c.id}`}
+                href={`/admin/attendance/${c.id}`}
                 className="block overflow-hidden rounded-2xl bg-white px-5 py-4 shadow-[0_1px_2px_rgba(123,45,142,0.05),0_4px_16px_-8px_rgba(236,72,153,0.18)] transition-shadow hover:shadow-[0_1px_2px_rgba(123,45,142,0.06),0_8px_24px_-8px_rgba(236,72,153,0.28)]"
               >
                 <div className="mb-2 flex items-baseline justify-between gap-3">
@@ -149,34 +133,12 @@ export default async function StaffIndexPage() {
   );
 }
 
-function RoleBadge({ role }: { role: Role }) {
-  const label =
-    role === Role.super_admin
-      ? "Super admin"
-      : role === Role.admin
-        ? "Admin"
-        : "Coach";
-  return (
-    <span className="inline-flex items-center rounded-full bg-[color:var(--brand-pink-soft)] px-2.5 py-1 font-display text-[10px] font-bold uppercase tracking-wider text-[color:var(--brand-purple)]">
-      {label}
-    </span>
-  );
-}
-
-function EmptyState({
-  role,
-  hasTrainerLink,
-}: {
-  role: Role;
-  hasTrainerLink: boolean;
-}) {
+function EmptyState() {
   return (
     <div className="rounded-2xl border border-[color:var(--brand-pink)] bg-white px-5 py-8 text-center">
       <p className="font-display text-base font-semibold">Няма класове</p>
       <p className="mt-2 text-sm leading-relaxed text-[color:var(--brand-purple)]/70">
-        {role === Role.coach && !hasTrainerLink
-          ? "Профилът ти е coach, но не е свързан с Trainer запис. Свържи се с админ."
-          : "В последните 7 дни няма приключили класове за обработка."}
+        В последните 7 дни няма приключили класове за обработка.
       </p>
     </div>
   );

@@ -109,11 +109,13 @@ When Stripe is wired (step 7) and staff attendance lands (step 8), the real mone
 
 Implication: the Stripe refund/keep logic lives in step 7 (webhook + a `lib/payments/` helper) and gates on `source === "card"` before doing anything. The engine never imports Stripe.
 
-## Phase 2 — admin routes (planned, not built)
+## Phase 2 — admin routes
 
-- All admin tooling lives under `/admin/**` and is gated by `getAdminUser()` (role ∈ `{admin, super_admin}`); destructive operations (cancel class, refund all, delete trainer, change role, edit studio config) require **`super_admin`** only. Admin pages re-check the role server-side on every request — never trust the client, never trust middleware alone.
+- All admin tooling lives under `/admin/**` and is gated by `getAdminUser()` (role ∈ `{admin, super_admin}`); destructive operations (cancel class, refund all, delete trainer, super-admin role grants, edit studio config) require **`super_admin`** only. Admin pages re-check the role server-side on every request — never trust the client, never trust middleware alone.
 - Admin server actions live in `app/admin/_actions.ts` and must (a) call `getAdminUser()` first, (b) validate input with a Zod schema from `lib/validation/`, (c) keep network I/O (Stripe refunds) **outside** Prisma `$transaction` blocks.
-- `/admin` should be added to `PROTECTED_PREFIXES` in `lib/supabase/middleware.ts` so anonymous visitors are bounced to `/login` before any Prisma query runs.
+- `/admin` is in `PROTECTED_PREFIXES` in `lib/supabase/middleware.ts` so anonymous visitors are bounced to `/login` before any Prisma query runs.
+- **Attendance lives at `/admin/attendance`** (Phase 2b — Step 15). The old `/staff` routes are removed; the proxy/middleware redirects `/staff*` → `/admin/attendance*` for any saved bookmarks. There is no `coach` role in practice — admin/super_admin handle attendance.
+- **Client management lives at `/admin/clients`** (Phase 2b — Step 16). The list page shows every user (with role + balance + bookings count). The detail page `/admin/clients/[userId]` lets admin edit profile fields (name, phone, role, balance), see stats, and cancel any active booking via `adminCancelBookingAction` (with optional `overrideRefund` to bypass the cancel window). Safety rules baked in: admin cannot change own role; only super_admin can grant super_admin; email is read-only (Supabase identifier); balance is bounded ≥ 0; all edits logged via `console.log("[admin-audit] …")`.
 
 ## Hard rules
 

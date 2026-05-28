@@ -2,8 +2,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { getStaffUser } from "@/lib/auth/getStaffUser";
-import { Role, PaymentStatus, BookingStatus } from "@/lib/generated/prisma/enums";
+import { getAdminUser } from "@/lib/auth/getAdminUser";
+import { PaymentStatus, BookingStatus } from "@/lib/generated/prisma/enums";
 import { Heartbeat } from "@/app/_components/Heartbeat";
 import { formatSofiaDay, formatSofiaTime } from "@/lib/format";
 import {
@@ -15,15 +15,15 @@ export const dynamic = "force-dynamic";
 
 export const metadata = { title: "FitLab Varna — Присъствия по клас" };
 
-export default async function StaffClassPage({
+export default async function AdminAttendanceClassPage({
   params,
 }: {
   params: Promise<{ classId: string }>;
 }) {
   const { classId } = await params;
 
-  const staff = await getStaffUser();
-  if (!staff) redirect("/schedule");
+  const admin = await getAdminUser();
+  if (!admin) redirect("/schedule");
 
   const cls = await prisma.scheduledClass.findUnique({
     where: { id: classId },
@@ -32,8 +32,6 @@ export default async function StaffClassPage({
       trainers: { select: { id: true, name: true } },
       studio: { select: { name: true } },
       bookings: {
-        // Show every active or already-marked row. Cancelled bookings
-        // intentionally hidden — they free the spot per SPEC.
         where: {
           status: {
             in: [
@@ -46,7 +44,7 @@ export default async function StaffClassPage({
           },
         },
         include: {
-          user: { select: { email: true, phone: true } },
+          user: { select: { fullName: true, email: true, phone: true } },
           payment: { select: { status: true } },
         },
         orderBy: [{ status: "asc" }, { createdAt: "asc" }],
@@ -56,17 +54,11 @@ export default async function StaffClassPage({
 
   if (!cls) notFound();
 
-  // Coach ownership check — admins skip.
-  if (staff.role === Role.coach) {
-    const isOwn = cls.trainers.some((t) => t.id === staff.trainerId);
-    if (!isOwn) redirect("/staff");
-  }
-
   const rows: AttendanceRow[] = cls.bookings.map((b) => ({
     id: b.id,
     status: b.status,
     source: b.source,
-    who: b.user.email ?? b.user.phone ?? "—",
+    who: b.user.fullName ?? b.user.email ?? b.user.phone ?? "—",
     cardPaid:
       b.source === "card" &&
       (b.payment?.status === PaymentStatus.paid ||
@@ -92,7 +84,7 @@ export default async function StaffClassPage({
       </header>
 
       <Link
-        href="/staff"
+        href="/admin/attendance"
         className="mb-3 inline-flex items-center gap-1 font-display text-[11px] font-bold uppercase tracking-wider text-[color:var(--brand-purple)]/70 hover:text-[color:var(--brand-magenta)]"
       >
         ← Всички класове

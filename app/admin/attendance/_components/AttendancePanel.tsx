@@ -9,10 +9,7 @@ export type AttendanceRow = {
   id: string;
   status: BookingStatus;
   source: BookingSource;
-  /** UI label: email is the only identifier we collect today. */
   who: string;
-  /** Whether a card-source booking has a paid Payment row. Drives the
-   *  money-side note shown next to the buttons. */
   cardPaid: boolean;
 };
 
@@ -69,10 +66,10 @@ function AttendanceItem({ row }: { row: AttendanceRow }) {
             {sourceLabel(row.source, row.cardPaid)}
           </p>
         </div>
-        <StatusChip status={row.status} />
+        <StatusChip status={row.status} source={row.source} />
       </div>
 
-      <MoneyNote source={row.source} cardPaid={row.cardPaid} />
+      <MoneyNote status={row.status} source={row.source} cardPaid={row.cardPaid} />
 
       {!isMarked && (
         <div className="grid grid-cols-2 border-t border-[color:var(--brand-pink)]/30">
@@ -107,7 +104,13 @@ function AttendanceItem({ row }: { row: AttendanceRow }) {
   );
 }
 
-function StatusChip({ status }: { status: BookingStatus }) {
+function StatusChip({
+  status,
+  source,
+}: {
+  status: BookingStatus;
+  source: BookingSource;
+}) {
   if (status === BookingStatus.attended) {
     return (
       <span className="shrink-0 rounded-full bg-[color:var(--brand-magenta)] px-2.5 py-1 font-display text-[10px] font-bold uppercase tracking-wider text-white">
@@ -127,23 +130,44 @@ function StatusChip({ status }: { status: BookingStatus }) {
       Чака
     </span>
   );
+  void source;
 }
 
 function MoneyNote({
+  status,
   source,
   cardPaid,
 }: {
+  status: BookingStatus;
   source: BookingSource;
   cardPaid: boolean;
 }) {
-  // What WILL happen money-wise once verdict is recorded. Source-aware
-  // per CLAUDE.md "Verdict vs money action".
+  // Source-aware money note. For no_show, surface the burn copy from the
+  // Phase 2b spec ("депозитът е удържан" / "балансът е удържан" / "плащане
+  // на място"). For other statuses, keep the original forward-looking copy
+  // explaining what'll happen on verdict.
+  if (status === BookingStatus.no_show) {
+    const text =
+      source === BookingSource.card
+        ? "Депозитът е удържан."
+        : source === BookingSource.balance
+          ? "Балансът е удържан."
+          : "Плащане на място.";
+    return (
+      <p className="mt-2 px-5 pb-3 text-[11px] leading-relaxed text-[color:var(--brand-magenta)]">
+        {text}
+      </p>
+    );
+  }
+
   const text =
     source === BookingSource.card
       ? cardPaid
         ? 'Депозит с карта · "Дойде" → връщане (предстои интеграция); "Не дойде" → удържан.'
         : "Депозит с карта, без потвърдено плащане."
-      : "Депозит на място — без онлайн действие.";
+      : source === BookingSource.balance
+        ? 'Депозит от баланс · "Не дойде" → балансът е удържан.'
+        : "Депозит на място — без онлайн действие.";
   return (
     <p className="mt-2 px-5 pb-3 text-[11px] leading-relaxed text-[color:var(--brand-purple)]/55">
       {text}
@@ -154,6 +178,9 @@ function MoneyNote({
 function sourceLabel(source: BookingSource, cardPaid: boolean): string {
   if (source === BookingSource.card) {
     return cardPaid ? "Карта · платено" : "Карта · чака плащане";
+  }
+  if (source === BookingSource.balance) {
+    return "Баланс";
   }
   return "На място";
 }

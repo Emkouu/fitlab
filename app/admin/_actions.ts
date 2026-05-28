@@ -1,10 +1,16 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { stripe } from "@/lib/stripe";
-import { BookingStatus, PaymentStatus } from "@/lib/generated/prisma/enums";
+import {
+  BookingSource,
+  BookingStatus,
+  PaymentStatus,
+  Role,
+} from "@/lib/generated/prisma/enums";
 import { getAdminUser } from "@/lib/auth/getAdminUser";
-import { ACTIVE_BOOKING_STATUSES } from "@/lib/booking";
+import { ACTIVE_BOOKING_STATUSES, cancelBooking } from "@/lib/booking";
 import {
   classFormSchema,
   type ClassFormInput,
@@ -13,6 +19,12 @@ import {
   trainerFormSchema,
   type TrainerFormInput,
 } from "@/lib/validation/trainerForm";
+import {
+  adminCancelBookingSchema,
+  type AdminCancelBookingInput,
+  updateClientSchema,
+  type UpdateClientInput,
+} from "@/lib/validation/clientForm";
 import { sofiaToUtc } from "@/lib/format/sofiaTime";
 
 export type CancelClassResult =
@@ -620,4 +632,160 @@ export async function deleteTrainerAction(
       message: "Възникна грешка при изтриване. Опитай отново.",
     };
   }
+}
+
+/* ───────────────────────── Phase 2b — Client management ───────────────────── */
+
+export type UpdateClientResult =
+  | { ok: true; message: string }
+  | { ok: false; message: string };
+
+/**
+ * Admin server action: update a client's profile fields.
+ *
+ * Safety rules (CLAUDE.md / Phase 2b spec):
+ * - Re-check admin role on every call.
+ * - Validate with Zod.
+ * - Admin can NOT change their own role (no self-demotion).
+ * - Only super_admin may set role = super_admin.
+ * - depositBalance is bounded ≥ 0 by the Zod schema.
+ * - Email is not editable (Supabase identifier).
+ */
+export async function updateClientAction(
+  input: UpdateClientInput,
+): Promise<UpdateClientResult> {
+  const admin = await getAdminUser();
+  if (!admin) {
+    return { ok: false, message: "Нямаш достъп до тази функция." };
+  }
+
+  const parsed = updateClientSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, message: "Невалидни данни. Провери полетата." };
+  }
+  const data = parsed.data;
+
+  if (data.userId === admin.id) {
+    // Allow editing own profile fields, but NOT own role.
+    const self = await prisma.user.findUnique({
+      where: { id: admin.id },
+      select: { role: true },
+    });
+    if (self && self.role !== data.role) {
+      return {
+        ok: false,
+        message: "Не може да променяш собствената си роля.",
+      };
+    }
+  }
+
+  if (data.role === Role.super_admin && admin.role !== Role.super_admin) {
+    return { ok: false, message: "Само super admin може да назначава super admin." };
+  }
+
+  try {
+    await prisma.user.update({
+      where: { id: data.userId },
+      data: {
+        fullName: data.fullName ?? null,
+        phone: data.phone ?? null,
+        role: data.role,
+        depositBalance: data.depositBalance,
+      },
+    });
+  } catch (err) {
+    console.error("[updateClient] error:", err);
+    return { ok: false, message: "Грешка при запазване. Опитай отново." };
+  }
+
+  console.log(
+    `[admin-audit] updateClient by=${admin.id} target=${data.userId} role=${data.role} balance=${data.depositBalance}`,
+  );
+
+  revalidatePath(`/admin/clients/${data.userId}`);
+  revalidatePath("/admin/clients");
+
+  return { ok: true, message: "Промените са запазени." };
+}
+
+export type AdminCancelBookingResult =
+  | { ok: true; message: string; refundedToBalance: boolean }
+  | { ok: false; message: string };
+
+/**
+ * Admin server action: cancel a single booking on behalf of a client.
+ *
+ * Default path → call the engine's cancelBooking; if the engine returns
+ * depositForfeited=false AND source is card or balance, credit the user's
+ * depositBalance (mirrors the user-side refund routing in SPEC §5).
+ *
+ * Override path (overrideRefund=true) → bypass the window verdict and
+ * credit the deposit anyway (card or balance only — on-site never moves
+ * money). Lets admin handle edge cases (sick clients, studio errors).
+ */
+export async function adminCancelBookingAction(
+  input: AdminCancelBookingInput,
+): Promise<AdminCancelBookingResult> {
+  const admin = await getAdminUser();
+  if (!admin) {
+    return { ok: false, message: "Нямаш достъп до тази функция." };
+  }
+
+  const parsed = adminCancelBookingSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, message: "Невалидни данни." };
+  }
+  const { bookingId, overrideRefund } = parsed.data;
+
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: {
+      scheduledClass: { select: { depositAmount: true } },
+    },
+  });
+  if (!booking) {
+    return { ok: false, message: "Записването не е намерено." };
+  }
+  if (booking.status === BookingStatus.cancelled) {
+    return { ok: false, message: "Записването вече е отменено." };
+  }
+
+  const result = await cancelBooking(prisma, bookingId);
+  if (!result.ok) {
+    return { ok: false, message: result.message };
+  }
+
+  // Money side: mirror user-side refund routing, with override path.
+  const shouldRefund = overrideRefund || !result.depositForfeited;
+  let refundedToBalance = false;
+  if (
+    shouldRefund &&
+    (booking.source === BookingSource.card ||
+      booking.source === BookingSource.balance)
+  ) {
+    await prisma.user.update({
+      where: { id: booking.userId },
+      data: {
+        depositBalance: { increment: booking.scheduledClass.depositAmount },
+      },
+    });
+    refundedToBalance = true;
+  }
+
+  console.log(
+    `[admin-audit] adminCancelBooking by=${admin.id} booking=${bookingId} override=${overrideRefund} forfeited=${result.depositForfeited} refunded=${refundedToBalance}`,
+  );
+
+  revalidatePath(`/admin/clients/${booking.userId}`);
+  revalidatePath("/admin/clients");
+
+  return {
+    ok: true,
+    refundedToBalance,
+    message: refundedToBalance
+      ? "Записването е отменено и депозитът е върнат в баланса."
+      : result.depositForfeited
+        ? "Записването е отменено. Депозитът е удържан (късно)."
+        : "Записването е отменено.",
+  };
 }
