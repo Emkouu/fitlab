@@ -1,9 +1,10 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { deletePracticeAction } from "@/app/admin/_actions";
+import { AdminConfirmModal } from "@/app/admin/_components/AdminConfirmModal";
 
 type Practice = {
   id: string;
@@ -23,23 +24,17 @@ export function PracticeList({ practices }: PracticeListProps) {
     practiceName: string;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [, startTransition] = useTransition();
-  const dialogRef = useRef<HTMLDialogElement>(null);
+  const [isPending, startTransition] = useTransition();
 
   function handleDeleteClick(practiceId: string, practiceName: string) {
     setError(null);
     setDeleteModal({ practiceId, practiceName });
-    dialogRef.current?.showModal();
   }
 
   function handleCloseModal() {
+    if (isPending) return;
     setDeleteModal(null);
     setError(null);
-    dialogRef.current?.close();
-  }
-
-  function handleBackdropClick(e: React.MouseEvent<HTMLDialogElement>) {
-    if (e.target === dialogRef.current) handleCloseModal();
   }
 
   function handleConfirmDelete() {
@@ -48,7 +43,7 @@ export function PracticeList({ practices }: PracticeListProps) {
     startTransition(async () => {
       const result = await deletePracticeAction(deleteModal.practiceId);
       if (result.ok) {
-        handleCloseModal();
+        setDeleteModal(null);
         router.refresh();
       } else {
         setError(result.message);
@@ -118,36 +113,22 @@ export function PracticeList({ practices }: PracticeListProps) {
         </table>
       </div>
 
-      <dialog
-        ref={dialogRef}
-        onClick={handleBackdropClick}
-        className="rounded-3xl backdrop:bg-black/50 backdrop:backdrop-blur-sm"
-      >
-        <div className="w-96 rounded-3xl bg-white px-8 py-8">
-          {error && (
-            <div className="mb-6 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700 border border-red-200">
-              {error}
-            </div>
-          )}
-          <h2 className="font-display text-xl font-bold text-[color:var(--brand-ink)] mb-6">
-            Изтриване на практика {deleteModal?.practiceName}. Продължаваш ли?
-          </h2>
-          <div className="flex gap-3">
-            <button
-              onClick={handleCloseModal}
-              className="flex-1 rounded-xl border border-[color:var(--brand-purple)]/20 bg-white px-4 py-2.5 font-medium text-[color:var(--brand-ink)] hover:bg-[color:var(--brand-purple)]/5 transition-colors"
-            >
-              Отказ
-            </button>
-            <button
-              onClick={handleConfirmDelete}
-              className="flex-1 rounded-xl bg-red-600 px-4 py-2.5 font-medium text-white hover:bg-red-700 transition-colors"
-            >
-              Изтрий
-            </button>
-          </div>
-        </div>
-      </dialog>
+      <AdminConfirmModal
+        open={deleteModal !== null}
+        title="Изтриване на практика"
+        message={
+          <>
+            Изтриване на <strong>{deleteModal?.practiceName}</strong>. Това
+            действие е необратимо.
+          </>
+        }
+        confirmLabel="Потвърди изтриването"
+        destructive
+        isPending={isPending}
+        error={error}
+        onConfirm={handleConfirmDelete}
+        onClose={handleCloseModal}
+      />
     </>
   );
 }

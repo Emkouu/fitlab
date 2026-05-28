@@ -1,9 +1,10 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { deleteTrainerAction } from "@/app/admin/_actions";
+import { AdminConfirmModal } from "@/app/admin/_components/AdminConfirmModal";
 
 type Trainer = {
   id: string;
@@ -25,43 +26,27 @@ export function TrainerList({ trainers }: TrainerListProps) {
     trainerName: string;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [, startTransition] = useTransition();
-  const dialogRef = useRef<HTMLDialogElement>(null);
+  const [isPending, startTransition] = useTransition();
 
-  // Open delete modal
   function handleDeleteClick(trainerId: string, trainerName: string) {
     setError(null);
     setDeleteModal({ trainerId, trainerName });
-    dialogRef.current?.showModal();
   }
 
-  // Close delete modal
   function handleCloseModal() {
+    if (isPending) return;
     setDeleteModal(null);
     setError(null);
-    dialogRef.current?.close();
   }
 
-  // Handle backdrop click to close modal
-  function handleBackdropClick(e: React.MouseEvent<HTMLDialogElement>) {
-    if (e.target === dialogRef.current) {
-      handleCloseModal();
-    }
-  }
-
-  // Handle delete confirmation
   function handleConfirmDelete() {
     if (!deleteModal) return;
-
     setError(null);
     startTransition(async () => {
       const result = await deleteTrainerAction(deleteModal.trainerId);
-
       if (result.ok) {
-        handleCloseModal();
-        // Refetch the page to update the trainer list
+        setDeleteModal(null);
         router.refresh();
-        // Optionally show success toast (when toast system is implemented)
       } else {
         setError(result.message);
       }
@@ -147,42 +132,22 @@ export function TrainerList({ trainers }: TrainerListProps) {
         </table>
       </div>
 
-      {/* Delete Confirmation Modal */}
-      <dialog
-        ref={dialogRef}
-        onClick={handleBackdropClick}
-        className="rounded-3xl backdrop:bg-black/50 backdrop:backdrop-blur-sm"
-      >
-        <div className="w-96 rounded-3xl bg-white px-8 py-8">
-          {/* Error Banner */}
-          {error && (
-            <div className="mb-6 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700 border border-red-200">
-              {error}
-            </div>
-          )}
-
-          {/* Modal Title */}
-          <h2 className="font-display text-xl font-bold text-[color:var(--brand-ink)] mb-6">
-            Изтриване на треньор {deleteModal?.trainerName}. Продължаваш ли?
-          </h2>
-
-          {/* Modal Actions */}
-          <div className="flex gap-3">
-            <button
-              onClick={handleCloseModal}
-              className="flex-1 rounded-xl border border-[color:var(--brand-purple)]/20 bg-white px-4 py-2.5 font-medium text-[color:var(--brand-ink)] hover:bg-[color:var(--brand-purple)]/5 transition-colors"
-            >
-              Отказ
-            </button>
-            <button
-              onClick={handleConfirmDelete}
-              className="flex-1 rounded-xl bg-red-600 px-4 py-2.5 font-medium text-white hover:bg-red-700 transition-colors"
-            >
-              Изтрий
-            </button>
-          </div>
-        </div>
-      </dialog>
+      <AdminConfirmModal
+        open={deleteModal !== null}
+        title="Изтриване на треньор"
+        message={
+          <>
+            Изтриване на <strong>{deleteModal?.trainerName}</strong>. Това
+            действие е необратимо.
+          </>
+        }
+        confirmLabel="Потвърди изтриването"
+        destructive
+        isPending={isPending}
+        error={error}
+        onConfirm={handleConfirmDelete}
+        onClose={handleCloseModal}
+      />
     </>
   );
 }
