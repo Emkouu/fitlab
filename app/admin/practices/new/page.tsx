@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getAdminUser } from "@/lib/auth/getAdminUser";
 import { PracticeForm } from "../_components/PracticeForm";
+import { AdminBreadcrumb } from "../../_components/AdminBreadcrumb";
 
 export const metadata = { title: "FitLab Varna — Добави практика" };
 
@@ -14,8 +15,8 @@ export default async function AdminPracticesNewPage() {
 
   return (
     <main className="mx-auto w-full max-w-[440px] px-5 pb-12 pt-6 font-sans text-[color:var(--brand-ink)]">
-      <header className="mb-7">
-        <div className="flex items-center justify-between">
+      <header className="mb-6">
+        <div className="flex items-center justify-center">
           <Link href="/" className="hover:opacity-80 transition-opacity">
             <Image
               src="/logo.png"
@@ -26,14 +27,14 @@ export default async function AdminPracticesNewPage() {
               className="h-16 w-auto"
             />
           </Link>
-          <Link
-            href="/admin/practices"
-            className="text-sm text-[color:var(--brand-purple)] hover:underline"
-          >
-            Назад
-          </Link>
         </div>
       </header>
+
+      <AdminBreadcrumb
+        parentLabel="Практики"
+        parentHref="/admin/practices"
+        currentLabel="Нова практика"
+      />
 
       <div className="mb-6">
         <h1 className="font-display text-2xl font-bold tracking-tight">

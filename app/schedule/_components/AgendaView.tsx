@@ -16,9 +16,11 @@ export type DayBucket = { key: string; day: Date | string; rows: ClassCardRow[] 
 export function AgendaView({
   days,
   onBook,
+  bookedClassIds,
 }: {
   days: DayBucket[];
   onBook: (row: ClassCardRow) => void;
+  bookedClassIds?: Set<string>;
 }) {
   if (days.length === 0) return <EmptyAgenda />;
 
@@ -45,7 +47,12 @@ export function AgendaView({
             </header>
             <ul className="space-y-2.5">
               {rows.map((r) => (
-                <ClassCard key={r.id} row={r} onBook={onBook} />
+                <ClassCard
+                  key={r.id}
+                  row={r}
+                  onBook={onBook}
+                  isBooked={bookedClassIds?.has(r.id) ?? false}
+                />
               ))}
             </ul>
           </section>

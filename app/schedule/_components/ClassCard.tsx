@@ -24,6 +24,7 @@ export function ClassCard({
   row,
   compact = false,
   onBook,
+  isBooked = false,
 }: {
   row: ClassCardRow;
   /** Tighter spacing for the dense week view. */
@@ -31,6 +32,8 @@ export function ClassCard({
   /** Called when the user taps „Избор". Owner (ScheduleSurface) decides
    *  whether to open the modal (auth'd) or bounce to /login. */
   onBook: (row: ClassCardRow) => void;
+  /** Logged-in user already has an active booking for this class. */
+  isBooked?: boolean;
 }) {
   const remaining = row.capacity - row._count.bookings;
   const full = remaining <= 0;
@@ -131,6 +134,10 @@ export function ClassCard({
       ) : isPast ? (
         <div className="flex w-full items-center justify-center gap-2 bg-[color:var(--brand-pink-soft)]/60 px-5 py-3 font-display text-[11px] font-bold uppercase tracking-wider text-[color:var(--brand-purple)]/55">
           Класът приключи
+        </div>
+      ) : isBooked ? (
+        <div className="flex min-h-12 w-full items-center justify-center gap-2 bg-emerald-50 px-5 py-3.5 font-display text-sm font-bold uppercase tracking-wider text-emerald-700">
+          Записан ✓
         </div>
       ) : full ? (
         <div className="flex min-h-12 w-full items-center justify-center gap-2 bg-[color:var(--brand-pink-soft)] px-5 py-3.5 font-display text-sm font-bold uppercase tracking-wider text-[color:var(--brand-magenta)]/70">

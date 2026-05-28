@@ -6,6 +6,7 @@ import { getAdminUser } from "@/lib/auth/getAdminUser";
 import { BookingStatus } from "@/lib/generated/prisma/enums";
 import { Heartbeat } from "@/app/_components/Heartbeat";
 import { ClientDetail } from "../_components/ClientDetail";
+import { AdminBreadcrumb } from "../../_components/AdminBreadcrumb";
 
 export const dynamic = "force-dynamic";
 
@@ -83,12 +84,11 @@ export default async function AdminClientDetailPage({
         <Heartbeat className="mx-auto mt-2 h-3 w-40 opacity-90" />
       </header>
 
-      <Link
-        href="/admin/clients"
-        className="mb-3 inline-flex items-center gap-1 font-display text-[11px] font-bold uppercase tracking-wider text-[color:var(--brand-purple)]/70 hover:text-[color:var(--brand-magenta)]"
-      >
-        ← Всички клиенти
-      </Link>
+      <AdminBreadcrumb
+        parentLabel="Клиенти"
+        parentHref="/admin/clients"
+        currentLabel={user.fullName ?? user.email ?? "—"}
+      />
 
       <ClientDetail
         user={{

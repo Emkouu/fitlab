@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { ScheduledClass, Practice, Trainer } from "@/lib/generated/prisma/client";
 import { formatSofiaDay, formatSofiaTime, formatEurMinor } from "@/lib/format";
 import { CancelClassModal } from "./CancelClassModal";
@@ -101,12 +102,21 @@ export function ScheduleList({ classes }: ScheduleListProps) {
 
                 {/* Actions */}
                 <div className="mt-3 flex gap-2">
-                  <button
-                    className="flex-1 rounded-lg bg-[color:var(--brand-purple)] px-3 py-2 text-xs font-semibold text-white transition-all hover:opacity-90 disabled:opacity-50"
-                    disabled={isCancelled}
-                  >
-                    Уреди
-                  </button>
+                  {isCancelled ? (
+                    <button
+                      className="flex-1 rounded-lg bg-[color:var(--brand-purple)] px-3 py-2 text-xs font-semibold text-white opacity-50"
+                      disabled
+                    >
+                      Редактирай
+                    </button>
+                  ) : (
+                    <Link
+                      href={`/admin/schedule/${cls.id}/edit`}
+                      className="flex-1 rounded-lg bg-[color:var(--brand-purple)] px-3 py-2 text-center text-xs font-semibold text-white transition-all hover:opacity-90"
+                    >
+                      Редактирай
+                    </Link>
+                  )}
                   <button
                     onClick={() => setSelectedClassId(cls.id)}
                     className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold transition-all ${

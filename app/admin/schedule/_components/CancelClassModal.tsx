@@ -1,7 +1,6 @@
 "use client";
 
-import { useState } from "react";
-import { useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { ScheduledClass, Practice, Trainer } from "@/lib/generated/prisma/client";
 import { formatSofiaDay, formatSofiaTime } from "@/lib/format";
 import { cancelClassAction } from "../../_actions";
@@ -23,8 +22,33 @@ export function CancelClassModal({
   class: cls,
   onClose,
 }: CancelClassModalProps) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const d = dialogRef.current;
+    if (d && !d.open) d.showModal();
+  }, []);
+
+  useEffect(() => {
+    const d = dialogRef.current;
+    if (!d) return;
+    const onCancel = () => onClose();
+    const onCloseEvt = () => onClose();
+    d.addEventListener("cancel", onCancel);
+    d.addEventListener("close", onCloseEvt);
+    return () => {
+      d.removeEventListener("cancel", onCancel);
+      d.removeEventListener("close", onCloseEvt);
+    };
+  }, [onClose]);
+
+  function handleBackdropClick(e: React.MouseEvent<HTMLDialogElement>) {
+    if (e.target === dialogRef.current) {
+      dialogRef.current?.close();
+    }
+  }
 
   const handleConfirm = () => {
     setError(null);
@@ -33,67 +57,72 @@ export function CancelClassModal({
       if (!result.ok) {
         setError(result.message);
       } else {
-        // Success: close modal and refresh page
-        onClose();
-        // Force a page reload to update the schedule list
+        dialogRef.current?.close();
         window.location.reload();
       }
     });
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-5">
-      <dialog
-        open
-        className="w-full max-w-[360px] rounded-3xl bg-white px-6 py-8 shadow-2xl"
-      >
-        <h2 className="font-display text-lg font-bold">Отмяна на класа?</h2>
+    <dialog
+      ref={dialogRef}
+      onClick={handleBackdropClick}
+      aria-labelledby="cancel-class-title"
+      className="m-auto w-[calc(100%-2rem)] max-w-[24rem] rounded-3xl border-none bg-white p-0 text-[color:var(--brand-ink)] shadow-[0_20px_60px_-10px_rgba(123,45,142,0.35)] backdrop:bg-[rgba(42,14,46,0.55)] backdrop:backdrop-blur-sm"
+    >
+      <div className="font-sans px-6 py-6">
+        <h2
+          id="cancel-class-title"
+          className="font-display text-lg font-bold tracking-tight"
+        >
+          Отмяна на класа?
+        </h2>
 
-        <div className="mt-4 space-y-2 text-sm text-[color:var(--brand-purple)]/75">
-          <p>
-            <span className="font-semibold">Дата & час:</span>{" "}
-            {formatSofiaDay(cls.startAt)} · {formatSofiaTime(cls.startAt)}
+        <div className="mt-4 rounded-2xl bg-[color:var(--brand-pink-soft)]/60 px-4 py-3">
+          <p className="font-mono text-[11px] uppercase tracking-wider text-[color:var(--brand-purple)]/70">
+            {formatSofiaDay(cls.startAt)}
           </p>
-          <p>
-            <span className="font-semibold">Практика:</span> {cls.practice.name}
+          <p className="mt-1 font-display text-xl font-bold leading-tight text-[color:var(--brand-magenta)]">
+            {formatSofiaTime(cls.startAt)}
           </p>
-          <p>
-            <span className="font-semibold">Активни записвания:</span>{" "}
-            {cls._count.bookings}
-          </p>
-          <p className="mt-4 text-xs italic text-[color:var(--brand-purple)]/60">
-            Всички {cls._count.bookings} депозита ще бъдат върнати:
-          </p>
-          <ul className="ml-4 list-disc text-xs text-[color:var(--brand-purple)]/60">
-            <li>Карта депозити → Stripe рефунд</li>
-            <li>Баланс депозити → Профил баланс</li>
-            <li>На място депозити → без действие</li>
-          </ul>
+          <h3 className="mt-2 font-display text-base font-semibold leading-tight">
+            {cls.practice.name}
+          </h3>
         </div>
+
+        <p className="mt-4 text-[13px] leading-relaxed text-[color:var(--brand-purple)]/80">
+          Това ще отмени <strong>{cls._count.bookings}</strong> активни записвания.
+          Депозитите ще бъдат върнати на клиентите.
+        </p>
 
         {error && (
-          <div className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
+          <p
+            role="alert"
+            className="mt-4 rounded-2xl bg-[color:var(--brand-pink-soft)] px-4 py-3 text-[13px] text-[color:var(--brand-magenta)]"
+          >
             {error}
-          </div>
+          </p>
         )}
 
-        <div className="mt-6 flex gap-3">
+        <div className="mt-6 space-y-2">
           <button
-            onClick={onClose}
-            disabled={isPending}
-            className="flex-1 rounded-lg border border-[color:var(--brand-purple)]/20 px-4 py-2.5 font-semibold text-[color:var(--brand-purple)] transition-all hover:bg-[color:var(--brand-purple)]/5 disabled:opacity-50"
-          >
-            Отказ
-          </button>
-          <button
+            type="button"
             onClick={handleConfirm}
             disabled={isPending}
-            className="flex-1 rounded-lg bg-red-600 px-4 py-2.5 font-semibold text-white transition-all hover:bg-red-700 disabled:opacity-50"
+            className="flex min-h-12 w-full items-center justify-center rounded-2xl bg-[color:var(--brand-magenta)] px-5 py-3.5 font-display text-sm font-bold uppercase tracking-wider text-white transition-colors hover:bg-[color:var(--brand-purple)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--brand-magenta)] focus-visible:ring-offset-2 disabled:opacity-60"
           >
-            {isPending ? "Отмяна..." : "Потвърди"}
+            {isPending ? "Отмяна…" : "Потвърди отмяна"}
+          </button>
+          <button
+            type="button"
+            onClick={() => dialogRef.current?.close()}
+            disabled={isPending}
+            className="flex min-h-12 w-full items-center justify-center rounded-2xl border border-[color:var(--brand-purple)]/20 bg-white px-5 py-3.5 font-display text-sm font-bold uppercase tracking-wider text-[color:var(--brand-purple)] transition-colors hover:bg-[color:var(--brand-pink-soft)] disabled:opacity-60"
+          >
+            Назад
           </button>
         </div>
-      </dialog>
-    </div>
+      </div>
+    </dialog>
   );
 }

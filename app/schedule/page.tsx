@@ -98,14 +98,27 @@ export default async function SchedulePage() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Fetch user's deposit balance if authenticated
+  // Fetch user's deposit balance + active upcoming bookings if authenticated
   let userBalance = 0;
+  let bookedClassIds: string[] = [];
   if (user) {
     const fitlabUser = await prisma.user.findUnique({
       where: { supabaseUserId: user.id },
-      select: { depositBalance: true },
+      select: { id: true, depositBalance: true },
     });
     userBalance = fitlabUser?.depositBalance ?? 0;
+
+    if (fitlabUser) {
+      const bookings = await prisma.booking.findMany({
+        where: {
+          userId: fitlabUser.id,
+          status: { in: ACTIVE_STATUSES },
+          scheduledClass: { startAt: { gte: new Date() } },
+        },
+        select: { scheduledClassId: true },
+      });
+      bookedClassIds = bookings.map((b) => b.scheduledClassId);
+    }
   }
 
   return (
@@ -115,6 +128,7 @@ export default async function SchedulePage() {
       authChip={<AuthChip />}
       isAuthed={!!user}
       userBalance={userBalance}
+      bookedClassIds={bookedClassIds}
     />
   );
 }

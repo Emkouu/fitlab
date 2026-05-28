@@ -129,7 +129,7 @@ export function TrainerList({ trainers }: TrainerListProps) {
                       href={`/admin/trainers/${trainer.id}/edit`}
                       className="font-medium text-[color:var(--brand-magenta)] hover:text-[color:var(--brand-magenta)]/80 transition-colors"
                     >
-                      Уреди
+                      Редактирай
                     </Link>
 
                     {/* Delete Button */}

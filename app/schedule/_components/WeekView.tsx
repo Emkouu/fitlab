@@ -19,9 +19,11 @@ import type { DayBucket } from "./AgendaView";
 export function WeekView({
   days,
   onBook,
+  bookedClassIds,
 }: {
   days: DayBucket[];
   onBook: (row: ClassCardRow) => void;
+  bookedClassIds?: Set<string>;
 }) {
   const todayKey = sofiaDateKey(new Date());
   const stripRef = useRef<HTMLDivElement>(null);
@@ -59,6 +61,7 @@ export function WeekView({
             isToday={bucket.key === todayKey}
             isPast={bucket.key < todayKey}
             onBook={onBook}
+            bookedClassIds={bookedClassIds}
           />
         ))}
       </div>
@@ -71,11 +74,13 @@ function DayColumn({
   isToday,
   isPast,
   onBook,
+  bookedClassIds,
 }: {
   bucket: DayBucket;
   isToday: boolean;
   isPast: boolean;
   onBook: (row: ClassCardRow) => void;
+  bookedClassIds?: Set<string>;
 }) {
   const d = typeof bucket.day === "string" ? new Date(bucket.day) : bucket.day;
   const { weekday, date } = splitDayShort(formatSofiaDay(d));
@@ -129,7 +134,13 @@ function DayColumn({
       ) : (
         <ul className="space-y-2.5">
           {bucket.rows.map((r) => (
-            <ClassCard key={r.id} row={r} compact onBook={onBook} />
+            <ClassCard
+              key={r.id}
+              row={r}
+              compact
+              onBook={onBook}
+              isBooked={bookedClassIds?.has(r.id) ?? false}
+            />
           ))}
         </ul>
       )}

@@ -102,7 +102,7 @@ export function PracticeList({ practices }: PracticeListProps) {
                       href={`/admin/practices/${p.id}/edit`}
                       className="font-medium text-[color:var(--brand-magenta)] hover:text-[color:var(--brand-magenta)]/80 transition-colors"
                     >
-                      Уреди
+                      Редактирай
                     </Link>
                     <button
                       onClick={() => handleDeleteClick(p.id, p.name)}

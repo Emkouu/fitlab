@@ -20,6 +20,7 @@ export function ScheduleSurface({
   authChip,
   isAuthed,
   userBalance = 0,
+  bookedClassIds = [],
 }: {
   agendaDays: DayBucket[];
   weekDays: DayBucket[]; // exactly 7, Mon→Sun
@@ -30,7 +31,10 @@ export function ScheduleSurface({
   isAuthed: boolean;
   /** User's deposit balance in EUR cents. */
   userBalance?: number;
+  /** Scheduled-class ids the logged-in user has an active booking for. */
+  bookedClassIds?: string[];
 }) {
+  const bookedSet = new Set(bookedClassIds);
   const router = useRouter();
   const searchParams = useSearchParams();
   const [view, setView] = useState<View>("list");
@@ -125,7 +129,7 @@ export function ScheduleSurface({
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
           >
-            <AgendaView days={agendaDays} onBook={handleBook} />
+            <AgendaView days={agendaDays} onBook={handleBook} bookedClassIds={bookedSet} />
           </motion.div>
         ) : (
           <motion.div
@@ -135,7 +139,7 @@ export function ScheduleSurface({
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
           >
-            <WeekView days={weekDays} onBook={handleBook} />
+            <WeekView days={weekDays} onBook={handleBook} bookedClassIds={bookedSet} />
           </motion.div>
         )}
       </AnimatePresence>
