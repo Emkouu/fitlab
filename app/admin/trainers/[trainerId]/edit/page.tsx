@@ -43,6 +43,13 @@ export default async function AdminTrainersEditPage({ params }: EditPageProps) {
     redirect("/admin/trainers");
   }
 
+  const userFilters: Array<{ trainerId: null } | { id: string }> = [
+    { trainerId: null },
+  ];
+  if (trainer.user) {
+    userFilters.push({ id: trainer.user.id });
+  }
+
   // ─── Fetch all practices and available users ────────────────────────────
   // Include both unlinked users AND the current linked user (if any)
   // Filter for users with non-null email
@@ -54,10 +61,7 @@ export default async function AdminTrainersEditPage({ params }: EditPageProps) {
     prisma.user.findMany({
       where: {
         email: { not: null },
-        OR: [
-          { trainerId: null }, // Unlinked users
-          { id: trainer.user?.id }, // Current linked user (if any)
-        ],
+        OR: userFilters,
       },
       select: { id: true, email: true },
       orderBy: { email: "asc" },
@@ -114,7 +118,6 @@ export default async function AdminTrainersEditPage({ params }: EditPageProps) {
         initialData={initialData}
         practices={practices}
         availableUsers={availableUsers}
-        currentLinkedUserId={trainer.user?.id || null}
       />
     </main>
   );

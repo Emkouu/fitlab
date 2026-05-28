@@ -2,7 +2,7 @@
 
 import { prisma } from "@/lib/db";
 import { stripe } from "@/lib/stripe";
-import { BookingStatus, PaymentStatus, Role } from "@/lib/generated/prisma/enums";
+import { BookingStatus, PaymentStatus } from "@/lib/generated/prisma/enums";
 import { getAdminUser } from "@/lib/auth/getAdminUser";
 import { ACTIVE_BOOKING_STATUSES } from "@/lib/booking";
 import {
@@ -365,7 +365,7 @@ export type UpsertTrainerResult =
  *
  * Flow:
  * 1. Validate input with trainerFormSchema
- * 2. Role gate: verify super_admin role
+ * 2. Role gate: verify admin access
  * 3. Determine mode (create vs update) based on trainerId
  * 4. Transaction:
  *    a. Create or update Trainer row (name, photoUrl, bio)
@@ -394,9 +394,9 @@ export async function upsertTrainerAction(
 
   const validatedInput = validation.data;
 
-  // ─── Admin gate (super_admin only) ──────────────────────────────────────
+  // ─── Admin gate ────────────────────────────────────────────────────────
   const admin = await getAdminUser();
-  if (!admin || admin.role !== Role.super_admin) {
+  if (!admin) {
     return {
       ok: false,
       reason: "unauthorized",
@@ -427,7 +427,16 @@ export async function upsertTrainerAction(
         },
       });
 
-      // 2. Handle specialties (many-to-many relation)
+      // 2. Verify all selected specialties exist
+      const specialties = await tx.practice.findMany({
+        where: { id: { in: validatedInput.specialtyIds } },
+        select: { id: true },
+      });
+      if (specialties.length !== validatedInput.specialtyIds.length) {
+        throw new Error("SPECIALTY_NOT_FOUND");
+      }
+
+      // 3. Handle specialties (many-to-many relation)
       // Clear existing specialties and add new ones
       await tx.trainer.update({
         where: { id: trainer.id },
@@ -438,18 +447,28 @@ export async function upsertTrainerAction(
         },
       });
 
-      // 3. Handle user linking/unlinking
+      // 4. Handle user linking/unlinking
+      await tx.user.updateMany({
+        where: { trainerId: trainer.id },
+        data: { trainerId: null },
+      });
+
       if (validatedInput.linkedUserId) {
+        const user = await tx.user.findUnique({
+          where: { id: validatedInput.linkedUserId },
+          select: { id: true, trainerId: true },
+        });
+        if (!user) {
+          throw new Error("USER_NOT_FOUND");
+        }
+        if (user.trainerId && user.trainerId !== trainer.id) {
+          throw new Error("USER_ALREADY_LINKED");
+        }
+
         // Link the trainer to the user
         await tx.user.update({
           where: { id: validatedInput.linkedUserId },
           data: { trainerId: trainer.id },
-        });
-      } else if (!isCreate) {
-        // If updating and linkedUserId is null/undefined, unlink any existing user
-        await tx.user.updateMany({
-          where: { trainerId: trainer.id },
-          data: { trainerId: null },
         });
       }
 
@@ -463,6 +482,31 @@ export async function upsertTrainerAction(
     };
   } catch (error) {
     console.error("[upsertTrainer] Error upserting trainer:", error);
+
+    if (error instanceof Error) {
+      if (error.message === "SPECIALTY_NOT_FOUND") {
+        return {
+          ok: false,
+          reason: "specialty_not_found",
+          message: "Една от специалностите не е намерена.",
+        };
+      }
+      if (error.message === "USER_NOT_FOUND") {
+        return {
+          ok: false,
+          reason: "user_not_found",
+          message: "Потребителят не е намерен.",
+        };
+      }
+      if (error.message === "USER_ALREADY_LINKED") {
+        return {
+          ok: false,
+          reason: "user_already_linked",
+          message: "Този потребител вече е свързан с друг треньор.",
+        };
+      }
+    }
+
     return {
       ok: false,
       reason: "transaction_failed",
@@ -475,7 +519,7 @@ export async function upsertTrainerAction(
  * Admin server action: delete a trainer.
  *
  * Flow:
- * 1. Verify admin access (super_admin only)
+ * 1. Verify admin access
  * 2. Check if trainer is used in any ScheduledClass
  * 3. If in use: return error
  * 4. If not used:
@@ -486,9 +530,9 @@ export async function upsertTrainerAction(
 export async function deleteTrainerAction(
   trainerId: string,
 ): Promise<DeleteTrainerResult> {
-  // ─── Admin gate (super_admin only) ──────────────────────────────────────
+  // ─── Admin gate ────────────────────────────────────────────────────────
   const admin = await getAdminUser();
-  if (!admin || admin.role !== Role.super_admin) {
+  if (!admin) {
     return {
       ok: false,
       reason: "unauthorized",

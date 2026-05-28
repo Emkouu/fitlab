@@ -7,12 +7,24 @@ import { TrainerList } from "./_components/TrainerList";
 
 export const metadata = { title: "FitLab Varna — Управление на треньори" };
 
-export default async function AdminTrainersPage() {
+type AdminTrainersPageProps = {
+  searchParams?: Promise<{ success?: string }>;
+};
+
+export default async function AdminTrainersPage({
+  searchParams,
+}: AdminTrainersPageProps) {
   // ─── Role gate ──────────────────────────────────────────────────────────
   const admin = await getAdminUser();
   if (!admin) {
     redirect("/schedule");
   }
+
+  const resolvedSearchParams = searchParams ? await searchParams : {};
+  const showSavedToast =
+    resolvedSearchParams.success === "trainer_saved" ||
+    resolvedSearchParams.success === "trainer_created" ||
+    resolvedSearchParams.success === "trainer_updated";
 
   // ─── Fetch all trainers with details ────────────────────────────────────
   const trainers = await prisma.trainer.findMany({
@@ -54,6 +66,12 @@ export default async function AdminTrainersPage() {
           Всички треньори
         </p>
       </div>
+
+      {showSavedToast && (
+        <div className="mb-5 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-800">
+          Треньорът е запазен
+        </div>
+      )}
 
       {/* Add Trainer Button */}
       <div className="mb-6">

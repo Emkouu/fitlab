@@ -1,8 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { useForm, Controller, UseFormReturn } from "react-hook-form";
+import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   trainerFormSchema,
@@ -22,7 +21,6 @@ export type TrainerFormProps = {
   };
   practices: Array<{ id: string; name: string }>;
   availableUsers: Array<{ id: string; email: string }>;
-  currentLinkedUserId?: string | null;
   onSubmit: (data: TrainerFormInput) => Promise<void | { error: string }>;
   isLoading?: boolean;
 };
@@ -36,11 +34,9 @@ export function TrainerForm({
   initialData,
   practices,
   availableUsers,
-  currentLinkedUserId,
   onSubmit: onSubmitProp,
   isLoading = false,
 }: TrainerFormProps) {
-  const router = useRouter();
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -75,7 +71,7 @@ export function TrainerForm({
     control,
     handleSubmit,
     formState: { errors },
-  }: any = useForm({
+  } = useForm<TrainerFormInput>({
     resolver: zodResolver(trainerFormSchema),
     defaultValues: getDefaultValues(),
     mode: "onChange",
@@ -247,7 +243,7 @@ export function TrainerForm({
               className="mt-2 w-full rounded-lg border border-[color:var(--brand-purple)]/20 px-3 py-2.5 text-sm font-medium text-[color:var(--brand-ink)] transition-all focus:border-[color:var(--brand-magenta)] focus:outline-none focus:ring-1 focus:ring-[color:var(--brand-magenta)]/30"
               disabled={isSubmitting || isLoading}
             >
-              <option value="">Не свързан</option>
+              <option value="">None</option>
               {availableUsers.map((user) => (
                 <option key={user.id} value={user.id}>
                   {user.email}
