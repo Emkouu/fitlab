@@ -190,7 +190,8 @@ async function main() {
     create: STUDIO,
   });
 
-  const practiceBySlug = new Map<string, { id: string }>();
+  const practiceBySlug = new Map<string, { id: string; name: string }>();
+  const practiceByName = new Map<string, { id: string; name: string }>();
   for (const p of PRACTICES) {
     const row = await prisma.practice.upsert({
       where: { slug: p.slug },
@@ -198,15 +199,35 @@ async function main() {
       create: p,
     });
     practiceBySlug.set(p.slug, row);
+    practiceByName.set(p.name, row);
   }
 
   const trainerByName = new Map<string, { id: string }>();
   for (const t of TRAINERS) {
+    // Map specialty names to practice IDs
+    const specialtyIds = t.specialties
+      .map((name) => practiceByName.get(name)?.id)
+      .filter((id) => id !== undefined) as string[];
+
     // No natural unique key on Trainer.name — look up first, create if missing.
     const existing = await prisma.trainer.findFirst({ where: { name: t.name } });
     const row = existing
-      ? await prisma.trainer.update({ where: { id: existing.id }, data: { specialties: t.specialties } })
-      : await prisma.trainer.create({ data: t });
+      ? await prisma.trainer.update({
+          where: { id: existing.id },
+          data: {
+            specialties: {
+              set: specialtyIds.map((id) => ({ id })),
+            },
+          },
+        })
+      : await prisma.trainer.create({
+          data: {
+            name: t.name,
+            specialties: {
+              connect: specialtyIds.map((id) => ({ id })),
+            },
+          },
+        });
     trainerByName.set(t.name, row);
   }
 

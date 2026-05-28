@@ -2,13 +2,17 @@
 
 import { prisma } from "@/lib/db";
 import { stripe } from "@/lib/stripe";
-import { BookingStatus, PaymentStatus } from "@/lib/generated/prisma/enums";
+import { BookingStatus, PaymentStatus, Role } from "@/lib/generated/prisma/enums";
 import { getAdminUser } from "@/lib/auth/getAdminUser";
 import { ACTIVE_BOOKING_STATUSES } from "@/lib/booking";
 import {
   classFormSchema,
   type ClassFormInput,
 } from "@/lib/validation/classForm";
+import {
+  trainerFormSchema,
+  type TrainerFormInput,
+} from "@/lib/validation/trainerForm";
 import { sofiaToUtc } from "@/lib/format/sofiaTime";
 
 export type CancelClassResult =
@@ -329,6 +333,233 @@ export async function upsertClassAction(
       ok: false,
       reason: "transaction_failed",
       message: "Възникна грешка при запазване. Опитай отново.",
+    };
+  }
+}
+
+export type DeleteTrainerResult =
+  | {
+      ok: true;
+      message: string;
+    }
+  | {
+      ok: false;
+      reason: string;
+      message: string;
+    };
+
+export type UpsertTrainerResult =
+  | {
+      ok: true;
+      trainerId: string;
+      message: string;
+    }
+  | {
+      ok: false;
+      reason: string;
+      message: string;
+    };
+
+/**
+ * Admin server action: create or update a trainer.
+ *
+ * Flow:
+ * 1. Validate input with trainerFormSchema
+ * 2. Role gate: verify super_admin role
+ * 3. Determine mode (create vs update) based on trainerId
+ * 4. Transaction:
+ *    a. Create or update Trainer row (name, photoUrl, bio)
+ *    b. Update specialties junction with atomic replacement
+ *    c. Handle user linking (link/unlink trainer)
+ * 5. Return trainerId on success
+ *
+ * Returns the created/updated trainerId on success.
+ */
+export async function upsertTrainerAction(
+  input: TrainerFormInput,
+): Promise<UpsertTrainerResult> {
+  // ─── Validate input ──────────────────────────────────────────────────────
+  const validation = trainerFormSchema.safeParse(input);
+  if (!validation.success) {
+    console.error(
+      "[upsertTrainer] Validation errors:",
+      validation.error.issues,
+    );
+    return {
+      ok: false,
+      reason: "validation_failed",
+      message: "Невалидни данни. Проверете полетата.",
+    };
+  }
+
+  const validatedInput = validation.data;
+
+  // ─── Admin gate (super_admin only) ──────────────────────────────────────
+  const admin = await getAdminUser();
+  if (!admin || admin.role !== Role.super_admin) {
+    return {
+      ok: false,
+      reason: "unauthorized",
+      message: "Нямаш достъп до тази функция.",
+    };
+  }
+
+  // ─── Determine create vs update ─────────────────────────────────────────
+  const isCreate = !validatedInput.trainerId || validatedInput.trainerId === "";
+
+  try {
+    // ─── Transaction: upsert trainer + update specialties + link user ──────
+    const result = await prisma.$transaction(async (tx) => {
+      // 1. Create or update Trainer row (without specialties, handle them separately)
+      const trainer = await tx.trainer.upsert({
+        where: {
+          id: isCreate ? "NEW_TRAINER_ID_PLACEHOLDER_UNUSED" : validatedInput.trainerId!,
+        },
+        create: {
+          name: validatedInput.name,
+          photoUrl: validatedInput.photoUrl || null,
+          bio: validatedInput.bio || null,
+        },
+        update: {
+          name: validatedInput.name,
+          photoUrl: validatedInput.photoUrl || null,
+          bio: validatedInput.bio || null,
+        },
+      });
+
+      // 2. Handle specialties (many-to-many relation)
+      // Clear existing specialties and add new ones
+      await tx.trainer.update({
+        where: { id: trainer.id },
+        data: {
+          specialties: {
+            set: validatedInput.specialtyIds.map((id) => ({ id })),
+          },
+        },
+      });
+
+      // 3. Handle user linking/unlinking
+      if (validatedInput.linkedUserId) {
+        // Link the trainer to the user
+        await tx.user.update({
+          where: { id: validatedInput.linkedUserId },
+          data: { trainerId: trainer.id },
+        });
+      } else if (!isCreate) {
+        // If updating and linkedUserId is null/undefined, unlink any existing user
+        await tx.user.updateMany({
+          where: { trainerId: trainer.id },
+          data: { trainerId: null },
+        });
+      }
+
+      return trainer;
+    });
+
+    return {
+      ok: true,
+      trainerId: result.id,
+      message: isCreate ? "Треньорът е създаден успешно." : "Треньорът е обновен успешно.",
+    };
+  } catch (error) {
+    console.error("[upsertTrainer] Error upserting trainer:", error);
+    return {
+      ok: false,
+      reason: "transaction_failed",
+      message: "Възникна грешка при запазване. Опитай отново.",
+    };
+  }
+}
+
+/**
+ * Admin server action: delete a trainer.
+ *
+ * Flow:
+ * 1. Verify admin access (super_admin only)
+ * 2. Check if trainer is used in any ScheduledClass
+ * 3. If in use: return error
+ * 4. If not used:
+ *    a. Unlink any linked user
+ *    b. Delete trainer
+ * 5. Return success or error
+ */
+export async function deleteTrainerAction(
+  trainerId: string,
+): Promise<DeleteTrainerResult> {
+  // ─── Admin gate (super_admin only) ──────────────────────────────────────
+  const admin = await getAdminUser();
+  if (!admin || admin.role !== Role.super_admin) {
+    return {
+      ok: false,
+      reason: "unauthorized",
+      message: "Нямаш достъп до тази функция.",
+    };
+  }
+
+  try {
+    // ─── Check if trainer is used in any ScheduledClass ────────────────────
+    const classCount = await prisma.scheduledClass.count({
+      where: {
+        trainers: {
+          some: {
+            id: trainerId,
+          },
+        },
+      },
+    });
+
+    if (classCount > 0) {
+      return {
+        ok: false,
+        reason: "trainer_in_use",
+        message: "Не може да изтриеш: треньор е закрепен за класове.",
+      };
+    }
+
+    // ─── Transaction: unlink user + delete trainer ──────────────────────────
+    const result = await prisma.$transaction(async (tx) => {
+      // 1. Get trainer first to have the name for the response
+      const trainer = await tx.trainer.findUnique({
+        where: { id: trainerId },
+      });
+
+      if (!trainer) {
+        throw new Error("TRAINER_NOT_FOUND");
+      }
+
+      // 2. Unlink any user linked to this trainer
+      await tx.user.updateMany({
+        where: { trainerId: trainerId },
+        data: { trainerId: null },
+      });
+
+      // 3. Delete trainer
+      await tx.trainer.delete({
+        where: { id: trainerId },
+      });
+
+      return trainer;
+    });
+
+    return {
+      ok: true,
+      message: `Треньорът "${result.name}" е изтрит успешно.`,
+    };
+  } catch (error) {
+    console.error("[deleteTrainer] Error deleting trainer:", error);
+
+    if (error instanceof Error && error.message === "TRAINER_NOT_FOUND") {
+      return {
+        ok: false,
+        reason: "trainer_not_found",
+        message: "Треньорът не е намерен.",
+      };
+    }
+
+    return {
+      ok: false,
+      reason: "delete_failed",
+      message: "Възникна грешка при изтриване. Опитай отново.",
     };
   }
 }
