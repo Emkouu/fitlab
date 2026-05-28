@@ -23,9 +23,9 @@ Mobile-first booking app for a premium yoga/fitness studio. API-first so a futur
 - **Practice/Category** — class type (Виняса Флоу, Пилатес, Хатха, Ин, Терапевтична, Тай Чи…). One→many ScheduledClasses.
 - **Trainer** — id, name, photo, bio, specialties. **Many-to-many** with classes (some classes have two trainers).
 - **ScheduledClass** — start datetime, **duration minutes stored explicitly** (varies 45–240, never assume), practiceId, studioId, **capacity** (our addition, not in export), depositAmount, isSpecialEvent, eventNotes.
-- **Booking** — userId, scheduledClassId, status, createdAt, cancelledAt, paymentId (nullable), source (`card` | `onsite_deposit`). **Unique (userId, scheduledClassId)**.
-- **Payment** — Stripe ids, amount, currency, status. Every paid booking has one.
-- **User/Role** — enum `super_admin | admin | coach | member`. User may also link to a Trainer. Verified phone.
+- **Booking** — userId, scheduledClassId, status, createdAt, cancelledAt, paymentId (nullable), source (`card` | `onsite_deposit` | `balance`). **Partial unique index** on `(userId, scheduledClassId)` WHERE `status != 'cancelled'` — lets a user re-book a class after cancelling it.
+- **Payment** — Stripe ids, amount, currency (`EUR`), status. Every paid booking has one.
+- **User/Role** — enum `super_admin | admin | coach | member`. User may also link to a Trainer. Verified phone. Carries `depositBalance Int @default(0)` (minor units / EUR cents) accumulated from refunded cancellations.
 - **Phase 2 stubs (table-ready, unused):** Membership/Pass, Waitlist, Notification, RecurringRule.
 
 **Booking statuses:** `booked`, `pending_deposit`, `paid`, `attended`, `no_show`, `cancelled`.
@@ -46,13 +46,18 @@ Runtime app code uses `DATABASE_URL` (Supabase pooler, port 6543). Migrations an
 Pure tested functions in `/lib`, separate from API routes (reusable by RN + cron). Test: full class, duplicate, concurrent, cancel-in-window, cancel-late, no-show burn.
 
 1. **No overbooking.** Capacity check + insert must be **atomic** — one DB transaction with row-level lock (`SELECT … FOR UPDATE`) or conditional insert. Never read-count-then-insert.
-2. **No duplicates** — rely on unique `(userId, scheduledClassId)`; show "вече си записан" on violation.
-3. **Deposit required on every booking** (D1 — sole payment mechanism, no passes in MVP):
-   - Card → Stripe Checkout → webhook → `paid`.
-   - On-site → `pending_deposit`.
-   - Spot held in both cases.
-4. **Cancellation:** studio config `cancelWindowHours`. Before (start − window) → cancel clean, deposit safe. After → `cancelled` + deposit forfeited.
-5. **Attendance:** staff sets `attended` or `no_show`. `no_show` burns deposit.
+2. **No duplicates** — rely on the partial unique index on `(userId, scheduledClassId)` WHERE `status != 'cancelled'`; show "вече си записан" on violation. The partial predicate lets a user re-book the same class after cancelling.
+3. **Deposit required on every booking** (D1 — sole payment mechanism, no passes in MVP). Source → initial status:
+   - `card`    → `booked` → Stripe Checkout → webhook flips to `paid`.
+   - `balance` → `booked` (instant; debits `User.depositBalance` server-side).
+   - `onsite_deposit` → `pending_deposit` (paid in cash on arrival).
+   - Spot is held in all three cases.
+4. **JIT abandoned-checkout sweep.** `createBooking` opportunistically cancels stale card holds on the same class inside the row-locked transaction: `source=card` AND `status=booked` AND no paid `Payment` AND `createdAt < now − 15min`. On-site and balance bookings are never swept.
+5. **Cancellation:** studio config `cancelWindowHours` (default **4** in MVP). Before (start − window) → cancel clean, deposit safe. After → `cancelled` + deposit forfeited. Refund routing by source:
+   - `card`    → if not forfeited, credit `User.depositBalance` (MVP simplification; Stripe refund is admin-side only).
+   - `balance` → if not forfeited, credit `User.depositBalance` back.
+   - `onsite_deposit` → **never** touch `depositBalance` — no money ever moved.
+6. **Attendance:** staff sets `attended` or `no_show`. `no_show` burns deposit.
 
 ## Roadmap (§9) — commit after each step
 
@@ -78,7 +83,7 @@ Design intent for the „Избор" tap → confirmation flow. Do **not** build
 - A **payment-method selector** with two options (D1):
   1. **Плати депозит с карта сега** → Stripe Checkout → webhook → `paid`.
   2. **Плати на място — до деня преди класа** → `pending_deposit`.
-- Visible **cancellation rules** under the choice: cancel ≥ studio.`cancelWindowHours` (default 24h) → deposit safe; later → forfeited; **no-show forfeits deposit**.
+- Visible **cancellation rules** under the choice: cancel ≥ studio.`cancelWindowHours` (default **4h** in MVP) → deposit safe; later → forfeited; **no-show forfeits deposit**.
 - Primary action: **Потвърди**. Spot is held the moment the booking row is created (see SPEC §5 atomicity + unique-key rules).
 
 **Auth is SMS OTP, no passwords (D2).** The reference system we're looking at has password fields and an all-at-once registration step — **do not copy that**. Our model is:
@@ -96,12 +101,19 @@ When Stripe is wired (step 7) and staff attendance lands (step 8), the real mone
 
 | `source`           | `Booking.status` (typical) | verdict = false (safe / attended) | verdict = true (forfeited / no-show) |
 |--------------------|---------------------------|-----------------------------------|-------------------------------------|
-| `card`             | `booked` → `paid`         | refund the Stripe charge          | keep the charge (studio retains)    |
+| `card`             | `booked` → `paid`         | credit `User.depositBalance` (Stripe refund is admin-only) | keep the charge (studio retains) |
+| `balance`          | `booked`                  | credit `User.depositBalance` back | studio retains the balance debit    |
 | `onsite_deposit`   | `pending_deposit`         | no money action (never charged)   | no money action (never charged)*    |
 
 \* For on-site deposits, "forfeit" is a non-event for *us* because no card was charged. Studio staff handles cash in the room; the engine's job is just to set the booking status correctly so reports stay consistent.
 
 Implication: the Stripe refund/keep logic lives in step 7 (webhook + a `lib/payments/` helper) and gates on `source === "card"` before doing anything. The engine never imports Stripe.
+
+## Phase 2 — admin routes (planned, not built)
+
+- All admin tooling lives under `/admin/**` and is gated by `getAdminUser()` (role ∈ `{admin, super_admin}`); destructive operations (cancel class, refund all, delete trainer, change role, edit studio config) require **`super_admin`** only. Admin pages re-check the role server-side on every request — never trust the client, never trust middleware alone.
+- Admin server actions live in `app/admin/_actions.ts` and must (a) call `getAdminUser()` first, (b) validate input with a Zod schema from `lib/validation/`, (c) keep network I/O (Stripe refunds) **outside** Prisma `$transaction` blocks.
+- `/admin` should be added to `PROTECTED_PREFIXES` in `lib/supabase/middleware.ts` so anonymous visitors are bounced to `/login` before any Prisma query runs.
 
 ## Hard rules
 

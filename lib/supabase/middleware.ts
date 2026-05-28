@@ -9,7 +9,7 @@ import { NextResponse, type NextRequest } from "next/server";
  * lives in the page itself (middleware doesn't hit Prisma). Putting /staff
  * here just enforces "must be signed in" as a first hurdle.
  */
-const PROTECTED_PREFIXES = ["/account", "/booking", "/staff"];
+const PROTECTED_PREFIXES = ["/account", "/booking", "/staff", "/admin"];
 
 /** /login is for anonymous users; signed-in visitors bounce to /schedule. */
 const AUTH_ONLY_PREFIXES = ["/login"];

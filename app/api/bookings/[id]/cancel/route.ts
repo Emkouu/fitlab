@@ -62,8 +62,11 @@ export async function POST(
     );
   }
 
-  // If deposit was NOT forfeited, add it to user's balance
-  if (!result.depositForfeited) {
+  // If deposit was NOT forfeited, add it to user's balance — but only for
+  // sources where money actually moved (card charge or balance debit).
+  // On-site deposits were never charged, so crediting them here would mint
+  // free balance for the user.
+  if (!result.depositForfeited && (booking.source === "card" || booking.source === "balance")) {
     // Fetch booking with deposit amount
     const bookingWithClass = await prisma.booking.findUnique({
       where: { id: bookingId },

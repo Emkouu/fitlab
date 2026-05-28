@@ -25,7 +25,8 @@ export type BookClassActionResult =
         | "class_in_past"
         | "full"
         | "duplicate"
-        | "checkout_failed";
+        | "checkout_failed"
+        | "insufficient_balance";
       message: string;
     };
 
@@ -73,6 +74,23 @@ export async function bookClassAction(input: {
     source = BookingSource.balance;
   } else {
     source = input.source === "card" ? BookingSource.card : BookingSource.onsite_deposit;
+  }
+
+  // Server-side balance guard. UI hides the balance option when funds are
+  // short, but never trust the client — re-check here to keep depositBalance
+  // from going negative.
+  if (source === BookingSource.balance) {
+    const cls = await prisma.scheduledClass.findUnique({
+      where: { id: input.scheduledClassId },
+      select: { depositAmount: true },
+    });
+    if (cls && profile.depositBalance < cls.depositAmount) {
+      return {
+        ok: false,
+        reason: "insufficient_balance",
+        message: "Балансът ти не е достатъчен за този клас.",
+      };
+    }
   }
 
   const r = await createBooking(prisma, {

@@ -58,60 +58,38 @@ export async function cancelClassAction(
   }
 
   try {
-    // ─── Transaction: cancel class + refund bookings ───────────────────────
-    const result = await prisma.$transaction(async (tx) => {
-      // 1. Mark class as cancelled
-      const scheduledClass = await tx.scheduledClass.update({
-        where: { id: classId },
-        data: { cancelledAt: new Date() },
-      });
+    // ─── DB transaction: cancel class, restore balances, cancel bookings ───
+    // Stripe calls are deliberately kept OUT of this transaction — network
+    // I/O inside a Prisma $transaction holds a DB connection for the entire
+    // duration of the HTTP round-trip(s) to Stripe and can deadlock under
+    // load. We commit the local truth first, then settle with Stripe.
+    const { activeBookings, cardRefundCandidates, balanceRestoredIds } =
+      await prisma.$transaction(async (tx) => {
+        const now = new Date();
 
-      // 2. Find all active bookings on this class
-      const activeBookings = await tx.booking.findMany({
-        where: {
-          scheduledClassId: classId,
-          status: { in: ACTIVE_BOOKING_STATUSES },
-        },
-        include: {
-          user: { select: { id: true, supabaseUserId: true } },
-          payment: { select: { id: true, stripePaymentIntentId: true } },
-        },
-      });
+        // 1. Mark class as cancelled
+        const scheduledClass = await tx.scheduledClass.update({
+          where: { id: classId },
+          data: { cancelledAt: now },
+        });
 
-      const refundedBookingIds: string[] = [];
+        // 2. Find all active bookings on this class
+        const activeBookings = await tx.booking.findMany({
+          where: {
+            scheduledClassId: classId,
+            status: { in: ACTIVE_BOOKING_STATUSES },
+          },
+          include: {
+            payment: { select: { id: true, stripePaymentIntentId: true } },
+          },
+        });
 
-      // 3. Process refunds per source
-      for (const booking of activeBookings) {
-        // Card deposit: initiate Stripe refund
-        if (
-          booking.source === "card" &&
-          booking.status === BookingStatus.paid &&
-          booking.payment?.stripePaymentIntentId
-        ) {
-          try {
-            await stripe.refunds.create({
-              payment_intent: booking.payment.stripePaymentIntentId,
-            });
-            // Mark payment as refunded
-            if (booking.paymentId) {
-              await tx.payment.update({
-                where: { id: booking.paymentId },
-                data: { status: PaymentStatus.refunded },
-              });
-            }
-            refundedBookingIds.push(booking.id);
-          } catch (error) {
-            console.error(
-              `[cancelClass] Stripe refund failed for booking ${booking.id}:`,
-              error,
-            );
-            // Continue: don't block other refunds
-          }
-        }
-
-        // Balance deposit: restore to user's depositBalance
-        else if (booking.source === "balance") {
-          try {
+        // 3. Restore depositBalance for balance-source bookings (atomic with
+        //    the cancel below — if either fails, we don't want to credit
+        //    users for bookings that aren't actually cancelled).
+        const balanceRestoredIds: string[] = [];
+        for (const booking of activeBookings) {
+          if (booking.source === "balance") {
             await tx.user.update({
               where: { id: booking.userId },
               data: {
@@ -120,45 +98,81 @@ export async function cancelClassAction(
                 },
               },
             });
-            refundedBookingIds.push(booking.id);
-          } catch (error) {
-            console.error(
-              `[cancelClass] Balance restore failed for booking ${booking.id}:`,
-              error,
-            );
+            balanceRestoredIds.push(booking.id);
           }
         }
 
-        // On-site: no action (never charged)
-        else if (booking.source === "onsite_deposit") {
-          refundedBookingIds.push(booking.id);
-        }
-      }
+        // 4. Cancel all active bookings on this class
+        await tx.booking.updateMany({
+          where: {
+            scheduledClassId: classId,
+            status: { in: ACTIVE_BOOKING_STATUSES },
+          },
+          data: {
+            status: BookingStatus.cancelled,
+            cancelledAt: now,
+          },
+        });
 
-      // 4. Set all active bookings to cancelled
-      await tx.booking.updateMany({
-        where: {
-          scheduledClassId: classId,
-          status: { in: ACTIVE_BOOKING_STATUSES },
-        },
-        data: {
-          status: BookingStatus.cancelled,
-          cancelledAt: new Date(),
-        },
+        // 5. Collect card+paid bookings that need a Stripe refund after commit.
+        const cardRefundCandidates = activeBookings
+          .filter(
+            (b) =>
+              b.source === "card" &&
+              b.status === BookingStatus.paid &&
+              b.payment?.stripePaymentIntentId &&
+              b.paymentId,
+          )
+          .map((b) => ({
+            bookingId: b.id,
+            paymentId: b.paymentId!,
+            paymentIntentId: b.payment!.stripePaymentIntentId!,
+          }));
+
+        return { activeBookings, cardRefundCandidates, balanceRestoredIds };
       });
 
-      return {
-        totalBookings: activeBookings.length,
-        refundedCount: refundedBookingIds.length,
-        refundedBookingIds,
-      };
-    });
+    // ─── Post-commit: settle Stripe refunds outside the DB transaction ──
+    // The bookings are already cancelled. A failed refund does NOT roll the
+    // DB back; we log and surface a partial-success count so the admin can
+    // reconcile manually from Stripe's dashboard.
+    const refundedCardBookingIds: string[] = [];
+    for (const candidate of cardRefundCandidates) {
+      try {
+        await stripe.refunds.create({
+          payment_intent: candidate.paymentIntentId,
+        });
+        await prisma.payment.update({
+          where: { id: candidate.paymentId },
+          data: { status: PaymentStatus.refunded },
+        });
+        refundedCardBookingIds.push(candidate.bookingId);
+      } catch (error) {
+        console.error(
+          `[cancelClass] Stripe refund failed for booking ${candidate.bookingId} (paymentIntent=${candidate.paymentIntentId}). The booking is already cancelled; refund must be reconciled manually.`,
+          error,
+        );
+        // Continue: don't block other refunds.
+      }
+    }
+
+    // On-site bookings need no money action; count them as "settled" so the
+    // total matches what staff sees in the UI.
+    const onsiteSettledIds = activeBookings
+      .filter((b) => b.source === "onsite_deposit")
+      .map((b) => b.id);
+
+    const refundedBookingIds = [
+      ...refundedCardBookingIds,
+      ...balanceRestoredIds,
+      ...onsiteSettledIds,
+    ];
 
     return {
       ok: true,
-      refundedCount: result.refundedCount,
-      refundedBookingIds: result.refundedBookingIds,
-      message: `Класът е отказан. ${result.refundedCount} депозита са върнати.`,
+      refundedCount: refundedBookingIds.length,
+      refundedBookingIds,
+      message: `Класът е отказан. ${refundedBookingIds.length} депозита са върнати.`,
     };
   } catch (error) {
     console.error("[cancelClass] Error cancelling class:", error);
