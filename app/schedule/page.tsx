@@ -35,7 +35,6 @@ async function loadRelevant(): Promise<ClassCardRow[]> {
   return prisma.scheduledClass.findMany({
     where: {
       startAt: { gte: tenDaysAgo },
-      cancelledAt: null, // Only show non-cancelled classes to public
     },
     orderBy: { startAt: "asc" },
     include: {

@@ -13,6 +13,7 @@ export type ClassCardRow = {
   capacity: number;
   eventNotes: string | null;
   depositAmount: number;
+  cancelledAt: Date | string | null;
   practice: { name: string };
   trainers: { name: string }[];
   studio: { name: string; cancelWindowHours: number };
@@ -36,25 +37,30 @@ export function ClassCard({
   // Normalize Date | string (boundary serialization may strip the Date prototype)
   const startAt = typeof row.startAt === "string" ? new Date(row.startAt) : row.startAt;
   const isPast = startAt.getTime() < Date.now();
+  const isCancelled = row.cancelledAt !== null && row.cancelledAt !== undefined;
 
   return (
     <li
       className={`group overflow-hidden rounded-2xl bg-white transition-shadow ${
-        isPast
-          ? "opacity-60 shadow-none"
-          : "shadow-[0_1px_2px_rgba(123,45,142,0.05),0_4px_16px_-8px_rgba(236,72,153,0.18)] hover:shadow-[0_1px_2px_rgba(123,45,142,0.06),0_8px_24px_-8px_rgba(236,72,153,0.28)]"
+        isCancelled
+          ? "opacity-50 shadow-none"
+          : isPast
+            ? "opacity-60 shadow-none"
+            : "shadow-[0_1px_2px_rgba(123,45,142,0.05),0_4px_16px_-8px_rgba(236,72,153,0.18)] hover:shadow-[0_1px_2px_rgba(123,45,142,0.06),0_8px_24px_-8px_rgba(236,72,153,0.28)]"
       }`}
     >
       <div className="relative">
         {/* Heartbeat-echo accent bar — content zone only, never under the CTA.
             Past classes get a muted bar so the brand signature still appears
-            but doesn't read as "alive". */}
+            but doesn't read as "alive". Cancelled classes get an even more muted bar. */}
         <span
           aria-hidden
           className={`absolute inset-y-3 left-0 w-[3px] rounded-full ${
-            isPast
-              ? "bg-[color:var(--brand-purple)]/20"
-              : "bg-gradient-to-b from-[color:var(--brand-magenta)] to-[color:var(--brand-pink)]"
+            isCancelled
+              ? "bg-[color:var(--brand-purple)]/10"
+              : isPast
+                ? "bg-[color:var(--brand-purple)]/20"
+                : "bg-gradient-to-b from-[color:var(--brand-magenta)] to-[color:var(--brand-pink)]"
           }`}
         />
 
@@ -74,11 +80,19 @@ export function ClassCard({
           {/* Title + trainer */}
           <div className="min-w-0 flex-1 pt-0.5">
             <h3
-              className={`font-display font-semibold leading-tight tracking-tight ${compact ? "text-[14px]" : "text-[15px]"}`}
+              className={`font-display font-semibold leading-tight tracking-tight ${compact ? "text-[14px]" : "text-[15px]"} ${
+                isCancelled ? "line-through text-[color:var(--brand-purple)]/50" : ""
+              }`}
             >
               {row.practice.name}
             </h3>
-            <p className="mt-1 truncate text-sm text-[color:var(--brand-purple)]/75">
+            <p
+              className={`mt-1 truncate text-sm ${
+                isCancelled
+                  ? "text-[color:var(--brand-purple)]/35"
+                  : "text-[color:var(--brand-purple)]/75"
+              }`}
+            >
               {row.trainers.map((t) => t.name).join(" & ")}
             </p>
           </div>
@@ -110,7 +124,11 @@ export function ClassCard({
         )}
       </div>
 
-      {isPast ? (
+      {isCancelled ? (
+        <div className="flex w-full items-center justify-center gap-2 bg-[color:var(--brand-ink)]/10 px-5 py-3 font-display text-[11px] font-bold uppercase tracking-wider text-[color:var(--brand-ink)]/50">
+          Отказано
+        </div>
+      ) : isPast ? (
         <div className="flex w-full items-center justify-center gap-2 bg-[color:var(--brand-pink-soft)]/60 px-5 py-3 font-display text-[11px] font-bold uppercase tracking-wider text-[color:var(--brand-purple)]/55">
           Класът приключи
         </div>
