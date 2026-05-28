@@ -112,6 +112,15 @@ export default async function AccountPage() {
         )}
       </dl>
 
+      {(profile?.role === "admin" || profile?.role === "super_admin") && (
+        <Link
+          href="/admin"
+          className="mb-8 flex min-h-12 w-full items-center justify-center rounded-2xl border-2 border-[color:var(--brand-magenta)] bg-white px-5 py-3.5 font-display text-sm font-bold uppercase tracking-wider text-[color:var(--brand-magenta)] transition-colors hover:bg-[color:var(--brand-pink-soft)]"
+        >
+          Админ панел →
+        </Link>
+      )}
+
       {/* Bookings section */}
       {(upcomingBookings.length > 0 || pastBookings.length > 0) && (
         <div className="mb-8">
