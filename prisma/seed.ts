@@ -80,6 +80,11 @@ const STUDIO = {
   slug: "fitlab-varna",
   name: "FitLab Varna",
   cancelWindowHours: 4,
+  address: "ул. Патриарх Евтимий 7а, Варна 9000",
+  phone: "088 241 4863",
+  facebookUrl: "https://www.facebook.com/profile.php?id=61557049447834",
+  instagramUrl: "https://www.instagram.com/fitlabvarna/",
+  defaultDeposit: 2000,
 };
 
 const PRACTICES = [
@@ -186,7 +191,15 @@ async function main() {
 
   const studio = await prisma.studio.upsert({
     where: { slug: STUDIO.slug },
-    update: { name: STUDIO.name, cancelWindowHours: STUDIO.cancelWindowHours },
+    update: {
+      name: STUDIO.name,
+      cancelWindowHours: STUDIO.cancelWindowHours,
+      address: STUDIO.address,
+      phone: STUDIO.phone,
+      facebookUrl: STUDIO.facebookUrl,
+      instagramUrl: STUDIO.instagramUrl,
+      defaultDeposit: STUDIO.defaultDeposit,
+    },
     create: STUDIO,
   });
 

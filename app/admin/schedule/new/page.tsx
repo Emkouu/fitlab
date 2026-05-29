@@ -15,8 +15,8 @@ export default async function AdminScheduleNewPage() {
     redirect("/schedule");
   }
 
-  // ─── Fetch all practices and trainers ────────────────────────────────────
-  const [practices, trainers] = await Promise.all([
+  // ─── Fetch all practices, trainers, and studio default deposit ───────────
+  const [practices, trainers, studio] = await Promise.all([
     prisma.practice.findMany({
       select: { id: true, name: true },
       orderBy: { name: "asc" },
@@ -25,7 +25,14 @@ export default async function AdminScheduleNewPage() {
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
+    prisma.studio.findUnique({
+      where: { slug: "fitlab-varna" },
+      select: { defaultDeposit: true },
+    }),
   ]);
+  const defaultDepositEur = (
+    (studio?.defaultDeposit ?? 2000) / 100
+  ).toFixed(2);
 
   return (
     <main className="mx-auto w-full max-w-[440px] px-5 pb-12 pt-6 font-sans text-[color:var(--brand-ink)]">
@@ -56,6 +63,7 @@ export default async function AdminScheduleNewPage() {
         mode="create"
         practices={practices}
         trainers={trainers}
+        defaultDepositEur={defaultDepositEur}
       />
     </main>
   );

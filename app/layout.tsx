@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist_Mono, Onest, Unbounded } from "next/font/google";
 import "./globals.css";
+import { prisma } from "@/lib/db";
 import { StickyPhoneButton } from "./_components/StickyPhoneButton";
 
 // Display: Unbounded — variable, architectural energy, full Cyrillic support.
@@ -28,11 +29,15 @@ export const metadata: Metadata = {
   description: "Запиши се за тренировка във FitLab Varna.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const studio = await prisma.studio.findUnique({
+    where: { slug: "fitlab-varna" },
+    select: { phone: true },
+  });
   return (
     <html
       lang="bg"
@@ -40,7 +45,7 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         {children}
-        <StickyPhoneButton />
+        {studio?.phone && <StickyPhoneButton phone={studio.phone} />}
       </body>
     </html>
   );

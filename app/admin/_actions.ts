@@ -29,6 +29,10 @@ import {
   practiceFormSchema,
   type PracticeFormInput,
 } from "@/lib/validation/practiceForm";
+import {
+  studioSettingsSchema,
+  type StudioSettingsInput,
+} from "@/lib/validation/studioSettingsForm";
 import { generateSlug } from "@/lib/utils/slug";
 import { sofiaToUtc } from "@/lib/format/sofiaTime";
 
@@ -911,4 +915,62 @@ export async function deletePracticeAction(
   revalidatePath("/admin/practices");
 
   return { ok: true, message: "Практиката е изтрита." };
+}
+
+/* ───────────────────────── Studio settings ───────────────────────── */
+
+export type UpdateStudioSettingsResult =
+  | { ok: true; message: string }
+  | { ok: false; message: string };
+
+export async function updateStudioSettingsAction(
+  input: StudioSettingsInput,
+): Promise<UpdateStudioSettingsResult> {
+  const admin = await getAdminUser();
+  if (!admin) {
+    return { ok: false, message: "Нямаш достъп до тази функция." };
+  }
+
+  const parsed = studioSettingsSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, message: "Невалидни данни. Провери полетата." };
+  }
+  const data = parsed.data;
+
+  const studio = await prisma.studio.findUnique({
+    where: { slug: "fitlab-varna" },
+    select: { id: true },
+  });
+  if (!studio) {
+    return { ok: false, message: "Студиото не е намерено." };
+  }
+
+  const defaultDeposit = Math.round(parseFloat(data.defaultDepositEur) * 100);
+
+  try {
+    await prisma.studio.update({
+      where: { id: studio.id },
+      data: {
+        name: data.name,
+        address: data.address ?? null,
+        phone: data.phone ?? null,
+        facebookUrl: data.facebookUrl ?? null,
+        instagramUrl: data.instagramUrl ?? null,
+        cancelWindowHours: data.cancelWindowHours,
+        defaultDeposit,
+      },
+    });
+  } catch (err) {
+    console.error("[updateStudioSettings] error:", err);
+    return { ok: false, message: "Грешка при запазване. Опитай отново." };
+  }
+
+  console.log(
+    `[admin-audit] updateStudioSettings by=${admin.id} studio=${studio.id}`,
+  );
+
+  revalidatePath("/admin/settings");
+  revalidatePath("/", "layout");
+
+  return { ok: true, message: "Настройките са запазени." };
 }

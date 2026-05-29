@@ -55,6 +55,13 @@ model Studio {
   slug               String @unique
   /// Hours before class start within which a cancellation forfeits the deposit (SPEC §5.4).
   cancelWindowHours  Int    @default(4)
+  /// Studio contact + social info, surfaced on the landing page and sticky CTA.
+  address            String?
+  phone              String?
+  facebookUrl        String?
+  instagramUrl       String?
+  /// Default deposit (minor units / EUR cents) pre-filled on the new-class form.
+  defaultDeposit     Int    @default(2000)
 
   classes ScheduledClass[]
 }

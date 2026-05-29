@@ -21,6 +21,8 @@ export type ClassFormProps = {
   practices: Array<{ id: string; name: string }>;
   trainers: Array<{ id: string; name: string }>;
   initialData?: ClassFormInput & { id: string };
+  /** Pre-fill deposit (EUR string, e.g. "20.00") for create mode. Defaults to "20.00". */
+  defaultDepositEur?: string;
   onSubmit: (data: ClassFormInput) => Promise<void | { error: string }>;
   isLoading?: boolean;
 };
@@ -38,6 +40,7 @@ export function ClassForm({
   practices,
   trainers,
   initialData,
+  defaultDepositEur = "20.00",
   onSubmit: onSubmitProp,
   isLoading = false,
 }: ClassFormProps) {
@@ -58,7 +61,7 @@ export function ClassForm({
         practiceId: "",
         trainerIds: [],
         capacity: 15,
-        depositEur: "20.00",
+        depositEur: defaultDepositEur,
         isSpecialEvent: false,
         eventNotes: undefined,
       };
