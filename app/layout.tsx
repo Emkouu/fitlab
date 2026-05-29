@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist_Mono, Onest, Unbounded } from "next/font/google";
 import "./globals.css";
+import { StickyPhoneButton } from "./_components/StickyPhoneButton";
 
 // Display: Unbounded — variable, architectural energy, full Cyrillic support.
 // Body: Onest — refined contemporary sans, Cyrillic. Avoids the Inter/Geist
@@ -37,7 +38,10 @@ export default function RootLayout({
       lang="bg"
       className={`${unbounded.variable} ${onest.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        {children}
+        <StickyPhoneButton />
+      </body>
     </html>
   );
 }
