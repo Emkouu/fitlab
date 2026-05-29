@@ -117,6 +117,13 @@ Implication: the Stripe refund/keep logic lives in step 7 (webhook + a `lib/paym
 - **Attendance lives at `/admin/attendance`** (Phase 2b — Step 15). The old `/staff` routes are removed; the proxy/middleware redirects `/staff*` → `/admin/attendance*` for any saved bookmarks. There is no `coach` role in practice — admin/super_admin handle attendance.
 - **Client management lives at `/admin/clients`** (Phase 2b — Step 16). The list page shows every user (with role + balance + bookings count). The detail page `/admin/clients/[userId]` lets admin edit profile fields (name, phone, role, balance), see stats, and cancel any active booking via `adminCancelBookingAction` (with optional `overrideRefund` to bypass the cancel window). Safety rules baked in: admin cannot change own role; only super_admin can grant super_admin; email is read-only (Supabase identifier); balance is bounded ≥ 0; all edits logged via `console.log("[admin-audit] …")`.
 
+## Email reminders
+
+- Class-reminder emails go through **Resend** + `@react-email/components`. Template lives at `emails/ClassReminder.tsx`; send helper at `lib/email/sendReminder.ts`. Env: `RESEND_API_KEY`, optional `RESEND_FROM`.
+- **Vercel Cron** runs `/api/cron/reminders` every **15 minutes** (configured in `vercel.json`). The route is guarded by `Authorization: Bearer ${CRON_SECRET}`.
+- Two reminders per booking: **24h** and **2h** before `scheduledClass.startAt`, with a ±15min window so each booking is caught once per mark. Idempotency: `Booking.reminder24hSentAt` / `Booking.reminder2hSentAt` (set only after a successful send).
+- Reminders are only sent for active bookings (`booked | pending_deposit | paid`) on classes that aren't `cancelledAt`. The send helper re-checks status before hitting Resend.
+
 ## Hard rules
 
 - Do not build Phase 2 features (passes/memberships, waitlist, recurring generator, SMS reminders, push, websockets, analytics, multi-location, native app, PWA). Leave seams, no code.

@@ -133,6 +133,11 @@ model Booking {
   createdAt        DateTime       @default(now())
   cancelledAt      DateTime?
 
+  /// Timestamps for class-reminder emails. NULL = not yet sent. Set by the
+  /// /api/cron/reminders job so a reminder is never sent twice.
+  reminder24hSentAt DateTime?
+  reminder2hSentAt  DateTime?
+
   /// Prevents double-booking the same class by the same user (SPEC §5.2).
   /// Only applies to active (non-cancelled) bookings, allowing re-booking after cancellation.
   @@unique([userId, scheduledClassId], map: "unique_active_booking", where: raw("status != 'cancelled'"))
