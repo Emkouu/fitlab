@@ -141,3 +141,63 @@
     @apply font-sans;
   }
 }
+/* ─── FitLab branded react-day-picker overrides ─────────────────────────── */
+.fl-calendar .rdp-root {
+  --rdp-accent-color: var(--brand-magenta);
+  --rdp-accent-background-color: var(--brand-magenta);
+  --rdp-today-color: var(--brand-magenta);
+  --rdp-day-height: 2.5rem;
+  --rdp-day-width: 2.5rem;
+  --rdp-day_button-height: 2.5rem;
+  --rdp-day_button-width: 2.5rem;
+  --rdp-day_button-border-radius: 9999px;
+  --rdp-selected-border: none;
+  font-family: inherit;
+  font-size: 0.875rem;
+  color: var(--brand-ink);
+}
+.fl-calendar .rdp-month_caption {
+  font-family: var(--font-display, inherit);
+  font-weight: 700;
+  color: var(--brand-purple);
+  text-transform: capitalize;
+}
+.fl-calendar .rdp-weekday {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: color-mix(in oklab, var(--brand-purple) 60%, transparent);
+}
+.fl-calendar .rdp-nav button {
+  color: var(--brand-magenta);
+}
+.fl-calendar .rdp-nav button:hover:not([disabled]) {
+  background: var(--brand-pink-soft);
+}
+.fl-calendar .rdp-day_button {
+  border-radius: 9999px;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.fl-calendar .rdp-day_button:hover:not([disabled]) {
+  background: var(--brand-pink-soft);
+  color: var(--brand-magenta);
+}
+.fl-calendar .rdp-today:not(.rdp-selected) .rdp-day_button {
+  box-shadow: inset 0 0 0 2px var(--brand-magenta);
+  color: var(--brand-magenta);
+  font-weight: 700;
+}
+.fl-calendar .rdp-selected .rdp-day_button,
+.fl-calendar .rdp-selected .rdp-day_button:hover {
+  background: var(--brand-magenta);
+  color: #fff;
+  font-weight: 700;
+}
+.fl-calendar .rdp-disabled .rdp-day_button {
+  color: color-mix(in oklab, var(--brand-purple) 30%, transparent);
+  cursor: not-allowed;
+}
+.fl-calendar .rdp-outside .rdp-day_button {
+  color: color-mix(in oklab, var(--brand-purple) 25%, transparent);
+}

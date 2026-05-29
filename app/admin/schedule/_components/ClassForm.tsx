@@ -8,8 +8,10 @@ import {
   classFormSchema,
   type ClassFormInput,
 } from "@/lib/validation/classForm";
-import { sofiaToUtc, tomorrowSofiaDate } from "@/lib/format/sofiaTime";
+import { tomorrowSofiaDate, todaySofiaDateKey } from "@/lib/format/sofiaTime";
 import { sofiaDateKey } from "@/lib/format";
+import { DayPicker } from "react-day-picker";
+import "react-day-picker/style.css";
 
 // Duration options (in minutes)
 const DURATION_OPTIONS = ["45", "55", "60", "70", "80", "90", "100", "120"];
@@ -24,16 +26,8 @@ export type ClassFormProps = {
 };
 
 /**
- * Helper: Convert a Date to YYYY-MM-DD format for HTML date input.
- * Uses Sofia timezone to ensure the date shown is Sofia's local date.
- */
-function dateToInputFormat(d: Date): string {
-  return sofiaDateKey(d);
-}
-
-/**
  * Helper: Convert YYYY-MM-DD input to a Date at midnight UTC.
- * This matches the date input's expected format.
+ * Matches the canonical shape stored in the form's `date` field.
  */
 function inputFormatToDate(dateStr: string): Date {
   return new Date(`${dateStr}T00:00:00Z`);
@@ -52,8 +46,7 @@ export function ClassForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Calculate default date (tomorrow in Sofia)
-  const defaultDate = tomorrowSofiaDate();
-  const defaultDateStr = dateToInputFormat(defaultDate);
+  const defaultDateStr = sofiaDateKey(tomorrowSofiaDate());
 
   // Prepare initial values based on mode
   const getDefaultValues = (): ClassFormInput => {
@@ -147,16 +140,23 @@ export function ClassForm({
         <Controller
           name="date"
           control={control}
-          render={({ field }) => (
-            <input
-              {...field}
-              type="date"
-              value={dateToInputFormat(field.value)}
-              onChange={(e) => field.onChange(inputFormatToDate(e.target.value))}
-              className="mt-2 w-full rounded-lg border border-[color:var(--brand-purple)]/20 px-3 py-2.5 text-sm font-medium text-[color:var(--brand-ink)] placeholder-[color:var(--brand-purple)]/40 transition-all focus:border-[color:var(--brand-magenta)] focus:outline-none focus:ring-1 focus:ring-[color:var(--brand-magenta)]/30"
-              disabled={isSubmitting || isLoading}
-            />
-          )}
+          render={({ field }) => {
+            const [ty, tm, td] = todaySofiaDateKey().split("-").map(Number);
+            const todayLocal = new Date(ty, tm - 1, td);
+            return (
+              <div className="fl-calendar mt-2 w-full rounded-2xl bg-white p-3 shadow-[0_1px_2px_rgba(123,45,142,0.05),0_4px_16px_-8px_rgba(236,72,153,0.18)]">
+                <DayPicker
+                  mode="single"
+                  required
+                  selected={field.value}
+                  onSelect={(d) => d && field.onChange(inputFormatToDate(sofiaDateKey(d)))}
+                  disabled={{ before: todayLocal }}
+                  weekStartsOn={1}
+                  showOutsideDays
+                />
+              </div>
+            );
+          }}
         />
         {errors.date && (
           <p className="mt-1 text-xs text-red-600">{errors.date.message}</p>

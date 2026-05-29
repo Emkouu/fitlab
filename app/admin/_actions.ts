@@ -260,6 +260,16 @@ export async function upsertClassAction(
     // ─── Convert Sofia time to UTC ───────────────────────────────────────
     const startAtUtc = sofiaToUtc(validatedInput.date, validatedInput.time);
 
+    // ─── Re-check the 30-minute lead time on the server (safety net) ─────
+    const earliest = new Date(Date.now() + 30 * 60 * 1000);
+    if (startAtUtc < earliest) {
+      return {
+        ok: false,
+        reason: "validation_failed",
+        message: "Часът трябва да е поне 30 минути в бъдещето.",
+      };
+    }
+
     // ─── Convert deposit EUR to cents ────────────────────────────────────
     const depositAmount = Math.round(parseFloat(validatedInput.depositEur) * 100);
 

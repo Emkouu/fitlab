@@ -132,7 +132,8 @@ describe("classFormSchema", () => {
   describe("invalid inputs", () => {
     it("should reject past dates", () => {
       const input = {
-        date: new Date(tomorrow.getTime() - 86400000), // yesterday
+        // 7 days ago — always strictly in the past regardless of run time
+        date: new Date(tomorrow.getTime() - 8 * 86400000),
         time: "18:30",
         duration: "60",
         practiceId: "vinyasa-flow",
@@ -144,17 +145,34 @@ describe("classFormSchema", () => {
       expect(result.success).toBe(false);
     });
 
-    it("should reject today's date", () => {
-      const input = {
-        date: new Date(), // today
-        time: "18:30",
+    it("should reject a time less than 30 minutes in the future", () => {
+      // 10 minutes from now in Sofia local time, today's Sofia date.
+      const sofiaParts = Object.fromEntries(
+        new Intl.DateTimeFormat("en-CA", {
+          timeZone: "Europe/Sofia",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+        })
+          .formatToParts(new Date(Date.now() + 10 * 60 * 1000))
+          .map((p) => [p.type, p.value]),
+      );
+      const date = new Date(
+        `${sofiaParts.year}-${sofiaParts.month}-${sofiaParts.day}T00:00:00Z`,
+      );
+      const time = `${sofiaParts.hour}:${sofiaParts.minute}`;
+      const result = classFormSchema.safeParse({
+        date,
+        time,
         duration: "60",
         practiceId: "vinyasa-flow",
         trainerIds: ["trainer1"],
         capacity: 15,
         depositEur: "20.00",
-      };
-      const result = classFormSchema.safeParse(input);
+      });
       expect(result.success).toBe(false);
     });
 

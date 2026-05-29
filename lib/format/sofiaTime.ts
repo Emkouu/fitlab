@@ -73,6 +73,24 @@ export function sofiaToUtc(sofiaDate: Date, timeHHmm: string): Date {
 }
 
 /**
+ * Get today's date in Sofia timezone as "YYYY-MM-DD" (the calendar date
+ * currently visible to a person in Sofia, regardless of server timezone).
+ */
+export function todaySofiaDateKey(): string {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Sofia",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    })
+      .formatToParts(new Date())
+      .map((p) => [p.type, p.value]),
+  );
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+/**
  * Get tomorrow's date in Sofia timezone as a Date object at midnight UTC.
  * Useful for validation against "must be in the future" rules.
  *
