@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { getCheckoutUrl } from "../_actions";
+import { Spinner } from "@/app/_components/Spinner";
 
 type Props = {
   bookingId: string;
@@ -40,9 +41,16 @@ export function ContinuePaymentButton({ bookingId, disabled = false, className =
         onClick={handleClick}
         disabled={disabled || isPending}
         type="button"
-        className={`w-full min-h-10 flex items-center justify-center rounded-2xl bg-[color:var(--brand-magenta)] px-4 py-2 font-display text-xs font-bold uppercase tracking-wider text-white transition-colors hover:bg-[color:var(--brand-purple)] disabled:opacity-60 ${className}`}
+        className={`w-full min-h-10 flex items-center justify-center gap-2 rounded-2xl bg-[color:var(--brand-magenta)] px-4 py-2 font-display text-xs font-bold uppercase tracking-wider text-white transition-colors hover:bg-[color:var(--brand-purple)] disabled:opacity-60 ${className}`}
       >
-        {isPending ? "Зареждане..." : "Продължи плащането"}
+        {isPending ? (
+          <>
+            <Spinner size={18} />
+            <span>Зареждане</span>
+          </>
+        ) : (
+          "Продължи плащането"
+        )}
       </button>
     </div>
   );

@@ -3,6 +3,7 @@ import { Geist_Mono, Onest, Unbounded } from "next/font/google";
 import "./globals.css";
 import { prisma } from "@/lib/db";
 import { StickyPhoneButton } from "./_components/StickyPhoneButton";
+import { PageLoader } from "./_components/PageLoader";
 
 // Display: Unbounded — variable, architectural energy, full Cyrillic support.
 // Body: Onest — refined contemporary sans, Cyrillic. Avoids the Inter/Geist
@@ -46,6 +47,7 @@ export default async function RootLayout({
       <body className="min-h-full flex flex-col">
         {children}
         {studio?.phone && <StickyPhoneButton phone={studio.phone} />}
+        <PageLoader />
       </body>
     </html>
   );
