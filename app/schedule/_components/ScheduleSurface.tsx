@@ -73,7 +73,7 @@ export function ScheduleSurface({
   }
 
   return (
-    <main className="mx-auto w-full max-w-[440px] px-5 pb-12 pt-6 font-sans text-[color:var(--brand-ink)]">
+    <main className="mx-auto w-full max-w-[440px] px-5 pb-12 pt-6 font-sans text-[color:var(--brand-ink)] md:max-w-6xl md:px-8 lg:px-12">
       {/* ─── Header ───────────────────────────────────────────── */}
       <header className="mb-7">
         {/* Auth chip pinned top-right; logo stays centred. */}
