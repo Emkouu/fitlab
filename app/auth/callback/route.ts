@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { syncUserFromSupabase } from "@/lib/auth/syncUser";
+import { prisma } from "@/lib/db";
 
 /**
  * Magic-link / OTP callback. Supabase posts back here with ?code=...; we
@@ -34,6 +35,16 @@ export async function GET(request: Request) {
   } catch (e) {
     console.error("[auth/callback] syncUserFromSupabase failed", e);
     // Auth still succeeded — let the user through, log the sync failure.
+  }
+
+  // First-time users have no fullName yet — send them to /onboarding before
+  // the requested destination.
+  const profile = await prisma.user.findUnique({
+    where: { supabaseUserId: data.user.id },
+    select: { fullName: true },
+  });
+  if (!profile?.fullName || profile.fullName.trim() === "") {
+    return NextResponse.redirect(`${origin}/onboarding?next=${encodeURIComponent(next)}`);
   }
 
   return NextResponse.redirect(`${origin}${next}`);

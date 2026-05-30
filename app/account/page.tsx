@@ -23,7 +23,7 @@ export default async function AccountPage() {
   // callback syncs it), but fall back gracefully if it doesn't.
   const profile = await prisma.user.findUnique({
     where: { supabaseUserId: user.id },
-    select: { id: true, email: true, phone: true, role: true, createdAt: true, depositBalance: true },
+    select: { id: true, email: true, phone: true, fullName: true, role: true, createdAt: true, depositBalance: true },
   });
 
   // Fetch bookings with all related data
@@ -100,6 +100,7 @@ export default async function AccountPage() {
       </div>
 
       <dl className="mb-8 space-y-2 rounded-2xl bg-white px-5 py-4 shadow-[0_1px_2px_rgba(123,45,142,0.05),0_4px_16px_-8px_rgba(236,72,153,0.18)]">
+        <Row label="Име" value={profile?.fullName ?? "—"} />
         <Row label="Имейл" value={profile?.email ?? user.email ?? "—"} />
         <Row label="Телефон" value={profile?.phone ?? "—"} />
         <Row label="Роля" value={profile?.role ?? "member"} mono />
