@@ -331,7 +331,7 @@ export async function upsertClassAction(
           depositAmount,
           isSpecialEvent: validatedInput.isSpecialEvent,
           eventNotes: validatedInput.eventNotes || null,
-          // practiceId and studioId are not updated (immutable)
+          practice: { connect: { id: validatedInput.practiceId } },
           trainers: {
             set: validatedInput.trainerIds.map((id) => ({ id })),
           },
