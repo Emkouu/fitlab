@@ -6,7 +6,62 @@ import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/db";
 import { createBooking } from "@/lib/booking";
 import { createCheckoutForBooking } from "@/lib/payments/createCheckoutForBooking";
-import { BookingSource } from "@/lib/generated/prisma/enums";
+import { BookingSource, BookingStatus } from "@/lib/generated/prisma/enums";
+import { sofiaDateKey } from "@/lib/format";
+import type { ClassCardRow } from "./_components/ClassCard";
+
+const ACTIVE_STATUSES: BookingStatus[] = [
+  BookingStatus.booked,
+  BookingStatus.pending_deposit,
+  BookingStatus.paid,
+  BookingStatus.attended,
+];
+
+/**
+ * Fetches non-cancelled scheduled classes for a given Sofia calendar month,
+ * grouped by Sofia date key ("YYYY-MM-DD"). Used by the Месец calendar view.
+ *
+ * Sofia is UTC+2/+3 — we fetch a one-day buffer on either side and filter by
+ * `sofiaDateKey` so DST and TZ edges can't drop a class onto the wrong month.
+ */
+export async function getClassesForMonth(
+  year: number,
+  month: number, // 0-indexed
+): Promise<Record<string, ClassCardRow[]>> {
+  const start = new Date(Date.UTC(year, month, 1));
+  start.setUTCDate(start.getUTCDate() - 1);
+  const end = new Date(Date.UTC(year, month + 1, 1));
+  end.setUTCDate(end.getUTCDate() + 2);
+
+  const rows = await prisma.scheduledClass.findMany({
+    where: {
+      startAt: { gte: start, lt: end },
+      cancelledAt: null,
+    },
+    orderBy: { startAt: "asc" },
+    include: {
+      practice: { select: { name: true, description: true } },
+      trainers: { orderBy: { name: "asc" }, select: { name: true } },
+      studio: { select: { name: true, cancelWindowHours: true } },
+      _count: {
+        select: {
+          bookings: { where: { status: { in: ACTIVE_STATUSES } } },
+        },
+      },
+    },
+    take: 500,
+  });
+
+  const byKey: Record<string, ClassCardRow[]> = {};
+  const monthStr = String(month + 1).padStart(2, "0");
+  const prefix = `${year}-${monthStr}-`;
+  for (const r of rows) {
+    const key = sofiaDateKey(r.startAt);
+    if (!key.startsWith(prefix)) continue;
+    (byKey[key] ??= []).push(r);
+  }
+  return byKey;
+}
 
 /**
  * Result shape for the booking server action. Mirrors the engine's outcome

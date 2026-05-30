@@ -42,18 +42,9 @@ export function sofiaDateKey(d: Date): string {
 }
 
 /**
- * Build a Date at noon UTC from a "YYYY-MM-DD" key. Noon is comfortably inside
- * the day in every timezone, so any later formatSofiaDay() call reads back the
- * same calendar date regardless of the host server's TZ.
- */
-export function dateFromKey(key: string): Date {
-  return new Date(`${key}T12:00:00Z`);
-}
-
-/**
  * Seven "YYYY-MM-DD" Sofia-local dates: Monday → Sunday of the calendar week
- * that contains "now". Used by the Седмица view, which renders a fixed
- * Mon–Sun grid regardless of which days have classes.
+ * that contains "now". Currently used by the seed to anchor demo data to the
+ * current week.
  */
 export function sofiaCurrentWeekDates(): string[] {
   const parts = Object.fromEntries(
@@ -77,7 +68,6 @@ export function sofiaCurrentWeekDates(): string[] {
 
   const out: string[] = [];
   for (let i = 0; i < 7; i++) {
-    // UTC arithmetic on date-only values — never crosses TZ boundaries.
     const dt = new Date(Date.UTC(y, m - 1, d - offset + i));
     const yy = dt.getUTCFullYear();
     const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");

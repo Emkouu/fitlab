@@ -7,24 +7,31 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { Heartbeat } from "@/app/_components/Heartbeat";
 import { AgendaView, type DayBucket } from "./AgendaView";
-import { WeekView } from "./WeekView";
+import { MonthView } from "./MonthView";
 import { BookingModal } from "./BookingModal";
 import { ClassInfoModal } from "./ClassInfoModal";
 import { PaymentBanner } from "./PaymentBanner";
 import type { ClassCardRow } from "./ClassCard";
 
-type View = "list" | "week";
+type View = "list" | "month";
 
 export function ScheduleSurface({
   agendaDays,
-  weekDays,
+  monthYear,
+  monthIndex,
+  monthData,
   authChip,
   isAuthed,
   userBalance = 0,
   bookedClassIds = [],
 }: {
   agendaDays: DayBucket[];
-  weekDays: DayBucket[]; // exactly 7, Mon→Sun
+  /** Current Sofia year for the initial Месец view. */
+  monthYear: number;
+  /** Current Sofia month (0-indexed) for the initial Месец view. */
+  monthIndex: number;
+  /** Pre-fetched classes for the initial month, keyed by Sofia date. */
+  monthData: Record<string, ClassCardRow[]>;
   /** Server-rendered auth status chip (Вход / Профил). */
   authChip?: React.ReactNode;
   /** Server-computed auth state. Drives the „Избор" branch: open modal
@@ -46,7 +53,9 @@ export function ScheduleSurface({
   const rowsById = (() => {
     const m = new Map<string, ClassCardRow>();
     for (const d of agendaDays) for (const r of d.rows) m.set(r.id, r);
-    for (const d of weekDays) for (const r of d.rows) m.set(r.id, r);
+    for (const key of Object.keys(monthData)) {
+      for (const r of monthData[key]) m.set(r.id, r);
+    }
     return m;
   })();
 
@@ -117,7 +126,7 @@ export function ScheduleSurface({
             ? agendaDays.length > 0
               ? `${agendaDays.length} ${agendaDays.length === 1 ? "ден" : "дни"} напред`
               : ""
-            : "Пон – Нед"}
+            : ""}
         </span>
       </div>
 
@@ -135,13 +144,20 @@ export function ScheduleSurface({
           </motion.div>
         ) : (
           <motion.div
-            key="week"
+            key="month"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
           >
-            <WeekView days={weekDays} onBook={handleBook} onInfo={setInfoClass} bookedClassIds={bookedSet} />
+            <MonthView
+              initialYear={monthYear}
+              initialMonth={monthIndex}
+              initialData={monthData}
+              onBook={handleBook}
+              onInfo={setInfoClass}
+              bookedClassIds={bookedSet}
+            />
           </motion.div>
         )}
       </AnimatePresence>
@@ -175,8 +191,8 @@ function ViewToggle({
       <ToggleButton selected={value === "list"} onClick={() => onChange("list")}>
         Списък
       </ToggleButton>
-      <ToggleButton selected={value === "week"} onClick={() => onChange("week")}>
-        Седмица
+      <ToggleButton selected={value === "month"} onClick={() => onChange("month")}>
+        Месец
       </ToggleButton>
     </div>
   );
