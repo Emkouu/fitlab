@@ -14,7 +14,7 @@ export type ClassCardRow = {
   eventNotes: string | null;
   depositAmount: number;
   cancelledAt: Date | string | null;
-  practice: { name: string };
+  practice: { name: string; description: string | null };
   trainers: { name: string }[];
   studio: { name: string; cancelWindowHours: number };
   _count: { bookings: number };
@@ -24,6 +24,7 @@ export function ClassCard({
   row,
   compact = false,
   onBook,
+  onInfo,
   isBooked = false,
 }: {
   row: ClassCardRow;
@@ -32,6 +33,9 @@ export function ClassCard({
   /** Called when the user taps „Избор". Owner (ScheduleSurface) decides
    *  whether to open the modal (auth'd) or bounce to /login. */
   onBook: (row: ClassCardRow) => void;
+  /** Called when the user taps anywhere on the card body — opens the
+   *  read-only class info modal. */
+  onInfo?: (row: ClassCardRow) => void;
   /** Logged-in user already has an active booking for this class. */
   isBooked?: boolean;
 }) {
@@ -50,7 +54,23 @@ export function ClassCard({
           : isPast
             ? "opacity-60 shadow-none"
             : "shadow-[0_1px_2px_rgba(123,45,142,0.05),0_4px_16px_-8px_rgba(236,72,153,0.18)] hover:shadow-[0_1px_2px_rgba(123,45,142,0.06),0_8px_24px_-8px_rgba(236,72,153,0.28)]"
-      }`}
+      } ${onInfo && !isCancelled ? "cursor-pointer" : ""}`}
+      onClick={onInfo && !isCancelled ? () => onInfo(row) : undefined}
+      role={onInfo && !isCancelled ? "button" : undefined}
+      tabIndex={onInfo && !isCancelled ? 0 : undefined}
+      aria-label={
+        onInfo && !isCancelled ? `Информация за ${row.practice.name}` : undefined
+      }
+      onKeyDown={
+        onInfo && !isCancelled
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onInfo(row);
+              }
+            }
+          : undefined
+      }
     >
       <div className="relative">
         {/* Heartbeat-echo accent bar — content zone only, never under the CTA.

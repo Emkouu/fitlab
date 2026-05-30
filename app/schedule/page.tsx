@@ -38,7 +38,7 @@ async function loadRelevant(): Promise<ClassCardRow[]> {
     },
     orderBy: { startAt: "asc" },
     include: {
-      practice: { select: { name: true } },
+      practice: { select: { name: true, description: true } },
       trainers: { orderBy: { name: "asc" }, select: { name: true } },
       studio: { select: { name: true, cancelWindowHours: true } },
       _count: {

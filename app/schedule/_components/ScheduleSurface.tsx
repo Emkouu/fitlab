@@ -9,6 +9,7 @@ import { Heartbeat } from "@/app/_components/Heartbeat";
 import { AgendaView, type DayBucket } from "./AgendaView";
 import { WeekView } from "./WeekView";
 import { BookingModal } from "./BookingModal";
+import { ClassInfoModal } from "./ClassInfoModal";
 import { PaymentBanner } from "./PaymentBanner";
 import type { ClassCardRow } from "./ClassCard";
 
@@ -39,6 +40,7 @@ export function ScheduleSurface({
   const searchParams = useSearchParams();
   const [view, setView] = useState<View>("list");
   const [openClass, setOpenClass] = useState<ClassCardRow | null>(null);
+  const [infoClass, setInfoClass] = useState<ClassCardRow | null>(null);
 
   /** Flat index for lookup by id (resume-after-login + future deep-links). */
   const rowsById = (() => {
@@ -129,7 +131,7 @@ export function ScheduleSurface({
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
           >
-            <AgendaView days={agendaDays} onBook={handleBook} bookedClassIds={bookedSet} />
+            <AgendaView days={agendaDays} onBook={handleBook} onInfo={setInfoClass} bookedClassIds={bookedSet} />
           </motion.div>
         ) : (
           <motion.div
@@ -139,13 +141,20 @@ export function ScheduleSurface({
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
           >
-            <WeekView days={weekDays} onBook={handleBook} bookedClassIds={bookedSet} />
+            <WeekView days={weekDays} onBook={handleBook} onInfo={setInfoClass} bookedClassIds={bookedSet} />
           </motion.div>
         )}
       </AnimatePresence>
 
       {/* Single global modal, controlled by openClass. */}
       <BookingModal row={openClass} onClose={() => setOpenClass(null)} userBalance={userBalance} />
+      <ClassInfoModal
+        row={infoClass}
+        onClose={() => setInfoClass(null)}
+        onBook={handleBook}
+        isAuthed={isAuthed}
+        isBooked={infoClass ? bookedSet.has(infoClass.id) : false}
+      />
     </main>
   );
 }

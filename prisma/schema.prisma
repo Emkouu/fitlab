@@ -68,9 +68,12 @@ model Studio {
 
 /// Class type / category — "Виняса Флоу", "Пилатес", …
 model Practice {
-  id      String @id @default(cuid())
-  name    String @unique
-  slug    String @unique
+  id          String  @id @default(cuid())
+  name        String  @unique
+  slug        String  @unique
+  /// Optional description — what this practice is, what to expect.
+  /// Shown in the class info modal on the public schedule.
+  description String?
 
   classes  ScheduledClass[]
   trainers Trainer[] @relation("TrainerSpecialties")

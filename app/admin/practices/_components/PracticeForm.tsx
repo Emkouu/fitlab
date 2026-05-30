@@ -14,7 +14,7 @@ import { upsertPracticeAction } from "@/app/admin/_actions";
 
 export type PracticeFormProps = {
   mode: "create" | "edit";
-  initialData?: { id: string; name: string; slug: string };
+  initialData?: { id: string; name: string; slug: string; description: string | null };
 };
 
 export function PracticeForm({ mode, initialData }: PracticeFormProps) {
@@ -32,8 +32,13 @@ export function PracticeForm({ mode, initialData }: PracticeFormProps) {
     resolver: zodResolver(practiceFormSchema),
     defaultValues:
       mode === "edit" && initialData
-        ? { id: initialData.id, name: initialData.name, slug: initialData.slug }
-        : { name: "", slug: "" },
+        ? {
+            id: initialData.id,
+            name: initialData.name,
+            slug: initialData.slug,
+            description: initialData.description ?? "",
+          }
+        : { name: "", slug: "", description: "" },
     mode: "onChange",
   });
 
@@ -114,6 +119,41 @@ export function PracticeForm({ mode, initialData }: PracticeFormProps) {
         />
         {errors.slug && (
           <p className="mt-1 text-xs text-red-600">{errors.slug.message}</p>
+        )}
+      </div>
+
+      <div>
+        <label className="block text-sm font-semibold text-[color:var(--brand-ink)]">
+          Описание
+        </label>
+        <p className="mt-1 text-xs text-[color:var(--brand-purple)]/60">
+          Опционално. Показва се на потребителите в инфо панела за класа.
+        </p>
+        <Controller
+          name="description"
+          control={control}
+          render={({ field }) => {
+            const value = field.value ?? "";
+            return (
+              <>
+                <textarea
+                  {...field}
+                  value={value}
+                  rows={5}
+                  maxLength={1000}
+                  placeholder="Опиши какво представлява тази практика, какво да очакват участниците, подходяща ли е за начинаещи и т.н."
+                  className="mt-2 w-full rounded-lg border border-[color:var(--brand-purple)]/20 px-3 py-2.5 text-sm text-[color:var(--brand-ink)] placeholder-[color:var(--brand-purple)]/40 transition-all focus:border-[color:var(--brand-magenta)] focus:outline-none focus:ring-1 focus:ring-[color:var(--brand-magenta)]/30"
+                  disabled={isPending}
+                />
+                <p className="mt-1 text-right text-[11px] text-[color:var(--brand-purple)]/55">
+                  {value.length} / 1000
+                </p>
+              </>
+            );
+          }}
+        />
+        {errors.description && (
+          <p className="mt-1 text-xs text-red-600">{errors.description.message}</p>
         )}
       </div>
 

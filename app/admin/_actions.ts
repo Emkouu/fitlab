@@ -841,11 +841,15 @@ export async function upsertPracticeAction(
       return { ok: false, message: "Името вече се използва от друга практика." };
     }
 
+    const description = data.description?.trim() ? data.description.trim() : null;
+
     const practice = isCreate
-      ? await prisma.practice.create({ data: { name: data.name, slug } })
+      ? await prisma.practice.create({
+          data: { name: data.name, slug, description },
+        })
       : await prisma.practice.update({
           where: { id: data.id! },
-          data: { name: data.name, slug },
+          data: { name: data.name, slug, description },
         });
 
     console.log(

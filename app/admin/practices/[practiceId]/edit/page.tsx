@@ -68,6 +68,7 @@ export default async function AdminPracticesEditPage({ params }: EditPageProps) 
           id: practice.id,
           name: practice.name,
           slug: practice.slug,
+          description: practice.description,
         }}
       />
     </main>

@@ -11,6 +11,11 @@ export const practiceFormSchema = z.object({
     .min(1, "Slug е задължителен")
     .max(100, "Slug трябва да е до 100 символа")
     .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, "Slug може да съдържа само малки латински букви, цифри и тирета"),
+  description: z
+    .string()
+    .max(1000, "Описанието трябва да е до 1000 символа")
+    .optional()
+    .nullable(),
 });
 
 export type PracticeFormInput = z.infer<typeof practiceFormSchema>;
