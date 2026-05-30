@@ -33,8 +33,10 @@ export function OnboardingForm({
       setServerError(res.message);
       return;
     }
-    router.push(next);
+    // Refresh first so server components re-read the now-complete profile;
+    // otherwise the destination may bounce us back through the onboarding gate.
     router.refresh();
+    router.push(next);
   }
 
   return (
@@ -46,7 +48,7 @@ export function OnboardingForm({
         <input
           type="text"
           autoComplete="name"
-          placeholder="Иван Иванов"
+          placeholder="Мария Иванова"
           disabled={isSubmitting}
           {...register("fullName")}
           className="mt-1.5 block w-full rounded-2xl border border-[color:var(--brand-pink)]/60 bg-white px-4 py-3 text-base text-[color:var(--brand-ink)] placeholder:text-[color:var(--brand-purple)]/35 focus:border-[color:var(--brand-magenta)] focus:outline-none focus:ring-2 focus:ring-[color:var(--brand-magenta)]/30 disabled:opacity-60"
