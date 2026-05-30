@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 
 export const metadata = { title: "FitLab Varna — Присъствия" };
 
-const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
 const UNMARKED_STATUSES = [
   BookingStatus.booked,
@@ -26,10 +26,15 @@ export default async function AdminAttendanceIndexPage() {
   if (!admin) redirect("/schedule");
 
   const now = new Date();
-  const cutoff = new Date(Date.now() - SEVEN_DAYS_MS);
+  const pastCutoff = new Date(Date.now() - THIRTY_DAYS_MS);
 
+  // Show ALL non-cancelled classes — past (last 30d) and upcoming — so the
+  // admin can mark attendance at any time. Newest first.
   const classes = await prisma.scheduledClass.findMany({
-    where: { startAt: { gte: cutoff, lt: now } },
+    where: {
+      startAt: { gte: pastCutoff },
+      cancelledAt: null,
+    },
     include: {
       practice: { select: { name: true } },
       trainers: { orderBy: { name: "asc" }, select: { name: true } },
@@ -40,7 +45,7 @@ export default async function AdminAttendanceIndexPage() {
       },
     },
     orderBy: { startAt: "desc" },
-    take: 60,
+    take: 120,
   });
 
   const byClass = await Promise.all(
@@ -79,50 +84,57 @@ export default async function AdminAttendanceIndexPage() {
       </div>
 
       <p className="mb-5 text-sm text-[color:var(--brand-purple)]/70">
-        Всички приключили класове в последните 7 дни.
+        Всички класове — маркирай присъствия по всяко време.
       </p>
 
       {byClass.length === 0 ? (
         <EmptyState />
       ) : (
         <ul className="space-y-2.5">
-          {byClass.map((c) => (
-            <li key={c.id}>
-              <Link
-                href={`/admin/attendance/${c.id}`}
-                className="block overflow-hidden rounded-2xl bg-white px-5 py-4 shadow-[0_1px_2px_rgba(123,45,142,0.05),0_4px_16px_-8px_rgba(236,72,153,0.18)] transition-shadow hover:shadow-[0_1px_2px_rgba(123,45,142,0.06),0_8px_24px_-8px_rgba(236,72,153,0.28)]"
-              >
-                <div className="mb-2 flex items-baseline justify-between gap-3">
-                  <span className="font-mono text-[11px] uppercase tracking-wider text-[color:var(--brand-purple)]/60">
-                    {formatSofiaDay(c.startAt)}
-                  </span>
-                  <span className="font-display text-sm font-bold text-[color:var(--brand-magenta)]">
-                    {formatSofiaTime(c.startAt)}
-                  </span>
-                </div>
-                <h3 className="font-display text-[15px] font-semibold leading-tight">
-                  {c.practice.name}
-                </h3>
-                <p className="mt-1 truncate text-sm text-[color:var(--brand-purple)]/75">
-                  {c.trainers.map((t) => t.name).join(" & ") || "—"}
-                </p>
-                <div className="mt-3 flex items-center justify-between text-[12px]">
-                  <span className="text-[color:var(--brand-purple)]/60">
-                    {c._count.bookings} записани
-                  </span>
-                  {c.unmarked > 0 ? (
-                    <span className="inline-flex items-center rounded-full bg-[color:var(--brand-magenta)] px-2.5 py-1 font-display text-[10px] font-bold uppercase tracking-wider text-white">
-                      {c.unmarked} необработени
+          {byClass.map((c) => {
+            const isUpcoming = c.startAt.getTime() > now.getTime();
+            return (
+              <li key={c.id}>
+                <Link
+                  href={`/admin/attendance/${c.id}`}
+                  className="block overflow-hidden rounded-2xl bg-white px-5 py-4 shadow-[0_1px_2px_rgba(123,45,142,0.05),0_4px_16px_-8px_rgba(236,72,153,0.18)] transition-shadow hover:shadow-[0_1px_2px_rgba(123,45,142,0.06),0_8px_24px_-8px_rgba(236,72,153,0.28)]"
+                >
+                  <div className="mb-2 flex items-baseline justify-between gap-3">
+                    <span className="font-mono text-[11px] uppercase tracking-wider text-[color:var(--brand-purple)]/60">
+                      {formatSofiaDay(c.startAt)}
                     </span>
-                  ) : (
-                    <span className="inline-flex items-center rounded-full bg-[color:var(--brand-pink-soft)] px-2.5 py-1 font-display text-[10px] font-bold uppercase tracking-wider text-[color:var(--brand-purple)]/70">
-                      Готово
+                    <span className="font-display text-sm font-bold text-[color:var(--brand-magenta)]">
+                      {formatSofiaTime(c.startAt)}
                     </span>
-                  )}
-                </div>
-              </Link>
-            </li>
-          ))}
+                  </div>
+                  <h3 className="font-display text-[15px] font-semibold leading-tight">
+                    {c.practice.name}
+                  </h3>
+                  <p className="mt-1 truncate text-sm text-[color:var(--brand-purple)]/75">
+                    {c.trainers.map((t) => t.name).join(" & ") || "—"}
+                  </p>
+                  <div className="mt-3 flex items-center justify-between text-[12px]">
+                    <span className="text-[color:var(--brand-purple)]/60">
+                      {c._count.bookings} записани
+                    </span>
+                    {isUpcoming ? (
+                      <span className="inline-flex items-center rounded-full bg-[color:var(--brand-purple)]/15 px-2.5 py-1 font-display text-[10px] font-bold uppercase tracking-wider text-[color:var(--brand-purple)]">
+                        Предстои
+                      </span>
+                    ) : c.unmarked > 0 ? (
+                      <span className="inline-flex items-center rounded-full bg-[color:var(--brand-magenta)] px-2.5 py-1 font-display text-[10px] font-bold uppercase tracking-wider text-white">
+                        {c.unmarked} необработени
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-1 font-display text-[10px] font-bold uppercase tracking-wider text-emerald-700">
+                        Готово
+                      </span>
+                    )}
+                  </div>
+                </Link>
+              </li>
+            );
+          })}
         </ul>
       )}
     </main>
@@ -134,7 +146,7 @@ function EmptyState() {
     <div className="rounded-2xl border border-[color:var(--brand-pink)] bg-white px-5 py-8 text-center">
       <p className="font-display text-base font-semibold">Няма класове</p>
       <p className="mt-2 text-sm leading-relaxed text-[color:var(--brand-purple)]/70">
-        В последните 7 дни няма приключили класове за обработка.
+        Засега няма класове за обработка.
       </p>
     </div>
   );
