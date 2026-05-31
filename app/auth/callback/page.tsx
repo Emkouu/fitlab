@@ -20,8 +20,14 @@ export default function AuthCallbackPage() {
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
+    // Temporary diagnostics for implicit-flow magic-link debugging.
+    console.log("[auth/callback] href:", window.location.href);
+    console.log("[auth/callback] hash:", window.location.hash);
+    console.log("[auth/callback] search:", window.location.search);
+
     const supabase = createClient();
     let done = false;
+    let sub: { unsubscribe: () => void } | null = null;
 
     async function finish() {
       if (done) return;
@@ -33,34 +39,49 @@ export default function AuthCallbackPage() {
           body: JSON.stringify({ next }),
         });
         if (!res.ok) {
+          console.error("[auth/callback] /api/auth/sync failed", res.status);
           setFailed(true);
           return;
         }
         const data = (await res.json()) as { redirect: string };
         router.replace(data.redirect);
-      } catch {
+      } catch (e) {
+        console.error("[auth/callback] finish() threw", e);
         setFailed(true);
       }
     }
 
-    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === "SIGNED_IN" && session) {
+    async function handleCallback() {
+      const { data, error } = await supabase.auth.getSession();
+      console.log("[auth/callback] initial getSession:", {
+        hasSession: !!data.session,
+        error: error?.message,
+      });
+      if (data.session) {
         void finish();
+        return;
       }
-    });
 
-    // If detectSessionInUrl already ran before our listener attached, fall back
-    // to a direct check.
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session) void finish();
-    });
+      const listener = supabase.auth.onAuthStateChange((event, session) => {
+        console.log("[auth/callback] onAuthStateChange:", event, !!session);
+        if (event === "SIGNED_IN" && session) {
+          void finish();
+        }
+      });
+      sub = listener.data.subscription;
+    }
+
+    void handleCallback();
 
     const timeout = setTimeout(() => {
-      if (!done) setFailed(true);
-    }, 5000);
+      if (!done) {
+        console.warn("[auth/callback] timed out without SIGNED_IN");
+        setFailed(true);
+      }
+    }, 8000);
 
     return () => {
-      sub.subscription.unsubscribe();
+      sub?.unsubscribe();
       clearTimeout(timeout);
     };
   }, [router, next]);
