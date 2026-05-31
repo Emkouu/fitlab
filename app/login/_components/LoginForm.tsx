@@ -1,72 +1,178 @@
 "use client";
 
-import { useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/browser";
 
-type Status = "idle" | "sending" | "sent" | "error";
+type Step = "email" | "code";
+type Status = "idle" | "sending" | "verifying" | "error";
+
+const RESEND_COOLDOWN_SECONDS = 60;
 
 export function LoginForm() {
+  const router = useRouter();
   const params = useSearchParams();
-  const next = params.get("next") ?? "/schedule";
+  const rawNext = params.get("next") ?? "/schedule";
+  const next = rawNext.startsWith("/") ? rawNext : "/schedule";
+
+  const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
+  const [code, setCode] = useState<string[]>(["", "", "", "", "", ""]);
   const [status, setStatus] = useState<Status>("idle");
   const [errMsg, setErrMsg] = useState<string | null>(null);
+  const [cooldown, setCooldown] = useState(0);
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const id = setInterval(() => setCooldown((c) => Math.max(0, c - 1)), 1000);
+    return () => clearInterval(id);
+  }, [cooldown]);
+
+  async function sendCode(targetEmail: string) {
+    const supabase = createClient();
+    const { error } = await supabase.auth.signInWithOtp({
+      email: targetEmail,
+      options: { shouldCreateUser: true },
+    });
+    return error;
+  }
+
+  async function handleEmailSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const trimmed = email.trim();
     if (!trimmed) return;
     setStatus("sending");
     setErrMsg(null);
-    const supabase = createClient();
-    const { error } = await supabase.auth.signInWithOtp({
-      email: trimmed,
-      options: {
-        // Implicit flow → Supabase appends #access_token to this URL; the
-        // client-side callback page picks it up. Cross-browser safe.
-        emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
-        shouldCreateUser: true,
-      },
-    });
+    const error = await sendCode(trimmed);
     if (error) {
       setStatus("error");
       setErrMsg(error.message);
       return;
     }
-    setStatus("sent");
+    setStatus("idle");
+    setStep("code");
+    setCooldown(RESEND_COOLDOWN_SECONDS);
   }
 
-  if (status === "sent") {
+  async function handleResend() {
+    if (cooldown > 0) return;
+    setErrMsg(null);
+    const error = await sendCode(email);
+    if (error) {
+      setErrMsg(error.message);
+      return;
+    }
+    setCode(["", "", "", "", "", ""]);
+    setCooldown(RESEND_COOLDOWN_SECONDS);
+  }
+
+  async function verifyCode(fullCode: string) {
+    if (fullCode.length !== 6) return;
+    setStatus("verifying");
+    setErrMsg(null);
+    const supabase = createClient();
+    const { data, error } = await supabase.auth.verifyOtp({
+      email,
+      token: fullCode,
+      type: "email",
+    });
+    if (error || !data.session) {
+      setStatus("error");
+      setErrMsg("Невалиден или изтекъл код. Опитай отново.");
+      setCode(["", "", "", "", "", ""]);
+      return;
+    }
+    try {
+      const res = await fetch("/api/auth/sync", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ next }),
+      });
+      if (!res.ok) {
+        setStatus("error");
+        setErrMsg("Възникна грешка. Опитай отново.");
+        return;
+      }
+      const payload = (await res.json()) as { redirect: string };
+      router.replace(payload.redirect);
+    } catch {
+      setStatus("error");
+      setErrMsg("Възникна грешка. Опитай отново.");
+    }
+  }
+
+  if (step === "code") {
     return (
-      <div
-        role="status"
-        className="rounded-2xl border border-[color:var(--brand-pink)] bg-white px-5 py-7 text-center"
-      >
-        <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-[color:var(--brand-pink-soft)]">
-          <Mail className="h-5 w-5 text-[color:var(--brand-magenta)]" />
+      <div className="space-y-5">
+        <div className="text-center">
+          <h2 className="font-display text-base font-bold text-[color:var(--brand-ink)]">
+            Провери имейла си
+          </h2>
+          <p className="mt-2 text-sm leading-relaxed text-[color:var(--brand-purple)]/75">
+            Изпратихме 6-цифрен код на{" "}
+            <span className="font-semibold">{email}</span>. Въведи го по-долу.
+          </p>
         </div>
-        <h2 className="font-display text-base font-bold">Провери си имейла</h2>
-        <p className="mt-2 text-sm leading-relaxed text-[color:var(--brand-purple)]/75">
-          Изпратихме връзка за вход на <span className="font-semibold">{email}</span>.
-          Отвори имейла от телефона, на който искаш да влезеш.
-        </p>
+
+        <OtpInput
+          value={code}
+          onChange={setCode}
+          disabled={status === "verifying"}
+          onComplete={(full) => void verifyCode(full)}
+        />
+
         <button
           type="button"
-          onClick={() => {
-            setStatus("idle");
-            setErrMsg(null);
-          }}
-          className="mt-5 font-display text-[11px] font-bold uppercase tracking-wider text-[color:var(--brand-magenta)] underline-offset-4 hover:underline"
+          disabled={status === "verifying" || code.join("").length !== 6}
+          onClick={() => void verifyCode(code.join(""))}
+          className="flex min-h-12 w-full items-center justify-center rounded-2xl bg-[color:var(--brand-magenta)] px-5 py-3.5 font-display text-sm font-bold uppercase tracking-wider text-white transition-colors hover:bg-[color:var(--brand-purple)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--brand-magenta)] focus-visible:ring-offset-2 disabled:opacity-60 disabled:hover:bg-[color:var(--brand-magenta)]"
         >
-          Промени имейла
+          {status === "verifying" ? "Проверка…" : "Влез"}
         </button>
+
+        {errMsg && (
+          <p role="alert" className="text-center text-sm text-[color:var(--brand-magenta)]">
+            {errMsg}
+          </p>
+        )}
+
+        <div className="flex flex-col items-center gap-2 pt-2 text-center text-[11px] leading-relaxed text-[color:var(--brand-purple)]/65">
+          <span>Не получи код?</span>
+          {cooldown > 0 ? (
+            <span className="font-display font-bold uppercase tracking-wider text-[color:var(--brand-purple)]/40">
+              Изпрати отново след {cooldown} сек
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void handleResend()}
+              className="font-display text-[11px] font-bold uppercase tracking-wider text-[color:var(--brand-magenta)] underline-offset-4 hover:underline"
+            >
+              Изпрати отново
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              setStep("email");
+              setCode(["", "", "", "", "", ""]);
+              setErrMsg(null);
+              setStatus("idle");
+            }}
+            className="mt-1 font-display text-[11px] font-bold uppercase tracking-wider text-[color:var(--brand-purple)]/60 underline-offset-4 hover:underline"
+          >
+            Промени имейла
+          </button>
+        </div>
       </div>
     );
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleEmailSubmit} className="space-y-4">
+      <p className="text-sm leading-relaxed text-[color:var(--brand-purple)]/75">
+        Въведи имейла си, за да получиш код.
+      </p>
       <label className="block">
         <span className="block font-display text-[11px] font-bold uppercase tracking-wider text-[color:var(--brand-purple)]/70">
           Имейл
@@ -90,7 +196,7 @@ export function LoginForm() {
         disabled={status === "sending" || !email.trim()}
         className="flex min-h-12 w-full items-center justify-center rounded-2xl bg-[color:var(--brand-magenta)] px-5 py-3.5 font-display text-sm font-bold uppercase tracking-wider text-white transition-colors hover:bg-[color:var(--brand-purple)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--brand-magenta)] focus-visible:ring-offset-2 disabled:opacity-60 disabled:hover:bg-[color:var(--brand-magenta)]"
       >
-        {status === "sending" ? "Изпращане…" : "Изпрати връзка"}
+        {status === "sending" ? "Изпращане…" : "Изпрати код"}
       </button>
 
       {status === "error" && errMsg && (
@@ -106,20 +212,103 @@ export function LoginForm() {
   );
 }
 
-function Mail({ className = "" }: { className?: string }) {
+function OtpInput({
+  value,
+  onChange,
+  onComplete,
+  disabled,
+}: {
+  value: string[];
+  onChange: (next: string[]) => void;
+  onComplete: (full: string) => void;
+  disabled?: boolean;
+}) {
+  const refs = useRef<(HTMLInputElement | null)[]>([]);
+
+  useEffect(() => {
+    refs.current[0]?.focus();
+  }, []);
+
+  function setDigit(i: number, digit: string) {
+    const next = [...value];
+    next[i] = digit;
+    onChange(next);
+    if (digit && i < 5) refs.current[i + 1]?.focus();
+    const joined = next.join("");
+    if (joined.length === 6 && !next.includes("")) onComplete(joined);
+  }
+
+  function handleChange(i: number, raw: string) {
+    const digits = raw.replace(/\D/g, "");
+    if (digits.length <= 1) {
+      setDigit(i, digits);
+      return;
+    }
+    // Multiple digits pasted into a single box — distribute.
+    const next = [...value];
+    for (let j = 0; j < digits.length && i + j < 6; j++) {
+      next[i + j] = digits[j];
+    }
+    onChange(next);
+    const focusIdx = Math.min(5, i + digits.length);
+    refs.current[focusIdx]?.focus();
+    const joined = next.join("");
+    if (joined.length === 6 && !next.includes("")) onComplete(joined);
+  }
+
+  function handleKeyDown(i: number, e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Backspace" && !value[i] && i > 0) {
+      refs.current[i - 1]?.focus();
+      const next = [...value];
+      next[i - 1] = "";
+      onChange(next);
+      e.preventDefault();
+    } else if (e.key === "ArrowLeft" && i > 0) {
+      refs.current[i - 1]?.focus();
+      e.preventDefault();
+    } else if (e.key === "ArrowRight" && i < 5) {
+      refs.current[i + 1]?.focus();
+      e.preventDefault();
+    }
+  }
+
+  function handlePaste(e: React.ClipboardEvent<HTMLInputElement>) {
+    const text = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
+    if (!text) return;
+    e.preventDefault();
+    const next = ["", "", "", "", "", ""];
+    for (let j = 0; j < text.length; j++) next[j] = text[j];
+    onChange(next);
+    const focusIdx = Math.min(5, text.length);
+    refs.current[focusIdx]?.focus();
+    if (text.length === 6) onComplete(text);
+  }
+
   return (
-    <svg
-      viewBox="0 0 24 24"
-      aria-hidden
-      className={className}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="3" y="5" width="18" height="14" rx="2" />
-      <path d="M3 7l9 6 9-6" />
-    </svg>
+    <div className="flex justify-center gap-2" onPaste={handlePaste}>
+      {value.map((digit, i) => (
+        <input
+          key={i}
+          ref={(el) => {
+            refs.current[i] = el;
+          }}
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          autoComplete={i === 0 ? "one-time-code" : "off"}
+          maxLength={1}
+          value={digit}
+          onChange={(e) => handleChange(i, e.target.value)}
+          onKeyDown={(e) => handleKeyDown(i, e)}
+          disabled={disabled}
+          aria-label={`Цифра ${i + 1}`}
+          className={`h-14 w-12 rounded-xl border-2 bg-white text-center font-display text-2xl font-bold text-[color:var(--brand-ink)] focus:outline-none focus:ring-2 focus:ring-[color:var(--brand-magenta)]/30 disabled:opacity-60 ${
+            digit
+              ? "border-[color:var(--brand-magenta)]"
+              : "border-[color:var(--brand-pink)]/60"
+          }`}
+        />
+      ))}
+    </div>
   );
 }

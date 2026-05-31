@@ -4,9 +4,9 @@ import { syncUserFromSupabase } from "@/lib/auth/syncUser";
 import { prisma } from "@/lib/db";
 
 /**
- * Called by `/auth/callback` after the implicit-flow client establishes a
- * session. Upserts the FitLab User row and decides whether to send the user
- * to onboarding or their intended destination.
+ * Called by the login form after `verifyOtp` establishes a session. Upserts
+ * the FitLab User row and decides whether to send the user to onboarding or
+ * their intended destination.
  */
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as { next?: string };
