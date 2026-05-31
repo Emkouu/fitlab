@@ -109,12 +109,14 @@ export function ScheduleSurface({
               />
             </Link>
           </div>
-          <div className="absolute right-0 top-0 flex items-center gap-1">
-            {isAuthed && (
+          {isAuthed && (
+            <div className="absolute left-0 top-0">
               <NotificationBell initialUnreadCount={unreadNotificationCount} />
-            )}
-            {authChip}
-          </div>
+            </div>
+          )}
+          {authChip && (
+            <div className="absolute right-0 top-0">{authChip}</div>
+          )}
         </div>
         <Heartbeat className="mx-auto mt-2 h-3 w-40 opacity-90" />
       </header>

@@ -79,7 +79,7 @@ export function NotificationBell({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -6 }}
             transition={{ duration: 0.15 }}
-            className="absolute right-0 top-11 z-50 w-[320px] overflow-hidden rounded-2xl bg-white shadow-[0_20px_60px_-10px_rgba(123,45,142,0.35)] ring-1 ring-[color:var(--brand-pink)]/40"
+            className="absolute left-0 top-11 z-50 w-[320px] overflow-hidden rounded-2xl bg-white shadow-[0_20px_60px_-10px_rgba(123,45,142,0.35)] ring-1 ring-[color:var(--brand-pink)]/40"
           >
             <div className="flex items-center justify-between border-b border-[color:var(--brand-pink)]/40 px-4 py-3">
               <h3 className="font-display text-sm font-bold uppercase tracking-wider text-[color:var(--brand-ink)]">

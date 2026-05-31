@@ -4,6 +4,8 @@ import "./globals.css";
 import { prisma } from "@/lib/db";
 import { StickyPhoneButton } from "./_components/StickyPhoneButton";
 import { PageLoader } from "./_components/PageLoader";
+import { BottomNav } from "./_components/BottomNav";
+import { createClient } from "@/lib/supabase/server";
 
 // Display: Unbounded — variable, architectural energy, full Cyrillic support.
 // Body: Onest — refined contemporary sans, Cyrillic. Avoids the Inter/Geist
@@ -35,18 +37,39 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const studio = await prisma.studio.findUnique({
-    where: { slug: "fitlab-varna" },
-    select: { phone: true },
-  });
+  const [studio, supabase] = await Promise.all([
+    prisma.studio.findUnique({
+      where: { slug: "fitlab-varna" },
+      select: { phone: true },
+    }),
+    createClient(),
+  ]);
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  let unreadCount = 0;
+  if (user) {
+    const profile = await prisma.user.findUnique({
+      where: { supabaseUserId: user.id },
+      select: { id: true },
+    });
+    if (profile) {
+      unreadCount = await prisma.notification.count({
+        where: { userId: profile.id, read: false },
+      });
+    }
+  }
+
   return (
     <html
       lang="bg"
       className={`${unbounded.variable} ${onest.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">
+      <body className="min-h-full flex flex-col pb-16 md:pb-0">
         {children}
         {studio?.phone && <StickyPhoneButton phone={studio.phone} />}
+        <BottomNav unreadCount={unreadCount} />
         <PageLoader />
       </body>
     </html>

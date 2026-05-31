@@ -16,7 +16,7 @@ export function StickyPhoneButton({ phone }: StickyPhoneButtonProps) {
     <a
       href={telHref}
       aria-label={`Обади се: ${phone}`}
-      className="fixed bottom-6 right-6 z-40 inline-flex h-[52px] w-[52px] items-center justify-center rounded-full bg-[color:var(--brand-magenta)] text-white shadow-[0_4px_12px_rgba(0,0,0,0.15)] transition-transform hover:scale-[1.02] hover:bg-[color:var(--brand-purple)]"
+      className="fixed bottom-20 right-6 z-40 inline-flex h-[52px] w-[52px] items-center justify-center rounded-full bg-[color:var(--brand-magenta)] text-white shadow-[0_4px_12px_rgba(0,0,0,0.15)] transition-transform hover:scale-[1.02] hover:bg-[color:var(--brand-purple)] md:bottom-6"
     >
       <svg
         xmlns="http://www.w3.org/2000/svg"
