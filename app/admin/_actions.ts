@@ -36,6 +36,11 @@ import {
 } from "@/lib/validation/studioSettingsForm";
 import { generateSlug } from "@/lib/utils/slug";
 import { sofiaToUtc } from "@/lib/format/sofiaTime";
+import { sofiaDateKey } from "@/lib/format";
+import { generateRecurringDates } from "@/lib/schedule/generateRecurringDates";
+
+const MAX_RECURRENCE_CLASSES = 50;
+const MAX_RECURRENCE_RANGE_MS = 1000 * 60 * 60 * 24 * 31 * 3; // ~3 months
 
 export type CancelClassResult =
   | {
@@ -210,6 +215,7 @@ export type UpsertClassResult =
   | {
       ok: true;
       classId: string;
+      count: number;
       message: string;
     }
   | {
@@ -281,6 +287,113 @@ export async function upsertClassAction(
     // ─── Determine create vs update ──────────────────────────────────────
     const isCreate = !validatedInput.classId || validatedInput.classId === "";
 
+    // ─── Recurring path: only on create ──────────────────────────────────
+    if (isCreate && validatedInput.recurrence) {
+      const startKey = sofiaDateKey(validatedInput.date);
+      const { weekdays, endDate } = validatedInput.recurrence;
+
+      const startMs = new Date(`${startKey}T00:00:00Z`).getTime();
+      const endMs = new Date(`${endDate}T00:00:00Z`).getTime();
+      if (endMs < startMs) {
+        return {
+          ok: false as const,
+          reason: "validation_failed",
+          message: "Крайната дата трябва да е след началната.",
+        };
+      }
+      if (endMs - startMs > MAX_RECURRENCE_RANGE_MS) {
+        return {
+          ok: false as const,
+          reason: "validation_failed",
+          message: "Периодът не може да надвишава 3 месеца.",
+        };
+      }
+
+      const dateKeys = generateRecurringDates(startKey, endDate, weekdays);
+      if (dateKeys.length === 0) {
+        return {
+          ok: false as const,
+          reason: "validation_failed",
+          message: "Няма дати, които да съвпадат с избраните дни.",
+        };
+      }
+      if (dateKeys.length > MAX_RECURRENCE_CLASSES) {
+        return {
+          ok: false as const,
+          reason: "validation_failed",
+          message: `Прекалено много класове (${dateKeys.length}). Максимум ${MAX_RECURRENCE_CLASSES}.`,
+        };
+      }
+
+      const depositAmount = Math.round(
+        parseFloat(validatedInput.depositEur) * 100,
+      );
+      const earliest = new Date(Date.now() + 30 * 60 * 1000);
+
+      const created = await prisma.$transaction(async (tx) => {
+        const practice = await tx.practice.findUnique({
+          where: { id: validatedInput.practiceId },
+        });
+        if (!practice) throw new Error("PRACTICE_NOT_FOUND");
+
+        const trainers = await tx.trainer.findMany({
+          where: { id: { in: validatedInput.trainerIds } },
+        });
+        if (trainers.length !== validatedInput.trainerIds.length) {
+          throw new Error("TRAINER_NOT_FOUND");
+        }
+
+        const studio = await tx.studio.findUnique({
+          where: { slug: "fitlab-varna" },
+        });
+        if (!studio) throw new Error("STUDIO_NOT_FOUND");
+
+        const ids: string[] = [];
+        for (const key of dateKeys) {
+          const [y, m, d] = key.split("-").map(Number);
+          const startAt = sofiaToUtc(
+            new Date(Date.UTC(y, m - 1, d)),
+            validatedInput.time,
+          );
+          // Skip past dates to be safe.
+          if (startAt < earliest) continue;
+
+          const row = await tx.scheduledClass.create({
+            data: {
+              startAt,
+              durationMinutes: parseInt(validatedInput.duration, 10),
+              capacity: validatedInput.capacity,
+              depositAmount,
+              isSpecialEvent: validatedInput.isSpecialEvent,
+              eventNotes: validatedInput.eventNotes || null,
+              practiceId: validatedInput.practiceId,
+              studioId: studio.id,
+              trainers: {
+                connect: validatedInput.trainerIds.map((id) => ({ id })),
+              },
+            },
+          });
+          ids.push(row.id);
+        }
+        return ids;
+      });
+
+      if (created.length === 0) {
+        return {
+          ok: false as const,
+          reason: "validation_failed",
+          message: "Всички дати са в миналото.",
+        };
+      }
+
+      return {
+        ok: true as const,
+        classId: created[0],
+        count: created.length,
+        message: `Създадени са ${created.length} класа успешно.`,
+      };
+    }
+
     // ─── Transaction: upsert class + update trainers ─────────────────────
     const result = await prisma.$transaction(async (tx) => {
       // 1. Verify practice exists
@@ -345,6 +458,7 @@ export async function upsertClassAction(
     return {
       ok: true,
       classId: result.id,
+      count: 1,
       message: isCreate ? "Класът е създаден успешно." : "Класът е обновен успешно.",
     };
   } catch (error) {

@@ -43,6 +43,12 @@ export const classFormSchema = z
       ),
     isSpecialEvent: z.boolean().default(false),
     eventNotes: z.string().optional(),
+    recurrence: z
+      .object({
+        weekdays: z.array(z.number().int().min(0).max(6)).min(1),
+        endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      })
+      .optional(),
   })
   .superRefine((value, ctx) => {
     // Only meaningful if time has the expected shape; the field-level regex
