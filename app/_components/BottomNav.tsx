@@ -25,7 +25,7 @@ const TABS: Tab[] = [
   },
   {
     href: "/account",
-    label: "Моите",
+    label: "Профил",
     isActive: (p) => p.startsWith("/account"),
     Icon: PersonIcon,
   },

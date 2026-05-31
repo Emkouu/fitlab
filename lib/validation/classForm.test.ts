@@ -96,7 +96,7 @@ describe("classFormSchema", () => {
       expect(classFormSchema.safeParse(twoTrainers).success).toBe(true);
     });
 
-    it("should accept capacity between 1 and 30", () => {
+    it("should accept capacity between 1 and 50", () => {
       const input = {
         date: dayAfterTomorrow,
         time: "18:30",
@@ -105,7 +105,7 @@ describe("classFormSchema", () => {
         trainerIds: ["trainer1"],
         depositEur: "20.00",
       };
-      for (let cap = 1; cap <= 30; cap++) {
+      for (let cap = 1; cap <= 50; cap++) {
         const result = classFormSchema.safeParse({ ...input, capacity: cap });
         expect(result.success).toBe(true);
       }
@@ -227,7 +227,7 @@ describe("classFormSchema", () => {
       });
     });
 
-    it("should reject capacity < 1 or > 30", () => {
+    it("should reject capacity < 1 or > 50", () => {
       const input = {
         date: dayAfterTomorrow,
         time: "18:30",
@@ -237,7 +237,7 @@ describe("classFormSchema", () => {
         depositEur: "20.00",
       };
       expect(classFormSchema.safeParse({ ...input, capacity: 0 }).success).toBe(false);
-      expect(classFormSchema.safeParse({ ...input, capacity: 31 }).success).toBe(false);
+      expect(classFormSchema.safeParse({ ...input, capacity: 51 }).success).toBe(false);
       expect(classFormSchema.safeParse({ ...input, capacity: -1 }).success).toBe(false);
       expect(classFormSchema.safeParse({ ...input, capacity: 100 }).success).toBe(false);
     });

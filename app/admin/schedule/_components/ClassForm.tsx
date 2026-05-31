@@ -57,7 +57,7 @@ export function ClassForm({
       return {
         date: inputFormatToDate(defaultDateStr),
         time: "18:00",
-        duration: "90",
+        duration: "60",
         practiceId: "",
         trainerIds: [],
         capacity: 15,
@@ -330,7 +330,7 @@ export function ClassForm({
               {...field}
               type="number"
               min="1"
-              max="30"
+              max="50"
               value={field.value}
               onChange={(e) => field.onChange(Number(e.target.value))}
               className="mt-2 w-full rounded-lg border border-[color:var(--brand-purple)]/20 px-3 py-2.5 text-sm font-medium text-[color:var(--brand-ink)] placeholder-[color:var(--brand-purple)]/40 transition-all focus:border-[color:var(--brand-magenta)] focus:outline-none focus:ring-1 focus:ring-[color:var(--brand-magenta)]/30"

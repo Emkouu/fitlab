@@ -34,7 +34,7 @@ export const classFormSchema = z
       .number()
       .int("Capacity must be a whole number")
       .min(1, "Capacity must be at least 1")
-      .max(30, "Capacity cannot exceed 30"),
+      .max(50, "Capacity cannot exceed 50"),
     depositEur: z
       .string()
       .regex(
