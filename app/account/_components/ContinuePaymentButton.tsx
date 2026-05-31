@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { getCheckoutUrl } from "../_actions";
 import { Spinner } from "@/app/_components/Spinner";
+import { RedirectOverlay } from "@/app/_components/RedirectOverlay";
 
 type Props = {
   bookingId: string;
@@ -12,16 +13,20 @@ type Props = {
 
 export function ContinuePaymentButton({ bookingId, disabled = false, className = "" }: Props) {
   const [isPending, setIsPending] = useState(false);
+  const [isRedirecting, setIsRedirecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleClick = async () => {
     setError(null);
     setIsPending(true);
-    
+
     try {
       const result = await getCheckoutUrl(bookingId);
       if (result.ok && result.url) {
-        window.location.href = result.url;
+        setIsRedirecting(true);
+        const url = result.url;
+        await new Promise((r) => setTimeout(r, 300));
+        window.location.href = url;
       } else {
         setError("Неуспешно зареждане на плащането. Опитай отново.");
         setIsPending(false);
@@ -34,6 +39,7 @@ export function ContinuePaymentButton({ bookingId, disabled = false, className =
 
   return (
     <div className="space-y-2">
+      {isRedirecting && <RedirectOverlay />}
       {error && (
         <p className="text-xs text-red-600">{error}</p>
       )}

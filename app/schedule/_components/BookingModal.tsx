@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { formatEurMinor, formatSofiaDay, formatSofiaTime } from "@/lib/format";
 import { bookClassAction } from "../_actions";
 import { Spinner } from "@/app/_components/Spinner";
+import { RedirectOverlay } from "@/app/_components/RedirectOverlay";
 import type { ClassCardRow } from "./ClassCard";
 
 type Source = "card" | "onsite_deposit" | "balance";
@@ -14,6 +15,7 @@ type Phase =
    | { kind: "form" }
    | { kind: "submitting" }
    | { kind: "success" }
+   | { kind: "redirecting" }
    | { kind: "error"; message: string; reason: string };
 
 /**
@@ -86,7 +88,10 @@ export function BookingModal({
       if (result.ok) {
         // Card path returns redirectTo → hand off to Stripe Checkout.
         if (result.redirectTo) {
-          window.location.href = result.redirectTo;
+          setPhase({ kind: "redirecting" });
+          const url = result.redirectTo;
+          await new Promise((r) => setTimeout(r, 300));
+          window.location.href = url;
           return;
         }
         // On-site path: just show success + close.
@@ -111,6 +116,8 @@ export function BookingModal({
   }
 
   return (
+    <>
+    {phase.kind === "redirecting" && <RedirectOverlay />}
     <dialog
       ref={dialogRef}
       onClick={handleBackdropClick}
@@ -233,6 +240,7 @@ export function BookingModal({
         </div>
       )}
     </dialog>
+    </>
   );
 }
 
