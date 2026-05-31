@@ -23,7 +23,8 @@ export function LoginForm() {
     const { error } = await supabase.auth.signInWithOtp({
       email: trimmed,
       options: {
-        // Supabase will append #access_token, but our server callback uses ?code=...
+        // Implicit flow → Supabase appends #access_token to this URL; the
+        // client-side callback page picks it up. Cross-browser safe.
         emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
         shouldCreateUser: true,
       },
