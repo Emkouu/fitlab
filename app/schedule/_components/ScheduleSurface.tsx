@@ -11,6 +11,7 @@ import { MonthView } from "./MonthView";
 import { BookingModal } from "./BookingModal";
 import { ClassInfoModal } from "./ClassInfoModal";
 import { PaymentBanner } from "./PaymentBanner";
+import { NotificationBell } from "./NotificationPanel";
 import type { ClassCardRow } from "./ClassCard";
 
 type View = "list" | "month";
@@ -24,6 +25,8 @@ export function ScheduleSurface({
   isAuthed,
   userBalance = 0,
   bookedClassIds = [],
+  waitlistedClassIds = [],
+  unreadNotificationCount = 0,
 }: {
   agendaDays: DayBucket[];
   /** Current Sofia year for the initial Месец view. */
@@ -41,8 +44,13 @@ export function ScheduleSurface({
   userBalance?: number;
   /** Scheduled-class ids the logged-in user has an active booking for. */
   bookedClassIds?: string[];
+  /** Scheduled-class ids the user is already on the waitlist for. */
+  waitlistedClassIds?: string[];
+  /** Unread notification count for the bell badge. */
+  unreadNotificationCount?: number;
 }) {
   const bookedSet = new Set(bookedClassIds);
+  const waitlistedSet = new Set(waitlistedClassIds);
   const router = useRouter();
   const searchParams = useSearchParams();
   const [view, setView] = useState<View>("list");
@@ -101,9 +109,12 @@ export function ScheduleSurface({
               />
             </Link>
           </div>
-          {authChip && (
-            <div className="absolute right-0 top-0">{authChip}</div>
-          )}
+          <div className="absolute right-0 top-0 flex items-center gap-1">
+            {isAuthed && (
+              <NotificationBell initialUnreadCount={unreadNotificationCount} />
+            )}
+            {authChip}
+          </div>
         </div>
         <Heartbeat className="mx-auto mt-2 h-3 w-40 opacity-90" />
       </header>
@@ -170,6 +181,7 @@ export function ScheduleSurface({
         onBook={handleBook}
         isAuthed={isAuthed}
         isBooked={infoClass ? bookedSet.has(infoClass.id) : false}
+        isWaitlisted={infoClass ? waitlistedSet.has(infoClass.id) : false}
       />
     </main>
   );

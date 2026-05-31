@@ -208,3 +208,147 @@ export async function bookClassAction(input: {
   revalidatePath("/schedule");
   return { ok: true, bookingId: r.booking.id };
 }
+
+/* ────────────────────── Waitlist + notifications ────────────────────── */
+
+export type JoinWaitlistResult =
+  | { ok: true; message: string }
+  | { ok: false; message: string };
+
+/**
+ * Add the current user to the waitlist for a class. Re-validates that the
+ * class is actually full and that the user doesn't already have an active
+ * booking — never trust the client.
+ */
+export async function joinWaitlistAction(
+  scheduledClassId: string,
+): Promise<JoinWaitlistResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, message: "Влез, за да се запишеш в списъка." };
+
+  const profile = await prisma.user.findUnique({
+    where: { supabaseUserId: user.id },
+    select: { id: true },
+  });
+  if (!profile) return { ok: false, message: "Профилът ти не е готов." };
+
+  const cls = await prisma.scheduledClass.findUnique({
+    where: { id: scheduledClassId },
+    select: {
+      id: true,
+      capacity: true,
+      cancelledAt: true,
+      startAt: true,
+      _count: {
+        select: {
+          bookings: { where: { status: { in: ACTIVE_STATUSES } } },
+        },
+      },
+    },
+  });
+  if (!cls || cls.cancelledAt) {
+    return { ok: false, message: "Класът не е намерен." };
+  }
+  if (cls.startAt.getTime() < Date.now()) {
+    return { ok: false, message: "Класът вече е започнал." };
+  }
+  const remaining = cls.capacity - cls._count.bookings;
+  if (remaining > 0) {
+    return { ok: false, message: "Класът има свободно място — запиши се директно." };
+  }
+
+  const existingBooking = await prisma.booking.findFirst({
+    where: {
+      userId: profile.id,
+      scheduledClassId,
+      status: { in: ACTIVE_STATUSES },
+    },
+    select: { id: true },
+  });
+  if (existingBooking) {
+    return { ok: false, message: "Вече си записан/а за този клас." };
+  }
+
+  try {
+    await prisma.waitlist.upsert({
+      where: {
+        userId_scheduledClassId: { userId: profile.id, scheduledClassId },
+      },
+      update: {},
+      create: { userId: profile.id, scheduledClassId },
+    });
+  } catch (err) {
+    console.error("[joinWaitlist] failed", err);
+    return { ok: false, message: "Грешка. Опитай отново." };
+  }
+
+  revalidatePath("/schedule");
+  return { ok: true, message: "Ще те уведомим, когато се освободи място." };
+}
+
+export type NotificationRow = {
+  id: string;
+  type: string;
+  message: string;
+  scheduledClassId: string | null;
+  read: boolean;
+  createdAt: string;
+};
+
+/** Returns the 20 most recent notifications for the current user. */
+export async function getNotificationsAction(): Promise<NotificationRow[]> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const profile = await prisma.user.findUnique({
+    where: { supabaseUserId: user.id },
+    select: { id: true },
+  });
+  if (!profile) return [];
+
+  const rows = await prisma.notification.findMany({
+    where: { userId: profile.id },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    type: r.type,
+    message: r.message,
+    scheduledClassId: r.scheduledClassId,
+    read: r.read,
+    createdAt: r.createdAt.toISOString(),
+  }));
+}
+
+/** Mark a set of notifications as read for the current user. */
+export async function markNotificationsReadAction(
+  notificationIds: string[],
+): Promise<{ ok: boolean }> {
+  if (notificationIds.length === 0) return { ok: true };
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false };
+
+  const profile = await prisma.user.findUnique({
+    where: { supabaseUserId: user.id },
+    select: { id: true },
+  });
+  if (!profile) return { ok: false };
+
+  await prisma.notification.updateMany({
+    where: { id: { in: notificationIds }, userId: profile.id },
+    data: { read: true },
+  });
+  revalidatePath("/schedule");
+  return { ok: true };
+}

@@ -80,6 +80,8 @@ export default async function SchedulePage() {
   // Fetch user's deposit balance + active upcoming bookings if authenticated
   let userBalance = 0;
   let bookedClassIds: string[] = [];
+  let waitlistedClassIds: string[] = [];
+  let unreadNotificationCount = 0;
   if (user) {
     const fitlabUser = await prisma.user.findUnique({
       where: { supabaseUserId: user.id },
@@ -88,15 +90,29 @@ export default async function SchedulePage() {
     userBalance = fitlabUser?.depositBalance ?? 0;
 
     if (fitlabUser) {
-      const bookings = await prisma.booking.findMany({
-        where: {
-          userId: fitlabUser.id,
-          status: { in: ACTIVE_STATUSES },
-          scheduledClass: { startAt: { gte: new Date() } },
-        },
-        select: { scheduledClassId: true },
-      });
+      const [bookings, waitlistRows, unread] = await Promise.all([
+        prisma.booking.findMany({
+          where: {
+            userId: fitlabUser.id,
+            status: { in: ACTIVE_STATUSES },
+            scheduledClass: { startAt: { gte: new Date() } },
+          },
+          select: { scheduledClassId: true },
+        }),
+        prisma.waitlist.findMany({
+          where: {
+            userId: fitlabUser.id,
+            scheduledClass: { startAt: { gte: new Date() }, cancelledAt: null },
+          },
+          select: { scheduledClassId: true },
+        }),
+        prisma.notification.count({
+          where: { userId: fitlabUser.id, read: false },
+        }),
+      ]);
       bookedClassIds = bookings.map((b) => b.scheduledClassId);
+      waitlistedClassIds = waitlistRows.map((w) => w.scheduledClassId);
+      unreadNotificationCount = unread;
     }
   }
 
@@ -110,6 +126,8 @@ export default async function SchedulePage() {
       isAuthed={!!user}
       userBalance={userBalance}
       bookedClassIds={bookedClassIds}
+      waitlistedClassIds={waitlistedClassIds}
+      unreadNotificationCount={unreadNotificationCount}
     />
   );
 }

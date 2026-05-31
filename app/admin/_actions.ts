@@ -11,6 +11,7 @@ import {
 } from "@/lib/generated/prisma/enums";
 import { getAdminUser } from "@/lib/auth/getAdminUser";
 import { ACTIVE_BOOKING_STATUSES, cancelBooking } from "@/lib/booking";
+import { notifyWaitlist } from "@/lib/notifications/notifyWaitlist";
 import {
   classFormSchema,
   type ClassFormInput,
@@ -791,6 +792,13 @@ export async function adminCancelBookingAction(
   console.log(
     `[admin-audit] adminCancelBooking by=${admin.id} booking=${bookingId} override=${overrideRefund} forfeited=${result.depositForfeited} refunded=${refundedToBalance}`,
   );
+
+  // Spot just opened up — walk the waitlist.
+  try {
+    await notifyWaitlist(booking.scheduledClassId);
+  } catch (err) {
+    console.error("[adminCancelBooking] notifyWaitlist failed", err);
+  }
 
   revalidatePath(`/admin/clients/${booking.userId}`);
   revalidatePath("/admin/clients");

@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { motion } from "framer-motion";
 import { formatEurMinor, formatSofiaDay, formatSofiaTime } from "@/lib/format";
 import type { ClassCardRow } from "./ClassCard";
+import { joinWaitlistAction } from "../_actions";
 
 /**
  * Read-only "Информация за класа" modal — opens when the user taps anywhere
@@ -19,12 +20,14 @@ export function ClassInfoModal({
   onBook,
   isAuthed,
   isBooked,
+  isWaitlisted = false,
 }: {
   row: ClassCardRow | null;
   onClose: () => void;
   onBook: (row: ClassCardRow) => void;
   isAuthed: boolean;
   isBooked: boolean;
+  isWaitlisted?: boolean;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
 
@@ -59,7 +62,7 @@ export function ClassInfoModal({
       aria-labelledby="class-info-title"
       className="m-auto w-[calc(100%-2rem)] max-w-[400px] rounded-3xl border-none bg-white p-0 text-[color:var(--brand-ink)] shadow-[0_20px_60px_-10px_rgba(123,45,142,0.35)] backdrop:bg-[rgba(42,14,46,0.55)] backdrop:backdrop-blur-sm"
     >
-      {row && <Body row={row} onClose={() => dialogRef.current?.close()} onBook={onBook} isAuthed={isAuthed} isBooked={isBooked} />}
+      {row && <Body row={row} onClose={() => dialogRef.current?.close()} onBook={onBook} isAuthed={isAuthed} isBooked={isBooked} isWaitlisted={isWaitlisted} />}
     </dialog>
   );
 }
@@ -70,13 +73,27 @@ function Body({
   onBook,
   isAuthed,
   isBooked,
+  isWaitlisted,
 }: {
   row: ClassCardRow;
   onClose: () => void;
   onBook: (row: ClassCardRow) => void;
   isAuthed: boolean;
   isBooked: boolean;
+  isWaitlisted: boolean;
 }) {
+  const [waitlistJoined, setWaitlistJoined] = useState(isWaitlisted);
+  const [waitlistError, setWaitlistError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  function handleJoinWaitlist() {
+    setWaitlistError(null);
+    startTransition(async () => {
+      const r = await joinWaitlistAction(row.id);
+      if (r.ok) setWaitlistJoined(true);
+      else setWaitlistError(r.message);
+    });
+  }
   const startAt =
     typeof row.startAt === "string" ? new Date(row.startAt) : row.startAt;
   const isPast = startAt.getTime() < Date.now();
@@ -166,8 +183,33 @@ function Body({
             Записан ✓
           </div>
         ) : full ? (
-          <div className="flex min-h-12 w-full items-center justify-center rounded-2xl bg-[color:var(--brand-pink-soft)] px-5 py-3.5 font-display text-sm font-bold uppercase tracking-wider text-[color:var(--brand-magenta)]/80">
-            Класът е пълен
+          <div className="space-y-3">
+            <div className="flex min-h-12 w-full items-center justify-center rounded-2xl bg-[color:var(--brand-pink-soft)] px-5 py-3.5 font-display text-sm font-bold uppercase tracking-wider text-[color:var(--brand-magenta)]/80">
+              Класът е пълен
+            </div>
+            {!isAuthed ? (
+              <p className="text-center text-xs text-[color:var(--brand-purple)]/70">
+                Влез за да се запишеш в списъка
+              </p>
+            ) : waitlistJoined ? (
+              <div className="flex min-h-12 w-full items-center justify-center rounded-2xl bg-[color:var(--brand-pink-soft)]/60 px-5 py-3.5 font-display text-sm font-bold uppercase tracking-wider text-[color:var(--brand-purple)]/60">
+                ✓ Ще те уведомим
+              </div>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={handleJoinWaitlist}
+                  disabled={pending}
+                  className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border-2 border-[color:var(--brand-magenta)] bg-white px-5 py-3.5 font-display text-sm font-bold uppercase tracking-wider text-[color:var(--brand-magenta)] transition-colors hover:bg-[color:var(--brand-pink-soft)] disabled:opacity-60"
+                >
+                  {pending ? "Записване…" : "🔔 Увеми ме при свободно място"}
+                </button>
+                {waitlistError && (
+                  <p className="text-center text-xs text-red-600">{waitlistError}</p>
+                )}
+              </>
+            )}
           </div>
         ) : (
           <button

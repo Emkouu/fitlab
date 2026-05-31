@@ -47,6 +47,13 @@ enum PaymentStatus {
   failed
 }
 
+enum NotificationType {
+  spot_available
+  class_cancelled
+  reminder_24h
+  reminder_2h
+}
+
 // ─── Core ──────────────────────────────────────────────────────────────────────
 
 model Studio {
@@ -117,6 +124,8 @@ model ScheduledClass {
 
   trainers        Trainer[] @relation("ClassTrainers")
   bookings        Booking[]
+  waitlist        Waitlist[]
+  notifications   Notification[]
 
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -192,6 +201,8 @@ model User {
   depositBalance  Int       @default(0)
 
   bookings        Booking[]
+  waitlist        Waitlist[]
+  notifications   Notification[]
 
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -207,13 +218,31 @@ model Membership {
 }
 
 model Waitlist {
-  id        String   @id @default(cuid())
-  createdAt DateTime @default(now())
+  id               String         @id @default(cuid())
+  userId           String
+  user             User           @relation(fields: [userId], references: [id])
+  scheduledClassId String
+  scheduledClass   ScheduledClass @relation(fields: [scheduledClassId], references: [id])
+  createdAt        DateTime       @default(now())
+  /// When we sent the spot_available notification (NULL = not yet notified).
+  notifiedAt       DateTime?
+
+  @@unique([userId, scheduledClassId])
+  @@index([scheduledClassId, notifiedAt])
 }
 
 model Notification {
-  id        String   @id @default(cuid())
-  createdAt DateTime @default(now())
+  id               String           @id @default(cuid())
+  userId           String
+  user             User             @relation(fields: [userId], references: [id])
+  type             NotificationType
+  message          String
+  scheduledClassId String?
+  scheduledClass   ScheduledClass?  @relation(fields: [scheduledClassId], references: [id])
+  read             Boolean          @default(false)
+  createdAt        DateTime         @default(now())
+
+  @@index([userId, read, createdAt])
 }
 
 model RecurringRule {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/db";
 import { cancelBooking } from "@/lib/booking/engine";
+import { notifyWaitlist } from "@/lib/notifications/notifyWaitlist";
 
 /**
  * POST /api/bookings/[id]/cancel
@@ -85,6 +86,13 @@ export async function POST(
         },
       });
     }
+  }
+
+  // Spot just opened up — walk the waitlist (best effort, never blocks).
+  try {
+    await notifyWaitlist(booking.scheduledClassId);
+  } catch (err) {
+    console.error("[cancel] notifyWaitlist failed", err);
   }
 
   // Return the verdict
