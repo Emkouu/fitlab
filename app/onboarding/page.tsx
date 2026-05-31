@@ -7,7 +7,7 @@ import { Heartbeat } from "@/app/_components/Heartbeat";
 import { OnboardingForm } from "./_components/OnboardingForm";
 
 export const metadata = {
-  title: "FitLab Varna — Добре дошъл/а",
+  title: "FitLab Varna — Добре дошли",
 };
 
 export const dynamic = "force-dynamic";
@@ -55,7 +55,7 @@ export default async function OnboardingPage({
 
       <div className="mb-7 text-center">
         <h1 className="font-display text-2xl font-bold tracking-tight">
-          Добре дошъл/а! 👋
+          Добре дошли! 👋
         </h1>
         <p className="mt-2 text-sm leading-relaxed text-[color:var(--brand-purple)]/70">
           Преди да продължиш, кажи ни малко за себе си.

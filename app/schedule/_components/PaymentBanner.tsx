@@ -52,7 +52,7 @@ export function PaymentBanner() {
         </p>
         <p className="mt-0.5 text-[12px] leading-relaxed text-[color:var(--brand-purple)]/70">
           {phase === "paid"
-            ? "Депозитът е удържан. Записването ти е потвърдено."
+            ? "Депозитът е зареден, мястото е успешно запазено."
             : "Можеш да опиташ отново — спотът ти все още е запазен до края на деня."}
         </p>
       </div>

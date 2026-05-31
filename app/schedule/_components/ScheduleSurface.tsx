@@ -16,6 +16,8 @@ import type { ClassCardRow } from "./ClassCard";
 
 type View = "list" | "month";
 
+export type PracticeOption = { id: string; name: string };
+
 export function ScheduleSurface({
   agendaDays,
   monthYear,
@@ -27,27 +29,19 @@ export function ScheduleSurface({
   bookedClassIds = [],
   waitlistedClassIds = [],
   unreadNotificationCount = 0,
+  practices = [],
 }: {
   agendaDays: DayBucket[];
-  /** Current Sofia year for the initial Месец view. */
   monthYear: number;
-  /** Current Sofia month (0-indexed) for the initial Месец view. */
   monthIndex: number;
-  /** Pre-fetched classes for the initial month, keyed by Sofia date. */
   monthData: Record<string, ClassCardRow[]>;
-  /** Server-rendered auth status chip (Вход / Профил). */
   authChip?: React.ReactNode;
-  /** Server-computed auth state. Drives the „Избор" branch: open modal
-   *  if true, redirect to /login otherwise. */
   isAuthed: boolean;
-  /** User's deposit balance in EUR cents. */
   userBalance?: number;
-  /** Scheduled-class ids the logged-in user has an active booking for. */
   bookedClassIds?: string[];
-  /** Scheduled-class ids the user is already on the waitlist for. */
   waitlistedClassIds?: string[];
-  /** Unread notification count for the bell badge. */
   unreadNotificationCount?: number;
+  practices?: PracticeOption[];
 }) {
   const bookedSet = new Set(bookedClassIds);
   const waitlistedSet = new Set(waitlistedClassIds);
@@ -56,6 +50,19 @@ export function ScheduleSurface({
   const [view, setView] = useState<View>("list");
   const [openClass, setOpenClass] = useState<ClassCardRow | null>(null);
   const [infoClass, setInfoClass] = useState<ClassCardRow | null>(null);
+  const [practiceFilter, setPracticeFilter] = useState<string | null>(null);
+
+  // Apply practice filter to agenda buckets: drop non-matching rows and any
+  // day that ends up empty.
+  const filteredAgendaDays = practiceFilter
+    ? agendaDays
+        .map((d) => ({
+          ...d,
+          rows: d.rows.filter((r) => r.practiceId === practiceFilter),
+        }))
+        .filter((d) => d.rows.length > 0)
+    : agendaDays;
+
 
   /** Flat index for lookup by id (resume-after-login + future deep-links). */
   const rowsById = (() => {
@@ -125,9 +132,18 @@ export function ScheduleSurface({
       <PaymentBanner />
 
       {/* ─── Toggle ───────────────────────────────────────────── */}
-      <div className="mb-6 flex items-center justify-center">
+      <div className="mb-4 flex items-center justify-center">
         <ViewToggle value={view} onChange={setView} />
       </div>
+
+      {/* ─── Practice filter pills ───────────────────────────── */}
+      {practices.length > 0 && (
+        <PracticePills
+          practices={practices}
+          value={practiceFilter}
+          onChange={setPracticeFilter}
+        />
+      )}
 
       {/* ─── Title row ────────────────────────────────────────── */}
       <div className="mb-5 flex items-baseline justify-between">
@@ -153,7 +169,7 @@ export function ScheduleSurface({
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
           >
-            <AgendaView days={agendaDays} onBook={handleBook} onInfo={setInfoClass} bookedClassIds={bookedSet} />
+            <AgendaView days={filteredAgendaDays} onBook={handleBook} onInfo={setInfoClass} bookedClassIds={bookedSet} />
           </motion.div>
         ) : (
           <motion.div
@@ -170,6 +186,7 @@ export function ScheduleSurface({
               onBook={handleBook}
               onInfo={setInfoClass}
               bookedClassIds={bookedSet}
+              practiceFilter={practiceFilter}
             />
           </motion.div>
         )}
@@ -186,6 +203,56 @@ export function ScheduleSurface({
         isWaitlisted={infoClass ? waitlistedSet.has(infoClass.id) : false}
       />
     </main>
+  );
+}
+
+function PracticePills({
+  practices,
+  value,
+  onChange,
+}: {
+  practices: PracticeOption[];
+  value: string | null;
+  onChange: (v: string | null) => void;
+}) {
+  return (
+    <div
+      className="-mx-5 mb-4 flex gap-2 overflow-x-auto px-5 pb-1 md:mx-0 md:px-0"
+      style={{ scrollbarWidth: "none" }}
+    >
+      <Pill selected={value === null} onClick={() => onChange(null)}>
+        Всички
+      </Pill>
+      {practices.map((p) => (
+        <Pill key={p.id} selected={value === p.id} onClick={() => onChange(p.id)}>
+          {p.name}
+        </Pill>
+      ))}
+    </div>
+  );
+}
+
+function Pill({
+  selected,
+  onClick,
+  children,
+}: {
+  selected: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`shrink-0 whitespace-nowrap rounded-full border px-3.5 py-1.5 font-display text-[11px] font-bold uppercase tracking-wider transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--brand-magenta)] focus-visible:ring-offset-2 ${
+        selected
+          ? "border-[color:var(--brand-magenta)] bg-[color:var(--brand-magenta)] text-white"
+          : "border-[color:var(--brand-magenta)] bg-white text-[color:var(--brand-magenta)] hover:bg-[color:var(--brand-pink-soft)]"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 
