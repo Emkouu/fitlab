@@ -3,7 +3,7 @@ import { sofiaDateKey } from "@/lib/format";
 import { BookingStatus } from "@/lib/generated/prisma/enums";
 import { AuthChip } from "@/app/_components/AuthChip";
 import { createClient } from "@/lib/supabase/server";
-import { ScheduleSurface } from "./_components/ScheduleSurface";
+import { ScheduleSurface, type PracticeOption } from "./_components/ScheduleSurface";
 import { getClassesForMonth } from "./_actions";
 import type { DayBucket } from "./_components/AgendaView";
 import type { ClassCardRow } from "./_components/ClassCard";
@@ -68,10 +68,14 @@ function currentSofiaMonth(): { year: number; month: number } {
 
 export default async function SchedulePage() {
   const { year, month } = currentSofiaMonth();
-  const [rows, supabase, monthData] = await Promise.all([
+  const [rows, supabase, monthData, practices] = await Promise.all([
     loadUpcoming(),
     createClient(),
     getClassesForMonth(year, month),
+    prisma.practice.findMany({
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }) as Promise<PracticeOption[]>,
   ]);
   const {
     data: { user },
@@ -128,6 +132,7 @@ export default async function SchedulePage() {
       bookedClassIds={bookedClassIds}
       waitlistedClassIds={waitlistedClassIds}
       unreadNotificationCount={unreadNotificationCount}
+      practices={practices}
     />
   );
 }

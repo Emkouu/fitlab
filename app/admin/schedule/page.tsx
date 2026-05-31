@@ -4,7 +4,7 @@ import { getAdminUser } from "@/lib/auth/getAdminUser";
 import { ACTIVE_BOOKING_STATUSES } from "@/lib/booking";
 import Image from "next/image";
 import Link from "next/link";
-import { ScheduleList } from "./_components/ScheduleList";
+import { AdminScheduleSurface } from "./_components/AdminScheduleSurface";
 import { AdminBreadcrumb } from "../_components/AdminBreadcrumb";
 
 export const metadata = { title: "FitLab Varna — Admin Schedule" };
@@ -77,7 +77,7 @@ export default async function AdminSchedulePage() {
         </p>
       </div>
 
-      <ScheduleList classes={classes} />
+      <AdminScheduleSurface classes={classes} />
     </main>
   );
 }

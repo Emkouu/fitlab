@@ -26,6 +26,7 @@ export function MonthView({
   onBook,
   onInfo,
   bookedClassIds,
+  practiceFilter = null,
 }: {
   initialYear: number;
   initialMonth: number; // 0-indexed
@@ -33,6 +34,9 @@ export function MonthView({
   onBook: (row: ClassCardRow) => void;
   onInfo?: (row: ClassCardRow) => void;
   bookedClassIds?: Set<string>;
+  /** When non-null, only show classes for this practiceId. Dots and the
+   *  selected-day rows reflect the filter. */
+  practiceFilter?: string | null;
 }) {
   const [year, setYear] = useState(initialYear);
   const [month, setMonth] = useState(initialMonth);
@@ -56,7 +60,17 @@ export function MonthView({
 
   const cells = buildMonthGrid(year, month);
   const todayKey = sofiaDateKey(new Date());
-  const selectedRows = selectedKey ? data[selectedKey] ?? [] : [];
+
+  // Apply practice filter to both the dots map and the selected-day rows.
+  const filteredData = practiceFilter
+    ? Object.fromEntries(
+        Object.entries(data).map(([k, rows]) => [
+          k,
+          rows.filter((r) => r.practiceId === practiceFilter),
+        ]),
+      )
+    : data;
+  const selectedRows = selectedKey ? filteredData[selectedKey] ?? [] : [];
 
   function prevMonth() {
     if (month === 0) {
@@ -126,8 +140,8 @@ export function MonthView({
               isToday={cell.key === todayKey}
               isPast={cell.key < todayKey}
               isSelected={cell.key === selectedKey}
-              hasClasses={(data[cell.key]?.length ?? 0) > 0}
-              count={data[cell.key]?.length ?? 0}
+              hasClasses={(filteredData[cell.key]?.length ?? 0) > 0}
+              count={filteredData[cell.key]?.length ?? 0}
               onSelect={() => setSelectedKey(cell.key)}
             />
           ))}

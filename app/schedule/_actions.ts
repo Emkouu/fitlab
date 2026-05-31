@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/db";
 import { createBooking } from "@/lib/booking";
 import { createCheckoutForBooking } from "@/lib/payments/createCheckoutForBooking";
+import { sendBookingConfirmationEmail } from "@/lib/email/sendBookingConfirmationEmail";
 import { BookingSource, BookingStatus } from "@/lib/generated/prisma/enums";
 import { sofiaDateKey } from "@/lib/format";
 import type { ClassCardRow } from "./_components/ClassCard";
@@ -204,7 +205,9 @@ export async function bookClassAction(input: {
     }
   }
 
-  // 5. On-site path — booking is `pending_deposit`, nothing else to do.
+  // 5. Balance / on-site path — send confirmation email now (card path
+  //    waits for the Stripe webhook to flip to `paid` before notifying).
+  await sendBookingConfirmationEmail(r.booking.id);
   revalidatePath("/schedule");
   return { ok: true, bookingId: r.booking.id };
 }

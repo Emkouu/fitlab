@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Booking, ScheduledClass } from "@/lib/generated/prisma/client";
 import { BookingCard } from "./BookingCard";
@@ -77,13 +78,30 @@ export function BookingsList({ upcomingBookings, pastBookings }: Props) {
 
       {/* Content */}
       {isEmpty ? (
-        <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-8 text-center">
-          <p className="text-sm text-gray-600">
-            {activeTab === "upcoming"
-              ? "Нямаш предстоящи резервации."
-              : "Нямаш минали резервации."}
+        activeTab === "upcoming" ? (
+          <div className="rounded-2xl bg-[#FFF0F8] px-5 py-8 text-center">
+            <p className="text-3xl" aria-hidden>
+              🏃‍♀️
+            </p>
+            <p className="mt-3 font-display text-base font-bold text-[color:var(--brand-ink)]">
+              Все още нямаш запазени тренировки
+            </p>
+            <p className="mt-2 text-sm leading-relaxed text-[color:var(--brand-purple)]/75">
+              Разгледай графика и запази първата си тренировка —
+              депозитът се връща при навременна отмяна.
+            </p>
+            <Link
+              href="/schedule"
+              className="mt-5 flex min-h-12 w-full items-center justify-center rounded-2xl bg-[color:var(--brand-magenta)] px-5 py-3.5 font-display text-sm font-bold uppercase tracking-wider text-white transition-colors hover:bg-[color:var(--brand-purple)]"
+            >
+              Виж графика →
+            </Link>
+          </div>
+        ) : (
+          <p className="px-1 py-4 text-sm text-[color:var(--brand-purple)]/65">
+            Все още нямаш минали тренировки.
           </p>
-        </div>
+        )
       ) : (
         <div className="space-y-3">
           {bookings.map((booking) => (

@@ -14,6 +14,7 @@ export type ClassCardRow = {
   eventNotes: string | null;
   depositAmount: number;
   cancelledAt: Date | string | null;
+  practiceId: string;
   practice: { name: string; description: string | null };
   trainers: { name: string }[];
   studio: { name: string; cancelWindowHours: number };

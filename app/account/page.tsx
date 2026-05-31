@@ -93,6 +93,11 @@ export default async function AccountPage() {
       </header>
 
       <div className="mb-6">
+        {profile?.fullName && (
+          <p className="mb-1 font-display text-lg font-bold text-[color:var(--brand-magenta)]">
+            Здравей, {profile.fullName.split(" ")[0]}! 👋
+          </p>
+        )}
         <h1 className="font-display text-2xl font-bold tracking-tight">Профил</h1>
         <p className="mt-2 text-sm text-[color:var(--brand-purple)]/70">
           Влязъл/а си във FitLab Varna.
@@ -122,18 +127,17 @@ export default async function AccountPage() {
         </Link>
       )}
 
-      {/* Bookings section */}
-      {(upcomingBookings.length > 0 || pastBookings.length > 0) && (
-        <div className="mb-8">
-          <h2 className="mb-4 font-display text-lg font-bold tracking-tight">
-            Резервации
-          </h2>
-          <BookingsList
-            upcomingBookings={upcomingBookings}
-            pastBookings={pastBookings}
-          />
-        </div>
-      )}
+      {/* Bookings section — always rendered so the empty state can guide
+          new users to the schedule. */}
+      <div className="mb-8">
+        <h2 className="mb-4 font-display text-lg font-bold tracking-tight">
+          Резервации
+        </h2>
+        <BookingsList
+          upcomingBookings={upcomingBookings}
+          pastBookings={pastBookings}
+        />
+      </div>
 
       {/* Payment history section */}
       {payments.length > 0 && (
