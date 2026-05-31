@@ -48,7 +48,7 @@ export function PaymentBanner() {
       </div>
       <div className="min-w-0 flex-1">
         <p className="font-display text-sm font-bold tracking-tight text-[color:var(--brand-purple)]">
-          {phase === "paid" ? "Плащането мина" : "Резервацията не е потвърдена"}
+          {phase === "paid" ? "Плащането е успешно" : "Резервацията не е потвърдена"}
         </p>
         <p className="mt-0.5 text-[12px] leading-relaxed text-[color:var(--brand-purple)]/70">
           {phase === "paid"

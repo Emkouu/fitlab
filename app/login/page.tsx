@@ -29,9 +29,6 @@ export default function LoginPage() {
 
       <div className="mb-7 text-center">
         <h1 className="font-display text-2xl font-bold tracking-tight">Вход</h1>
-        <p className="mt-2 text-sm leading-relaxed text-[color:var(--brand-purple)]/70">
-          Получи връзка за вход на имейла си.
-        </p>
       </div>
 
       <Suspense

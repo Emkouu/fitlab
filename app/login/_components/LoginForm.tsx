@@ -171,7 +171,7 @@ export function LoginForm() {
   return (
     <form onSubmit={handleEmailSubmit} className="space-y-4">
       <p className="text-sm leading-relaxed text-[color:var(--brand-purple)]/75">
-        Въведи имейла си, за да получиш код.
+        Въведи имейла си за да получиш код за верификация.
       </p>
       <label className="block">
         <span className="block font-display text-[11px] font-bold uppercase tracking-wider text-[color:var(--brand-purple)]/70">
