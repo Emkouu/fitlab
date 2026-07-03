@@ -77,7 +77,7 @@ export default async function AdminSchedulePage() {
         </p>
       </div>
 
-      <AdminScheduleSurface classes={classes} />
+      <AdminScheduleSurface classes={classes} isSuperAdmin={admin.role === "super_admin"} />
     </main>
   );
 }

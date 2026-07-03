@@ -83,6 +83,14 @@ export async function cancelClassAction(
       message: "Нямаш достъп до тази функция.",
     };
   }
+  // Destructive + moves real money (mass Stripe refunds) → super_admin only.
+  if (admin.role !== Role.super_admin) {
+    return {
+      ok: false,
+      reason: "forbidden",
+      message: "Само super admin може да отменя класове.",
+    };
+  }
 
   try {
     // ─── DB transaction: cancel class, restore balances, cancel bookings ───
@@ -699,6 +707,14 @@ export async function deleteTrainerAction(
       message: "Нямаш достъп до тази функция.",
     };
   }
+  // Destructive → super_admin only (CLAUDE.md admin policy).
+  if (admin.role !== Role.super_admin) {
+    return {
+      ok: false,
+      reason: "forbidden",
+      message: "Само super admin може да изтрива треньори.",
+    };
+  }
 
   try {
     // ─── Check if trainer is used in any active (non-cancelled) class ──────
@@ -1006,6 +1022,10 @@ export async function deletePracticeAction(
   if (!admin) {
     return { ok: false, message: "Нямаш достъп до тази функция." };
   }
+  // Destructive → super_admin only (CLAUDE.md admin policy).
+  if (admin.role !== Role.super_admin) {
+    return { ok: false, message: "Само super admin може да изтрива практики." };
+  }
 
   const activeClassCount = await prisma.scheduledClass.count({
     where: { practiceId, cancelledAt: null },
@@ -1055,6 +1075,10 @@ export async function updateStudioSettingsAction(
   const admin = await getAdminUser();
   if (!admin) {
     return { ok: false, message: "Нямаш достъп до тази функция." };
+  }
+  // Edits studio config → super_admin only (CLAUDE.md admin policy).
+  if (admin.role !== Role.super_admin) {
+    return { ok: false, message: "Само super admin може да променя настройките." };
   }
 
   const parsed = studioSettingsSchema.safeParse(input);

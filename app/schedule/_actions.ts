@@ -159,21 +159,34 @@ export async function bookClassAction(input: {
     return r;
   }
 
-  // If booking used balance source, deduct from user's balance
-  if (input.source === "balance") {
+  // If booking used balance source, debit atomically. The pre-check above is
+  // only a fast-fail UX guard against a stale read; the authoritative guard is
+  // this conditional update. `where: { depositBalance: { gte: amount } }` makes
+  // the read-check-decrement a single atomic operation, so two concurrent
+  // bookings for different classes can't both spend the same funds and drive
+  // the balance negative (TOCTOU double-spend).
+  if (source === BookingSource.balance) {
     const classData = await prisma.scheduledClass.findUnique({
       where: { id: input.scheduledClassId },
       select: { depositAmount: true },
     });
-    if (classData) {
-      await prisma.user.update({
-        where: { id: profile.id },
-        data: {
-          depositBalance: {
-            decrement: classData.depositAmount,
-          },
-        },
+    const amount = classData?.depositAmount ?? 0;
+    const debit = await prisma.user.updateMany({
+      where: { id: profile.id, depositBalance: { gte: amount } },
+      data: { depositBalance: { decrement: amount } },
+    });
+    if (debit.count === 0) {
+      // Lost the race for our own funds — release the spot we just reserved
+      // so it doesn't sit held by a booking that was never paid for.
+      await prisma.booking.update({
+        where: { id: r.booking.id },
+        data: { status: BookingStatus.cancelled, cancelledAt: new Date() },
       });
+      return {
+        ok: false,
+        reason: "insufficient_balance",
+        message: "Балансът ти не е достатъчен за този клас.",
+      };
     }
   }
 

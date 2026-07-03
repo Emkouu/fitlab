@@ -81,7 +81,7 @@ export default async function AdminTrainersPage({
       </div>
 
       {/* Trainer List */}
-      <TrainerList trainers={trainers} />
+      <TrainerList trainers={trainers} isSuperAdmin={admin.role === "super_admin"} />
     </main>
   );
 }

@@ -6,7 +6,10 @@ import { AdminScheduleCalendar } from "./AdminScheduleCalendar";
 
 type View = "list" | "calendar";
 
-export function AdminScheduleSurface({ classes }: ScheduleListProps) {
+export function AdminScheduleSurface({
+  classes,
+  isSuperAdmin,
+}: ScheduleListProps & { isSuperAdmin: boolean }) {
   const [view, setView] = useState<View>("list");
 
   return (
@@ -27,7 +30,7 @@ export function AdminScheduleSurface({ classes }: ScheduleListProps) {
       </div>
 
       {view === "list" ? (
-        <ScheduleList classes={classes} />
+        <ScheduleList classes={classes} isSuperAdmin={isSuperAdmin} />
       ) : (
         <AdminScheduleCalendar classes={classes} />
       )}

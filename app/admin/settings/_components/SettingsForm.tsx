@@ -12,6 +12,8 @@ import { updateStudioSettingsAction } from "@/app/admin/_actions";
 
 export type SettingsFormProps = {
   initialData: StudioSettingsInput;
+  /** Editing studio config is super_admin-only (see admin/_actions.ts). */
+  canEdit: boolean;
 };
 
 const inputClass =
@@ -22,7 +24,7 @@ const labelClass =
 
 const helperClass = "mt-1 text-xs text-[color:var(--brand-purple)]/60";
 
-export function SettingsForm({ initialData }: SettingsFormProps) {
+export function SettingsForm({ initialData, canEdit }: SettingsFormProps) {
   const router = useRouter();
   const [toast, setToast] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -38,6 +40,7 @@ export function SettingsForm({ initialData }: SettingsFormProps) {
   });
 
   const onSubmit = async (data: StudioSettingsInput) => {
+    if (!canEdit) return;
     setSubmitError(null);
     setToast(null);
     const result = await updateStudioSettingsAction(data);
@@ -234,9 +237,15 @@ export function SettingsForm({ initialData }: SettingsFormProps) {
         </div>
       )}
 
+      {!canEdit && (
+        <div className="rounded-lg bg-[color:var(--brand-pink-soft)]/60 px-4 py-3 text-xs text-[color:var(--brand-purple)]/80">
+          Само super admin може да променя настройките на студиото.
+        </div>
+      )}
+
       <button
         type="submit"
-        disabled={isSubmitting}
+        disabled={isSubmitting || !canEdit}
         className="w-full rounded-2xl bg-[color:var(--brand-magenta)] px-5 py-3 font-display font-semibold text-white shadow-[0_4px_16px_-8px_rgba(236,72,153,0.28)] transition-all hover:opacity-95 disabled:opacity-50"
       >
         {isSubmitting ? "Запазване..." : "Запази настройките"}

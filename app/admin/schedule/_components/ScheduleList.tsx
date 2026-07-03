@@ -16,7 +16,10 @@ export type ScheduleListProps = {
   })[];
 };
 
-export function ScheduleList({ classes }: ScheduleListProps) {
+export function ScheduleList({
+  classes,
+  isSuperAdmin,
+}: ScheduleListProps & { isSuperAdmin: boolean }) {
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
 
   if (classes.length === 0) {
@@ -117,17 +120,20 @@ export function ScheduleList({ classes }: ScheduleListProps) {
                       Редактирай
                     </Link>
                   )}
-                  <button
-                    onClick={() => setSelectedClassId(cls.id)}
-                    className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold transition-all ${
-                      isCancelled
-                        ? "bg-[color:var(--brand-purple)]/10 text-[color:var(--brand-purple)]/50 cursor-default"
-                        : "bg-red-50 text-red-600 hover:bg-red-100"
-                    }`}
-                    disabled={isCancelled}
-                  >
-                    Отмяна
-                  </button>
+                  {/* Cancel class is a super_admin-only destructive op (mass refunds). */}
+                  {isSuperAdmin && (
+                    <button
+                      onClick={() => setSelectedClassId(cls.id)}
+                      className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold transition-all ${
+                        isCancelled
+                          ? "bg-[color:var(--brand-purple)]/10 text-[color:var(--brand-purple)]/50 cursor-default"
+                          : "bg-red-50 text-red-600 hover:bg-red-100"
+                      }`}
+                      disabled={isCancelled}
+                    >
+                      Отмяна
+                    </button>
+                  )}
                 </div>
               </div>
             </li>

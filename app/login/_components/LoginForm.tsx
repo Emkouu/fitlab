@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/browser";
+import { safeNextPath } from "@/lib/auth/safeNext";
 
 type Step = "email" | "code";
 type Status = "idle" | "sending" | "verifying" | "error";
@@ -12,8 +13,7 @@ const RESEND_COOLDOWN_SECONDS = 60;
 export function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
-  const rawNext = params.get("next") ?? "/schedule";
-  const next = rawNext.startsWith("/") ? rawNext : "/schedule";
+  const next = safeNextPath(params.get("next"));
 
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");

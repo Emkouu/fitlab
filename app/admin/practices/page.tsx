@@ -80,7 +80,7 @@ export default async function AdminPracticesPage({
         </Link>
       </div>
 
-      <PracticeList practices={rows} />
+      <PracticeList practices={rows} isSuperAdmin={admin.role === "super_admin"} />
     </main>
   );
 }

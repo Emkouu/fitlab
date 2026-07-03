@@ -15,9 +15,11 @@ type Practice = {
 
 interface PracticeListProps {
   practices: Practice[];
+  /** Delete is a super_admin-only destructive op (see admin/_actions.ts). */
+  isSuperAdmin: boolean;
 }
 
-export function PracticeList({ practices }: PracticeListProps) {
+export function PracticeList({ practices, isSuperAdmin }: PracticeListProps) {
   const router = useRouter();
   const [deleteModal, setDeleteModal] = useState<{
     practiceId: string;
@@ -99,12 +101,14 @@ export function PracticeList({ practices }: PracticeListProps) {
                     >
                       Редактирай
                     </Link>
-                    <button
-                      onClick={() => handleDeleteClick(p.id, p.name)}
-                      className="font-medium text-red-600 hover:text-red-700 transition-colors"
-                    >
-                      Изтрий
-                    </button>
+                    {isSuperAdmin && (
+                      <button
+                        onClick={() => handleDeleteClick(p.id, p.name)}
+                        className="font-medium text-red-600 hover:text-red-700 transition-colors"
+                      >
+                        Изтрий
+                      </button>
+                    )}
                   </div>
                 </td>
               </tr>

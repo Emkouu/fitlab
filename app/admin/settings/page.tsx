@@ -56,7 +56,10 @@ export default async function AdminSettingsPage() {
         </h1>
       </div>
 
-      <SettingsForm initialData={initialData} />
+      <SettingsForm
+        initialData={initialData}
+        canEdit={admin.role === "super_admin"}
+      />
     </main>
   );
 }

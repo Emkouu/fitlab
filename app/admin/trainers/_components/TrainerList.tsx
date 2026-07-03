@@ -17,9 +17,11 @@ type Trainer = {
 
 interface TrainerListProps {
   trainers: Trainer[];
+  /** Delete is a super_admin-only destructive op (see admin/_actions.ts). */
+  isSuperAdmin: boolean;
 }
 
-export function TrainerList({ trainers }: TrainerListProps) {
+export function TrainerList({ trainers, isSuperAdmin }: TrainerListProps) {
   const router = useRouter();
   const [deleteModal, setDeleteModal] = useState<{
     trainerId: string;
@@ -117,13 +119,15 @@ export function TrainerList({ trainers }: TrainerListProps) {
                       Редактирай
                     </Link>
 
-                    {/* Delete Button */}
-                    <button
-                      onClick={() => handleDeleteClick(trainer.id, trainer.name)}
-                      className="font-medium text-red-600 hover:text-red-700 transition-colors"
-                    >
-                      Изтрий
-                    </button>
+                    {/* Delete Button — super_admin only */}
+                    {isSuperAdmin && (
+                      <button
+                        onClick={() => handleDeleteClick(trainer.id, trainer.name)}
+                        className="font-medium text-red-600 hover:text-red-700 transition-colors"
+                      >
+                        Изтрий
+                      </button>
+                    )}
                   </div>
                 </td>
               </tr>

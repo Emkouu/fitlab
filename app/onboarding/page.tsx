@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { safeNextPath } from "@/lib/auth/safeNext";
 import { prisma } from "@/lib/db";
 import { Heartbeat } from "@/app/_components/Heartbeat";
 import { OnboardingForm } from "./_components/OnboardingForm";
@@ -29,7 +30,7 @@ export default async function OnboardingPage({
   });
 
   const { next: rawNext } = await searchParams;
-  const next = rawNext && rawNext.startsWith("/") ? rawNext : "/schedule";
+  const next = safeNextPath(rawNext);
 
   if (profile?.fullName && profile.fullName.trim() !== "") {
     redirect(next);
