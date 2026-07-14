@@ -3,7 +3,7 @@
 import Link from "next/link";
 
 const cardClass =
-  "block rounded-2xl bg-white px-5 py-3 text-center font-display font-semibold text-[color:var(--brand-purple)] shadow-[0_1px_2px_rgba(123,45,142,0.05),0_4px_16px_-8px_rgba(236,72,153,0.18)] transition-all hover:shadow-[0_4px_16px_-8px_rgba(236,72,153,0.28)]";
+  "block rounded-2xl bg-white px-5 py-3 text-center font-display font-semibold text-[color:var(--brand-purple)] shadow-[0_1px_2px_rgba(123,45,142,0.05),0_4px_16px_-8px_rgba(236,72,153,0.18)] transition-all hover:scale-[1.02] hover:bg-[color:var(--brand-pink-soft)]/40 hover:text-[color:var(--brand-magenta)] hover:shadow-[0_2px_4px_rgba(123,45,142,0.08),0_8px_24px_-8px_rgba(236,72,153,0.35)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--brand-magenta)] focus-visible:ring-offset-2";
 
 const groupLabelClass =
   "mb-2 text-xs font-semibold uppercase tracking-wider text-gray-400";
