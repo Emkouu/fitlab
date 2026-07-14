@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist_Mono, Onest, Unbounded } from "next/font/google";
+import { Geist_Mono, Sofia_Sans, Unbounded } from "next/font/google";
 import "./globals.css";
 import { prisma } from "@/lib/db";
 import { StickyPhoneButton } from "./_components/StickyPhoneButton";
@@ -8,8 +8,8 @@ import { BottomNav } from "./_components/BottomNav";
 import { createClient } from "@/lib/supabase/server";
 
 // Display: Unbounded — variable, architectural energy, full Cyrillic support.
-// Body: Onest — refined contemporary sans, Cyrillic. Avoids the Inter/Geist
-// default look while keeping Bulgarian text crisp.
+// Body: Sofia Sans — contemporary sans designed for Bulgarian Cyrillic.
+// Avoids the Inter/Geist default look while keeping Bulgarian text crisp.
 // Mono: Geist Mono for tabular numerals (time blocks).
 const unbounded = Unbounded({
   variable: "--font-unbounded",
@@ -17,8 +17,8 @@ const unbounded = Unbounded({
   weight: ["500", "600", "700", "800"],
 });
 
-const onest = Onest({
-  variable: "--font-onest",
+const sofiaSans = Sofia_Sans({
+  variable: "--font-sofia-sans",
   subsets: ["latin", "cyrillic"],
 });
 
@@ -64,7 +64,7 @@ export default async function RootLayout({
   return (
     <html
       lang="bg"
-      className={`${unbounded.variable} ${onest.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${unbounded.variable} ${sofiaSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col pb-16 md:pb-0">
         {children}
