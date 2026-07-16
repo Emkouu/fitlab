@@ -219,6 +219,116 @@ export async function cancelClassAction(
   }
 }
 
+export type DeleteClassResult =
+  | { ok: true; message: string }
+  | { ok: false; reason: string; message: string };
+
+/**
+ * Admin server action: permanently delete a class from the schedule.
+ *
+ * Cancel keeps the row and shows „Отказано"; delete removes it entirely —
+ * for classes created by mistake or cancelled ones the studio wants gone.
+ *
+ * Guards (in order):
+ * 1. super_admin only (destructive).
+ * 2. No ACTIVE bookings — admin must cancel the class first so the refund
+ *    routing (Stripe/balance/on-site) runs through the audited cancel path.
+ * 3. No paid/refunded Payment rows on any of its bookings — the payment
+ *    register must survive ≥13 months (acquirer instruction §III). Classes
+ *    that ever took card money stay cancel-only.
+ *
+ * Cascade: notifications + waitlist rows + (cancelled/swept) bookings and
+ * their never-charged pending Payment rows die with the class.
+ */
+export async function deleteClassAction(
+  classId: string,
+): Promise<DeleteClassResult> {
+  const admin = await getAdminUser();
+  if (!admin) {
+    return { ok: false, reason: "unauthorized", message: "Нямаш достъп до тази функция." };
+  }
+  if (admin.role !== Role.super_admin) {
+    return { ok: false, reason: "forbidden", message: "Само super admin може да изтрива класове." };
+  }
+
+  const cls = await prisma.scheduledClass.findUnique({
+    where: { id: classId },
+    include: {
+      bookings: {
+        select: {
+          id: true,
+          status: true,
+          paymentId: true,
+          payment: { select: { id: true, status: true } },
+        },
+      },
+    },
+  });
+  if (!cls) {
+    return { ok: false, reason: "not_found", message: "Класът не е намерен." };
+  }
+
+  const activeCount = cls.bookings.filter((b) =>
+    (ACTIVE_BOOKING_STATUSES as BookingStatus[]).includes(b.status),
+  ).length;
+  if (activeCount > 0) {
+    return {
+      ok: false,
+      reason: "active_bookings",
+      message: `Класът има ${activeCount} активни записвания. Първо го отмени (връща депозитите), после го изтрий.`,
+    };
+  }
+
+  const hasMoneyRecords = cls.bookings.some(
+    (b) =>
+      b.payment &&
+      (b.payment.status === PaymentStatus.paid ||
+        b.payment.status === PaymentStatus.refunded),
+  );
+  if (hasMoneyRecords) {
+    return {
+      ok: false,
+      reason: "payment_records",
+      message:
+        "По класа има картови плащания — записите се пазят минимум 13 месеца. Класът може само да бъде отменен.",
+    };
+  }
+
+  // Pending Payment rows (checkout started, never paid) can go with the class.
+  const pendingPaymentIds = cls.bookings
+    .map((b) => b.payment?.id)
+    .filter((id): id is string => !!id);
+
+  try {
+    await prisma.$transaction([
+      prisma.notification.deleteMany({ where: { scheduledClassId: classId } }),
+      prisma.waitlist.deleteMany({ where: { scheduledClassId: classId } }),
+      prisma.booking.deleteMany({ where: { scheduledClassId: classId } }),
+      ...(pendingPaymentIds.length
+        ? [prisma.payment.deleteMany({ where: { id: { in: pendingPaymentIds } } })]
+        : []),
+      prisma.scheduledClass.delete({ where: { id: classId } }),
+    ]);
+  } catch (error) {
+    console.error("[deleteClass] Error deleting class:", error);
+    return {
+      ok: false,
+      reason: "transaction_failed",
+      message: "Възникна грешка при изтриване на класа. Опитай отново.",
+    };
+  }
+
+  console.log(
+    `[admin-audit] deleteClass by=${admin.id} class=${classId} startAt=${cls.startAt.toISOString()} bookingsRemoved=${cls.bookings.length}`,
+  );
+
+  revalidatePath("/admin/schedule");
+  revalidatePath("/schedule");
+  revalidatePath("/", "layout");
+
+  return { ok: true, message: "Класът е изтрит от графика." };
+}
+
 export type UpsertClassResult =
   | {
       ok: true;
@@ -942,6 +1052,82 @@ export async function adminCancelBookingAction(
         ? "Записването е отменено. Депозитът е удържан (късно)."
         : "Записването е отменено.",
   };
+}
+
+export type DeleteBookingResult =
+  | { ok: true; message: string }
+  | { ok: false; message: string };
+
+/**
+ * Admin server action: permanently delete a single booking row.
+ *
+ * Cancel is the normal path (keeps history, runs refund routing). Delete is
+ * for cleaning up cancelled entries a client/staff created by mistake.
+ *
+ * Guards:
+ * 1. super_admin only (destructive).
+ * 2. Booking must already be cancelled — active bookings go through the
+ *    „Анулирай" path first so refunds are handled; attended/no_show stay as
+ *    attendance history.
+ * 3. No paid/refunded Payment row — the payment register survives ≥13 months
+ *    (acquirer instruction §III). A pending, never-charged row dies with it.
+ */
+export async function deleteBookingAction(
+  bookingId: string,
+): Promise<DeleteBookingResult> {
+  const admin = await getAdminUser();
+  if (!admin) {
+    return { ok: false, message: "Нямаш достъп до тази функция." };
+  }
+  if (admin.role !== Role.super_admin) {
+    return { ok: false, message: "Само super admin може да изтрива записвания." };
+  }
+
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: { payment: { select: { id: true, status: true } } },
+  });
+  if (!booking) {
+    return { ok: false, message: "Записването не е намерено." };
+  }
+  if (booking.status !== BookingStatus.cancelled) {
+    return {
+      ok: false,
+      message: "Само отменени записвания могат да се изтриват. Първо го анулирай.",
+    };
+  }
+  if (
+    booking.payment &&
+    (booking.payment.status === PaymentStatus.paid ||
+      booking.payment.status === PaymentStatus.refunded)
+  ) {
+    return {
+      ok: false,
+      message:
+        "По записването има картово плащане — записът се пази минимум 13 месеца и не може да се изтрие.",
+    };
+  }
+
+  try {
+    await prisma.$transaction([
+      prisma.booking.delete({ where: { id: bookingId } }),
+      ...(booking.payment
+        ? [prisma.payment.delete({ where: { id: booking.payment.id } })]
+        : []),
+    ]);
+  } catch (error) {
+    console.error("[deleteBooking] Error deleting booking:", error);
+    return { ok: false, message: "Възникна грешка при изтриване. Опитай отново." };
+  }
+
+  console.log(
+    `[admin-audit] deleteBooking by=${admin.id} booking=${bookingId} user=${booking.userId} class=${booking.scheduledClassId}`,
+  );
+
+  revalidatePath(`/admin/clients/${booking.userId}`);
+  revalidatePath("/admin/clients");
+
+  return { ok: true, message: "Записването е изтрито." };
 }
 
 /* ───────────────────────── Practice management ───────────────────────── */

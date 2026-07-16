@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ScheduledClass, Practice, Trainer } from "@/lib/generated/prisma/client";
 import { formatSofiaDay, formatSofiaTime, formatEurMinor } from "@/lib/format";
 import { CancelClassModal } from "./CancelClassModal";
+import { DeleteClassModal } from "./DeleteClassModal";
 
 export type ScheduleListProps = {
   classes: (ScheduledClass & {
@@ -21,6 +22,7 @@ export function ScheduleList({
   isSuperAdmin,
 }: ScheduleListProps & { isSuperAdmin: boolean }) {
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
+  const [deleteClassId, setDeleteClassId] = useState<string | null>(null);
 
   if (classes.length === 0) {
     return (
@@ -121,17 +123,22 @@ export function ScheduleList({
                     </Link>
                   )}
                   {/* Cancel class is a super_admin-only destructive op (mass refunds). */}
-                  {isSuperAdmin && (
+                  {isSuperAdmin && !isCancelled && (
                     <button
                       onClick={() => setSelectedClassId(cls.id)}
-                      className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold transition-all ${
-                        isCancelled
-                          ? "bg-[color:var(--brand-purple)]/10 text-[color:var(--brand-purple)]/50 cursor-default"
-                          : "bg-red-50 text-red-600 hover:bg-red-100"
-                      }`}
-                      disabled={isCancelled}
+                      className="flex-1 rounded-lg bg-red-50 px-3 py-2 text-xs font-semibold text-red-600 transition-all hover:bg-red-100"
                     >
                       Отмяна
+                    </button>
+                  )}
+                  {/* Delete removes the row entirely; enabled for cancelled
+                      classes and for ones nobody has booked (server re-checks). */}
+                  {isSuperAdmin && (isCancelled || cls._count.bookings === 0) && (
+                    <button
+                      onClick={() => setDeleteClassId(cls.id)}
+                      className="flex-1 rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white transition-all hover:bg-red-700"
+                    >
+                      Изтрий
                     </button>
                   )}
                 </div>
@@ -141,12 +148,19 @@ export function ScheduleList({
         })}
       </ul>
 
-      {/* Modal */}
+      {/* Modals */}
       {selectedClassId && (
         <CancelClassModal
           classId={selectedClassId}
           class={classes.find((c) => c.id === selectedClassId)!}
           onClose={() => setSelectedClassId(null)}
+        />
+      )}
+      {deleteClassId && (
+        <DeleteClassModal
+          classId={deleteClassId}
+          class={classes.find((c) => c.id === deleteClassId)!}
+          onClose={() => setDeleteClassId(null)}
         />
       )}
     </>

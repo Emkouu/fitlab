@@ -14,6 +14,7 @@ import {
 } from "@/lib/format";
 import {
   adminCancelBookingAction,
+  deleteBookingAction,
   updateClientAction,
 } from "../../_actions";
 
@@ -97,7 +98,7 @@ export function ClientDetail({
         callerIsSuperAdmin={callerIsSuperAdmin}
       />
       <StatsBar user={user} stats={stats} />
-      <BookingHistory bookings={bookings} />
+      <BookingHistory bookings={bookings} canDelete={callerIsSuperAdmin} />
     </div>
   );
 }
@@ -276,7 +277,13 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function BookingHistory({ bookings }: { bookings: BookingView[] }) {
+function BookingHistory({
+  bookings,
+  canDelete,
+}: {
+  bookings: BookingView[];
+  canDelete: boolean;
+}) {
   return (
     <section>
       <h2 className="mb-3 font-display text-lg font-bold tracking-tight">
@@ -291,7 +298,7 @@ function BookingHistory({ bookings }: { bookings: BookingView[] }) {
       ) : (
         <ul className="space-y-2.5">
           {bookings.map((b) => (
-            <BookingRow key={b.id} booking={b} />
+            <BookingRow key={b.id} booking={b} canDelete={canDelete} />
           ))}
         </ul>
       )}
@@ -299,7 +306,13 @@ function BookingHistory({ bookings }: { bookings: BookingView[] }) {
   );
 }
 
-function BookingRow({ booking }: { booking: BookingView }) {
+function BookingRow({
+  booking,
+  canDelete,
+}: {
+  booking: BookingView;
+  canDelete: boolean;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [override, setOverride] = useState(false);
@@ -307,6 +320,9 @@ function BookingRow({ booking }: { booking: BookingView }) {
 
   const startDate = new Date(booking.startAt);
   const canCancel = CANCELABLE_STATUSES.includes(booking.status);
+  // Delete is a super_admin cleanup for cancelled rows; the server re-checks
+  // the role, the status, and blocks rows with card-payment records.
+  const canHardDelete = canDelete && booking.status === BookingStatus.cancelled;
 
   function handleCancel() {
     if (!confirm("Сигурен/а ли си, че искаш да анулираш това записване?")) return;
@@ -316,6 +332,21 @@ function BookingRow({ booking }: { booking: BookingView }) {
         bookingId: booking.id,
         overrideRefund: override,
       });
+      setMsg({ ok: r.ok, text: r.message });
+      if (r.ok) router.refresh();
+    });
+  }
+
+  function handleDelete() {
+    if (
+      !confirm(
+        "Записването ще бъде изтрито окончателно и ще изчезне от историята. Продължаваш ли?",
+      )
+    )
+      return;
+    setMsg(null);
+    startTransition(async () => {
+      const r = await deleteBookingAction(booking.id);
       setMsg({ ok: r.ok, text: r.message });
       if (r.ok) router.refresh();
     });
@@ -372,6 +403,19 @@ function BookingRow({ booking }: { booking: BookingView }) {
             className="w-full rounded-xl border-2 border-[color:var(--brand-magenta)] bg-white px-4 py-2 font-display text-[11px] font-bold uppercase tracking-wider text-[color:var(--brand-magenta)] transition-colors hover:bg-[color:var(--brand-magenta)] hover:text-white disabled:opacity-60"
           >
             {pending ? "…" : "Анулирай"}
+          </button>
+        </div>
+      )}
+
+      {canHardDelete && (
+        <div className="mt-3 border-t border-[color:var(--brand-pink)]/30 pt-3">
+          <button
+            type="button"
+            onClick={handleDelete}
+            disabled={pending}
+            className="w-full rounded-xl bg-red-600 px-4 py-2 font-display text-[11px] font-bold uppercase tracking-wider text-white transition-colors hover:bg-red-700 disabled:opacity-60"
+          >
+            {pending ? "…" : "Изтрий окончателно"}
           </button>
         </div>
       )}
