@@ -3,6 +3,7 @@ import { Geist_Mono, Sofia_Sans, Unbounded } from "next/font/google";
 import "./globals.css";
 import { prisma } from "@/lib/db";
 import { StickyPhoneButton } from "./_components/StickyPhoneButton";
+import { CookieBanner } from "./_components/CookieBanner";
 import { PageLoader } from "./_components/PageLoader";
 import { BottomNav } from "./_components/BottomNav";
 import { createClient } from "@/lib/supabase/server";
@@ -70,6 +71,7 @@ export default async function RootLayout({
         {children}
         {studio?.phone && <StickyPhoneButton phone={studio.phone} />}
         <BottomNav unreadCount={unreadCount} />
+        <CookieBanner />
         <PageLoader />
       </body>
     </html>

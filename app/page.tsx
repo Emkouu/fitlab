@@ -3,6 +3,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/db";
 import { Heartbeat } from "./_components/Heartbeat";
+import { PaymentLogos } from "./_components/PaymentLogos";
 
 export const dynamic = "force-dynamic";
 
@@ -125,6 +126,20 @@ export default async function Home() {
           )}
         </section>
       )}
+
+      {/* Card acceptance marks — required on the landing page (Fibank §I.2) */}
+      <section className="mt-10 w-full max-w-[300px] text-center">
+        <p className="mb-3 font-display text-[11px] font-bold uppercase tracking-wider text-gray-400">
+          Приемаме плащания с
+        </p>
+        <PaymentLogos />
+        <Link
+          href="/policies"
+          className="mt-5 inline-block font-display text-[11px] font-bold uppercase tracking-wider text-[color:var(--brand-purple)]/60 transition-colors hover:text-[color:var(--brand-magenta)]"
+        >
+          Политики
+        </Link>
+      </section>
     </main>
   );
 }
