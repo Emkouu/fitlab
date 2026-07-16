@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { formatEurMinor, formatSofiaDay, formatSofiaTime } from "@/lib/format";
 import { bookClassAction } from "../_actions";
 import { Spinner } from "@/app/_components/Spinner";
+import { PaymentLogos } from "@/app/_components/PaymentLogos";
 import { RedirectOverlay } from "@/app/_components/RedirectOverlay";
 import type { ClassCardRow } from "./ClassCard";
 
@@ -46,8 +47,12 @@ export function BookingModal({
     if (row && !d.open) {
       // Reset state every time we open with a (possibly different) class.
       // If user has enough balance, default to using it
-      const initialSource =
-        userBalance >= row.depositAmount ? ("balance" as Source) : ("card" as Source);
+      const initialSource: Source =
+        userBalance >= row.depositAmount
+          ? "balance"
+          : row.studio.cardPaymentsEnabled
+            ? "card"
+            : "onsite_deposit";
       setSource(initialSource);
       setPhase({ kind: "form" });
       d.showModal();
@@ -171,20 +176,25 @@ export function BookingModal({
                     </span>
                   }
                 >
-                  <DepositPicker 
-                    value={source} 
-                    onChange={setSource} 
-                    disabled={phase.kind === "submitting"} 
+                  <DepositPicker
+                    value={source}
+                    onChange={setSource}
+                    disabled={phase.kind === "submitting"}
                     userBalance={userBalance}
                     classDeposit={row.depositAmount}
+                    cardEnabled={row.studio.cardPaymentsEnabled}
                   />
                   <p className="mt-2 text-[12px] leading-relaxed text-[color:var(--brand-purple)]/65">
                     {source === "balance"
                       ? "Използваш своя баланс от отменени записи."
                       : source === "card"
-                      ? "Плащаш сега чрез Stripe. Депозитът се връща, ако отмениш в срок."
+                      ? "Плащаш сега с карта. Депозитът се връща, ако отмениш в срок."
                       : "Оставяш депозита в студиото деня преди класа."}
                   </p>
+                  {/* Card acceptance marks at the payment-method choice (Fibank §I.2) */}
+                  {row.studio.cardPaymentsEnabled && (
+                    <PaymentLogos className="mt-3 justify-start" />
+                  )}
                 </Section>
                 <Section title="Отказ">
                   <ul className="space-y-1 text-[12px] leading-relaxed text-[color:var(--brand-purple)]/75">
@@ -301,12 +311,14 @@ function DepositPicker({
   disabled,
   userBalance = 0,
   classDeposit = 0,
+  cardEnabled = true,
 }: {
   value: Source;
   onChange: (s: Source) => void;
   disabled: boolean;
   userBalance?: number;
   classDeposit?: number;
+  cardEnabled?: boolean;
 }) {
   const hasEnoughBalance = userBalance >= classDeposit;
 
@@ -321,7 +333,7 @@ function DepositPicker({
         {hasEnoughBalance && (
           <option value="balance">Използвай баланс ({(userBalance / 100).toFixed(2)} €)</option>
         )}
-        <option value="card">Плати с карта сега</option>
+        {cardEnabled && <option value="card">Плати с карта сега</option>}
         <option value="onsite_deposit">Плати на място (ден преди)</option>
       </select>
       <Chevron className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[color:var(--brand-magenta)]" />
@@ -343,7 +355,7 @@ function SuccessState({ row, source }: { row: ClassCardRow; source: Source }) {
         {source === "balance"
           ? "Депозитът е платен с твоя баланс."
           : source === "card"
-          ? "Депозитът ще се обработи онлайн (Stripe Checkout идва в следваща стъпка)."
+          ? "Депозитът ще се обработи онлайн с карта."
           : "Не забравяй депозита на място — ден преди класа."}
       </p>
     </div>

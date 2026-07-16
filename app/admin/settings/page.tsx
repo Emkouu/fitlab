@@ -29,6 +29,7 @@ export default async function AdminSettingsPage() {
     instagramUrl: studio.instagramUrl ?? undefined,
     cancelWindowHours: studio.cancelWindowHours,
     defaultDepositEur: (studio.defaultDeposit / 100).toFixed(2),
+    cardPaymentsEnabled: studio.cardPaymentsEnabled,
   };
 
   return (

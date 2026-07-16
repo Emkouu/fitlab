@@ -27,6 +27,11 @@ export type BookingConfirmationProps = {
   accountUrl: string;
   logoUrl: string;
   footerSite: string;
+  // Electronic-receipt fields (acquirer instruction §I.15): unique order
+  // reference, client name, and transaction date must appear on the receipt.
+  bookingReference: string;
+  clientName: string;
+  transactionDateText: string;
 };
 
 const BRAND = "#0F172A";
@@ -51,6 +56,9 @@ export function BookingConfirmation(props: BookingConfirmationProps) {
     accountUrl,
     logoUrl,
     footerSite,
+    bookingReference,
+    clientName,
+    transactionDateText,
   } = props;
 
   const greeting = `Здравей, ${greetingName ?? "приятелю"}!`;
@@ -108,9 +116,28 @@ export function BookingConfirmation(props: BookingConfirmationProps) {
               </Text>
             </Section>
 
-            <Text style={{ fontSize: 14, color: ACCENT, marginBottom: 12 }}>
-              Депозит: <strong>{depositText}</strong> — {depositStatusText}
-            </Text>
+            {/* Electronic receipt (acquirer instruction §I.15) */}
+            <Section
+              style={{
+                border: "1px solid #E5E7EB",
+                borderRadius: 8,
+                padding: 16,
+                marginBottom: 12,
+              }}
+            >
+              <Text style={{ fontSize: 12, fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: 1, margin: "0 0 8px" }}>
+                Електронна разписка
+              </Text>
+              <ReceiptRow label="Референция" value={bookingReference} mono />
+              <ReceiptRow label="Клиент" value={clientName} />
+              <ReceiptRow label="Дата на транзакция" value={transactionDateText} />
+              <ReceiptRow label="Услуга" value={`${practiceName} — ${dateText}, ${timeText}`} />
+              <ReceiptRow label="Депозит" value={`${depositText} — ${depositStatusText}`} />
+              <ReceiptRow label="Търговец" value={`${studioName}, ${studioAddress}`} />
+              <Text style={{ fontSize: 11, color: MUTED, margin: "8px 0 0" }}>
+                Запази този имейл — той е твоята разписка за направената поръчка.
+              </Text>
+            </Section>
 
             <Text style={{ fontSize: 13, color: MUTED, marginBottom: 20 }}>
               ⚠️ Можеш да откажеш до {cancelWindowHours} часа преди класа.
@@ -150,6 +177,25 @@ export function BookingConfirmation(props: BookingConfirmationProps) {
         </Container>
       </Body>
     </Html>
+  );
+}
+
+function ReceiptRow({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
+  return (
+    <Text style={{ fontSize: 13, color: ACCENT, margin: "4px 0" }}>
+      <span style={{ color: MUTED }}>{label}: </span>
+      <span style={mono ? { fontFamily: "Courier, monospace", fontSize: 12 } : undefined}>
+        {value}
+      </span>
+    </Text>
   );
 }
 

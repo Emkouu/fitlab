@@ -69,6 +69,9 @@ model Studio {
   instagramUrl       String?
   /// Default deposit (minor units / EUR cents) pre-filled on the new-class form.
   defaultDeposit     Int    @default(2000)
+  /// Admin kill-switch for the card deposit path. When false the booking UI
+  /// hides „Плати с карта" and the server rejects source=card bookings.
+  cardPaymentsEnabled Boolean @default(true)
 
   classes ScheduledClass[]
 }

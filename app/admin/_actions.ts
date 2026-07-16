@@ -1108,6 +1108,7 @@ export async function updateStudioSettingsAction(
         instagramUrl: data.instagramUrl ?? null,
         cancelWindowHours: data.cancelWindowHours,
         defaultDeposit,
+        cardPaymentsEnabled: data.cardPaymentsEnabled,
       },
     });
   } catch (err) {

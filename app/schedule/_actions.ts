@@ -43,7 +43,7 @@ export async function getClassesForMonth(
     include: {
       practice: { select: { name: true, description: true } },
       trainers: { orderBy: { name: "asc" }, select: { name: true } },
-      studio: { select: { name: true, cancelWindowHours: true } },
+      studio: { select: { name: true, cancelWindowHours: true, cardPaymentsEnabled: true } },
       _count: {
         select: {
           bookings: { where: { status: { in: ACTIVE_STATUSES } } },
@@ -82,7 +82,8 @@ export type BookClassActionResult =
         | "full"
         | "duplicate"
         | "checkout_failed"
-        | "insufficient_balance";
+        | "insufficient_balance"
+        | "card_disabled";
       message: string;
     };
 
@@ -130,6 +131,22 @@ export async function bookClassAction(input: {
     source = BookingSource.balance;
   } else {
     source = input.source === "card" ? BookingSource.card : BookingSource.onsite_deposit;
+  }
+
+  // Server-side card kill-switch guard. UI hides the card option when the
+  // studio has card payments off, but never trust the client.
+  if (source === BookingSource.card) {
+    const cls = await prisma.scheduledClass.findUnique({
+      where: { id: input.scheduledClassId },
+      select: { studio: { select: { cardPaymentsEnabled: true } } },
+    });
+    if (cls && !cls.studio.cardPaymentsEnabled) {
+      return {
+        ok: false,
+        reason: "card_disabled",
+        message: "Плащането с карта е временно недостъпно. Избери друг начин.",
+      };
+    }
   }
 
   // Server-side balance guard. UI hides the balance option when funds are

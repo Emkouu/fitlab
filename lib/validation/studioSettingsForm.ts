@@ -32,6 +32,7 @@ export const studioSettingsSchema = z.object({
       /^\d+(\.\d{1,2})?$/,
       "Депозитът трябва да е валидна EUR сума (напр. 20 или 20.00)",
     ),
+  cardPaymentsEnabled: z.boolean(),
 });
 
 export type StudioSettingsInput = z.infer<typeof studioSettingsSchema>;

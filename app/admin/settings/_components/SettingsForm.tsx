@@ -229,6 +229,36 @@ export function SettingsForm({ initialData, canEdit }: SettingsFormProps) {
             </p>
           )}
         </div>
+
+        <div>
+          <Controller
+            name="cardPaymentsEnabled"
+            control={control}
+            render={({ field }) => (
+              <label className="flex cursor-pointer items-start justify-between gap-4">
+                <span>
+                  <span className={labelClass}>Плащане с карта</span>
+                  <span className={helperClass}>
+                    Когато е изключено, членовете виждат само „Плати на място"
+                    (и баланс, ако имат). Заявки за плащане с карта се отказват
+                    и от сървъра.
+                  </span>
+                </span>
+                <span className="relative mt-1 inline-flex shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={field.value}
+                    onChange={(e) => field.onChange(e.target.checked)}
+                    disabled={isSubmitting}
+                    className="peer sr-only"
+                  />
+                  <span className="h-6 w-11 rounded-full bg-[color:var(--brand-purple)]/20 transition-colors peer-checked:bg-[color:var(--brand-magenta)] peer-focus-visible:ring-2 peer-focus-visible:ring-[color:var(--brand-magenta)]/40" />
+                  <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5" />
+                </span>
+              </label>
+            )}
+          />
+        </div>
       </section>
 
       {submitError && (

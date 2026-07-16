@@ -1,7 +1,12 @@
 import { prisma } from "@/lib/db";
 import { getResend } from "@/lib/email/resend";
 import { BookingConfirmation } from "@/emails/BookingConfirmation";
-import { formatSofiaDay, formatSofiaTime, formatEurMinor } from "@/lib/format";
+import {
+  formatSofiaDay,
+  formatSofiaTime,
+  formatSofiaDateTime,
+  formatEurMinor,
+} from "@/lib/format";
 
 const FROM_ADDRESS =
   process.env.RESEND_FROM ?? "FitLab Varna <onboarding@resend.dev>";
@@ -87,6 +92,9 @@ export async function sendBookingConfirmationEmail(
     accountUrl,
     logoUrl: LOGO_URL,
     footerSite: process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
+    bookingReference: booking.id,
+    clientName: booking.user.fullName ?? email,
+    transactionDateText: formatSofiaDateTime(booking.createdAt),
   });
 
   try {

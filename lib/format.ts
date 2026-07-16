@@ -36,6 +36,21 @@ export function formatSofiaTime(d: Date): string {
   return TIME_HHMM.format(d);
 }
 
+const DATETIME_FULL = new Intl.DateTimeFormat("bg-BG", {
+  timeZone: "Europe/Sofia",
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+
+/** "26.05.2026 г., 08:00" — transaction timestamps on receipts. */
+export function formatSofiaDateTime(d: Date): string {
+  return DATETIME_FULL.format(d);
+}
+
 /** "2026-05-26" — stable key for grouping. */
 export function sofiaDateKey(d: Date): string {
   return DAY_KEY.format(d);

@@ -17,7 +17,7 @@ export type ClassCardRow = {
   practiceId: string;
   practice: { name: string; description: string | null };
   trainers: { name: string }[];
-  studio: { name: string; cancelWindowHours: number };
+  studio: { name: string; cancelWindowHours: number; cardPaymentsEnabled: boolean };
   _count: { bookings: number };
 };
 

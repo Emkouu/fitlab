@@ -32,7 +32,7 @@ async function loadUpcoming(): Promise<ClassCardRow[]> {
     include: {
       practice: { select: { name: true, description: true } },
       trainers: { orderBy: { name: "asc" }, select: { name: true } },
-      studio: { select: { name: true, cancelWindowHours: true } },
+      studio: { select: { name: true, cancelWindowHours: true, cardPaymentsEnabled: true } },
       _count: {
         select: {
           bookings: { where: { status: { in: ACTIVE_STATUSES } } },
