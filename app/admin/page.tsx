@@ -4,7 +4,9 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { getAdminUser } from "@/lib/auth/getAdminUser";
 import { ACTIVE_BOOKING_STATUSES } from "@/lib/booking";
-import { formatEurMinor } from "@/lib/format";
+import { BookingStatus } from "@/lib/generated/prisma/enums";
+import { formatEurMinor, sofiaDateKey } from "@/lib/format";
+import { dailyStats } from "@/lib/stats/turnover";
 import { AdminActions } from "./_components/AdminActions";
 
 export const metadata = { title: "FitLab Varna — Админ панел" };
@@ -47,16 +49,37 @@ export default async function AdminPage() {
     },
   });
 
-  // ─── KPI: Total refundable balance (users' depositBalance) ───────────────
-  const balanceResult = await prisma.user.aggregate({
-    _sum: { depositBalance: true },
+  // ─── KPI: Today's turnover — settled deposits on today's classes ────────
+  // Bounded query: today (Sofia) spans at most [now−26h, now+26h] in UTC, so
+  // fetch that window and let the pure helper pick the Sofia-local day.
+  const DAY_WINDOW_MS = 26 * 60 * 60 * 1000;
+  const todayKey = sofiaDateKey(now);
+  const todayBookings = await prisma.booking.findMany({
     where: {
-      bookings: {
-        some: { scheduledClass: { studioId } },
+      status: { not: BookingStatus.cancelled },
+      scheduledClass: {
+        studioId,
+        startAt: {
+          gte: new Date(Date.now() - DAY_WINDOW_MS),
+          lte: new Date(Date.now() + DAY_WINDOW_MS),
+        },
       },
     },
+    select: {
+      status: true,
+      source: true,
+      scheduledClass: { select: { startAt: true, depositAmount: true } },
+    },
   });
-  const totalRefundableBalance = balanceResult._sum.depositBalance || 0;
+  const todayStats = dailyStats(
+    todayBookings.map((b) => ({
+      status: b.status,
+      source: b.source,
+      depositAmount: b.scheduledClass.depositAmount,
+      classStartAt: b.scheduledClass.startAt,
+    })),
+  ).find((d) => d.dayKey === todayKey);
+  const todayTurnover = todayStats?.turnoverMinor ?? 0;
 
   // ─── KPI: Cancelled classes (7 days) ────────────────────────────────────
   const cancelledClasses = await prisma.scheduledClass.count({
@@ -110,9 +133,9 @@ export default async function AdminPage() {
           valueClass="text-[color:var(--brand-purple)]"
         />
         <StatCard
-          href="/admin/clients"
-          label="Баланс"
-          value={formatEurMinor(totalRefundableBalance)}
+          href="/admin/stats"
+          label="Дневен оборот"
+          value={formatEurMinor(todayTurnover)}
           valueClass="text-[color:var(--brand-pink)]"
         />
         <StatCard
