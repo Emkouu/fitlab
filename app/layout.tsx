@@ -31,6 +31,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "FitLab Varna — График",
   description: "Запиши се за тренировка във FitLab Varna.",
+  // Home-screen name when saved via iOS „Add to Home Screen" (the icon itself
+  // is app/apple-icon.png, auto-linked by Next).
+  appleWebApp: { title: "FitLab" },
 };
 
 export default async function RootLayout({

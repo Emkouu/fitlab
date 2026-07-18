@@ -21,6 +21,7 @@ export default async function Home() {
       phone: true,
       facebookUrl: true,
       instagramUrl: true,
+      cardPaymentsEnabled: true,
     },
   });
   const studioName = studio?.name ?? "FitLab Varna";
@@ -127,12 +128,18 @@ export default async function Home() {
         </section>
       )}
 
-      {/* Card acceptance marks — required on the landing page (Fibank §I.2) */}
+      {/* Card acceptance marks — required on the landing page while card
+          payments are on (Fibank §I.2); hidden with the admin kill-switch so
+          the site never advertises a payment method it refuses. */}
       <section className="mt-10 w-full max-w-[300px] text-center">
-        <p className="mb-3 font-display text-[11px] font-bold uppercase tracking-wider text-gray-400">
-          Приемаме плащания с
-        </p>
-        <PaymentLogos />
+        {(studio?.cardPaymentsEnabled ?? true) && (
+          <>
+            <p className="mb-3 font-display text-[11px] font-bold uppercase tracking-wider text-gray-400">
+              Приемаме плащания с
+            </p>
+            <PaymentLogos />
+          </>
+        )}
         <Link
           href="/policies"
           className="mt-5 inline-block font-display text-[11px] font-bold uppercase tracking-wider text-[color:var(--brand-purple)]/60 transition-colors hover:text-[color:var(--brand-magenta)]"

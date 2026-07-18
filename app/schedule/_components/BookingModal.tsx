@@ -38,6 +38,9 @@ export function BookingModal({
   const router = useRouter();
   const [source, setSource] = useState<Source>("card");
   const [phase, setPhase] = useState<Phase>({ kind: "form" });
+  // Explicit "запознат съм" tick for the no-money-now paths (balance /
+  // on-site) so a client can't claim they never saw how the deposit works.
+  const [acknowledged, setAcknowledged] = useState(false);
   const [, startTransition] = useTransition();
 
   // Open / close the dialog imperatively in response to the row prop.
@@ -54,6 +57,7 @@ export function BookingModal({
             ? "card"
             : "onsite_deposit";
       setSource(initialSource);
+      setAcknowledged(false);
       setPhase({ kind: "form" });
       d.showModal();
     } else if (!row && d.open) {
@@ -178,19 +182,37 @@ export function BookingModal({
                 >
                   <DepositPicker
                     value={source}
-                    onChange={setSource}
+                    onChange={(s) => {
+                      setSource(s);
+                      setAcknowledged(false);
+                    }}
                     disabled={phase.kind === "submitting"}
                     userBalance={userBalance}
                     classDeposit={row.depositAmount}
                     cardEnabled={row.studio.cardPaymentsEnabled}
                   />
-                  <p className="mt-2 text-[12px] leading-relaxed text-[color:var(--brand-purple)]/65">
-                    {source === "balance"
-                      ? "Използваш своя баланс от отменени записи."
-                      : source === "card"
-                      ? "Плащаш сега с карта. Депозитът се връща, ако отмениш в срок."
-                      : "Оставяш депозита в студиото деня преди класа."}
-                  </p>
+                  {source === "card" ? (
+                    <p className="mt-2 text-[12px] leading-relaxed text-[color:var(--brand-purple)]/65">
+                      Плащаш сега с карта. Депозитът се връща, ако отмениш в
+                      срок.
+                    </p>
+                  ) : (
+                    <label className="mt-3 flex cursor-pointer items-start gap-2.5 rounded-2xl bg-[color:var(--brand-pink-soft)]/60 px-3.5 py-3">
+                      <input
+                        type="checkbox"
+                        checked={acknowledged}
+                        onChange={(e) => setAcknowledged(e.target.checked)}
+                        disabled={phase.kind === "submitting"}
+                        className="mt-0.5 h-4 w-4 shrink-0 accent-[color:var(--brand-magenta)]"
+                      />
+                      <span className="text-[12px] leading-relaxed text-[color:var(--brand-purple)]/85">
+                        Запознат/а съм, че{" "}
+                        {source === "balance"
+                          ? "използвам своя баланс от отменени записи."
+                          : "оставям депозита в студиото деня преди класа."}
+                      </span>
+                    </label>
+                  )}
                   {/* Card acceptance marks at the payment-method choice (Fibank §I.2) */}
                   {row.studio.cardPaymentsEnabled && (
                     <PaymentLogos className="mt-3 justify-start" />
@@ -229,7 +251,11 @@ export function BookingModal({
               <button
                 type="button"
                 onClick={handleConfirm}
-                disabled={phase.kind === "submitting" || row.capacity - row._count.bookings <= 0}
+                disabled={
+                  phase.kind === "submitting" ||
+                  row.capacity - row._count.bookings <= 0 ||
+                  (source !== "card" && !acknowledged)
+                }
                 className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[color:var(--brand-magenta)] px-5 py-3.5 font-display text-sm font-bold uppercase tracking-wider text-white transition-colors hover:bg-[color:var(--brand-purple)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--brand-magenta)] focus-visible:ring-offset-2 disabled:opacity-60"
               >
                 {phase.kind === "submitting" ? (
