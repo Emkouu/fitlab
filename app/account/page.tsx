@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/db";
 import { formatEurMinor } from "@/lib/format";
 import { Heartbeat } from "@/app/_components/Heartbeat";
+import { Breadcrumb } from "@/app/_components/Breadcrumb";
 import { SignOutButton } from "./_components/SignOutButton";
 import { BookingsList } from "./_components/BookingsList";
 import { PaymentHistory } from "./_components/PaymentHistory";
@@ -90,6 +91,7 @@ export default async function AccountPage() {
           </Link>
         </div>
         <Heartbeat className="mx-auto mt-2 h-3 w-40 opacity-90" />
+        <Breadcrumb current="Профил" />
       </header>
 
       <div className="mb-6">

@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Suspense } from "react";
 import { Heartbeat } from "@/app/_components/Heartbeat";
+import { Breadcrumb } from "@/app/_components/Breadcrumb";
 import { LoginForm } from "./_components/LoginForm";
 
 export const metadata = {
@@ -25,6 +26,7 @@ export default function LoginPage() {
           </Link>
         </div>
         <Heartbeat className="mx-auto mt-2 h-3 w-40 opacity-90" />
+        <Breadcrumb current="Вход" />
       </header>
 
       <div className="mb-7 text-center">

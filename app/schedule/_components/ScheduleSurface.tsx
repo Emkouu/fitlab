@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { Heartbeat } from "@/app/_components/Heartbeat";
+import { Breadcrumb } from "@/app/_components/Breadcrumb";
 import { AgendaView, type DayBucket } from "./AgendaView";
 import { MonthView } from "./MonthView";
 import { BookingModal } from "./BookingModal";
@@ -126,6 +127,7 @@ export function ScheduleSurface({
           )}
         </div>
         <Heartbeat className="mx-auto mt-2 h-3 w-40 opacity-90" />
+        <Breadcrumb current="График" />
       </header>
 
       {/* ─── Payment banner (post-Stripe-Checkout landing) ─────── */}

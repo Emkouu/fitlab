@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { Breadcrumb } from "@/app/_components/Breadcrumb";
 
 export const metadata = {
   title: "FitLab Varna — Политики",
@@ -47,6 +48,7 @@ export default async function PoliciesPage() {
             />
           </Link>
         </div>
+        <Breadcrumb current="Политики" />
         <h1 className="mt-6 text-center font-display text-2xl font-bold tracking-tight">
           Политики
         </h1>

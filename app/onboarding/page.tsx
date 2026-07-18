@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { safeNextPath } from "@/lib/auth/safeNext";
 import { prisma } from "@/lib/db";
 import { Heartbeat } from "@/app/_components/Heartbeat";
+import { Breadcrumb } from "@/app/_components/Breadcrumb";
 import { OnboardingForm } from "./_components/OnboardingForm";
 
 export const metadata = {
@@ -52,6 +53,7 @@ export default async function OnboardingPage({
           </Link>
         </div>
         <Heartbeat className="mx-auto mt-2 h-3 w-40 opacity-90" />
+        <Breadcrumb current="Нов профил" />
       </header>
 
       <div className="mb-7 text-center">
