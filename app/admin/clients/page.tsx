@@ -2,7 +2,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { getAdminUser } from "@/lib/auth/getAdminUser";
+import { getStaffUser } from "@/lib/auth/getStaffUser";
+import { Role } from "@/lib/generated/prisma/enums";
 import { Heartbeat } from "@/app/_components/Heartbeat";
 import { ClientList, type ClientRow } from "./_components/ClientList";
 import { AdminBreadcrumb } from "../_components/AdminBreadcrumb";
@@ -11,9 +12,20 @@ export const dynamic = "force-dynamic";
 
 export const metadata = { title: "FitLab Varna — Клиенти" };
 
-export default async function AdminClientsPage() {
-  const admin = await getAdminUser();
+type AdminClientsPageProps = {
+  searchParams?: Promise<{ success?: string }>;
+};
+
+export default async function AdminClientsPage({
+  searchParams,
+}: AdminClientsPageProps) {
+  // Admins manage clients; coaches can view the list and add new ones.
+  const admin = await getStaffUser();
   if (!admin) redirect("/schedule");
+  const isCoach = admin.role === Role.coach;
+
+  const resolvedSearchParams = searchParams ? await searchParams : {};
+  const showCreatedToast = resolvedSearchParams.success === "created";
 
   const users = await prisma.user.findMany({
     select: {
@@ -65,12 +77,29 @@ export default async function AdminClientsPage() {
         <h1 className="font-display text-2xl font-bold tracking-tight">
           Клиенти
         </h1>
-        <span className="text-[11px] uppercase tracking-wider text-[color:var(--brand-purple)]/60">
-          {rows.length}
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="text-[11px] uppercase tracking-wider text-[color:var(--brand-purple)]/60">
+            {rows.length}
+          </span>
+          {/* „+" — add a client (available to coaches too) */}
+          <Link
+            href="/admin/clients/new"
+            aria-label="Добави клиент"
+            title="Добави клиент"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-[color:var(--brand-magenta)] font-display text-xl font-bold leading-none text-white shadow-[0_4px_12px_-6px_rgba(236,72,153,0.6)] transition-all hover:scale-105 hover:bg-[color:var(--brand-purple)]"
+          >
+            +
+          </Link>
+        </div>
       </div>
 
-      <ClientList rows={rows} />
+      {showCreatedToast && (
+        <div className="mb-5 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-800">
+          Клиентът е добавен
+        </div>
+      )}
+
+      <ClientList rows={rows} canOpenDetail={!isCoach} />
     </main>
   );
 }

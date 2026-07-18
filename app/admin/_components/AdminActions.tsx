@@ -30,6 +30,7 @@ const GROUPS: { label: string; items: NavItem[] }[] = [
     items: [
       { href: "/admin/practices", label: "Практики" },
       { href: "/admin/attendance", label: "Присъствия" },
+      { href: "/admin/partners", label: "Лоялна програма" },
     ],
   },
   {
@@ -38,10 +39,25 @@ const GROUPS: { label: string; items: NavItem[] }[] = [
   },
 ];
 
-export function AdminActions() {
+/** Reduced nav for coaches: schedule view, attendance marking, clients. */
+const COACH_GROUPS: { label: string; items: NavItem[] }[] = [
+  {
+    label: "График",
+    items: [{ href: "/admin/schedule", label: "Виж графика" }],
+  },
+  {
+    label: "Дейности",
+    items: [
+      { href: "/admin/attendance", label: "Присъствия" },
+      { href: "/admin/clients", label: "Клиенти" },
+    ],
+  },
+];
+
+export function AdminActions({ isCoach = false }: { isCoach?: boolean }) {
   return (
     <>
-      {GROUPS.map((group) => (
+      {(isCoach ? COACH_GROUPS : GROUPS).map((group) => (
         <div key={group.label} className="mb-6">
           <div className={groupLabelClass}>{group.label}</div>
           <div className="space-y-3">

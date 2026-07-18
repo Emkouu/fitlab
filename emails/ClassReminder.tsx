@@ -22,6 +22,7 @@ export type ClassReminderProps = {
   trainersText: string;      // e.g. "Даниил & Юна"
   studioName: string;
   studioAddress: string;
+  studioPhone: string;
   cancelWindowHours: number;
   pendingDeposit: boolean;
   accountUrl: string;
@@ -44,6 +45,7 @@ export function ClassReminder(props: ClassReminderProps) {
     trainersText,
     studioName,
     studioAddress,
+    studioPhone,
     cancelWindowHours,
     pendingDeposit,
     accountUrl,
@@ -139,6 +141,12 @@ export function ClassReminder(props: ClassReminderProps) {
           <Section style={{ textAlign: "center" }}>
             <Text style={{ fontSize: 12, color: MUTED, margin: "4px 0" }}>
               {studioName} · {studioAddress}
+            </Text>
+            <Text style={{ fontSize: 12, color: MUTED, margin: "4px 0" }}>
+              Тел:{" "}
+              <Link href={`tel:${studioPhone.replace(/\s+/g, "")}`} style={{ color: MUTED }}>
+                {studioPhone}
+              </Link>
             </Text>
             <Text style={{ fontSize: 12, color: MUTED, margin: "4px 0" }}>
               <Link href={footerSite} style={{ color: MUTED }}>

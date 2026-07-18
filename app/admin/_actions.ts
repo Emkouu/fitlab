@@ -12,6 +12,7 @@ import {
 import { getAdminUser } from "@/lib/auth/getAdminUser";
 import { ACTIVE_BOOKING_STATUSES, cancelBooking } from "@/lib/booking";
 import { notifyWaitlist } from "@/lib/notifications/notifyWaitlist";
+import { notifyClassCancelled } from "@/lib/notifications/notifyClassCancelled";
 import {
   classFormSchema,
   type ClassFormInput,
@@ -25,7 +26,10 @@ import {
   type AdminCancelBookingInput,
   updateClientSchema,
   type UpdateClientInput,
+  addClientSchema,
+  type AddClientInput,
 } from "@/lib/validation/clientForm";
+import { getStaffUser } from "@/lib/auth/getStaffUser";
 import {
   practiceFormSchema,
   type PracticeFormInput,
@@ -34,6 +38,10 @@ import {
   studioSettingsSchema,
   type StudioSettingsInput,
 } from "@/lib/validation/studioSettingsForm";
+import {
+  partnerFormSchema,
+  type PartnerFormInput,
+} from "@/lib/validation/partnerForm";
 import { generateSlug } from "@/lib/utils/slug";
 import { sofiaToUtc } from "@/lib/format/sofiaTime";
 import { sofiaDateKey } from "@/lib/format";
@@ -202,6 +210,20 @@ export async function cancelClassAction(
       ...balanceRestoredIds,
       ...onsiteSettledIds,
     ];
+
+    // Tell the affected clients their class is off (in-app bell + email).
+    // Best-effort — the cancellation + refunds are already committed.
+    try {
+      await notifyClassCancelled(
+        classId,
+        activeBookings.map((b) => b.userId),
+      );
+    } catch (err) {
+      console.error("[cancelClass] notifyClassCancelled failed", err);
+    }
+
+    revalidatePath("/schedule");
+    revalidatePath("/admin/schedule");
 
     return {
       ok: true,
@@ -1247,6 +1269,162 @@ export async function deletePracticeAction(
   revalidatePath("/admin/practices");
 
   return { ok: true, message: "Практиката е изтрита." };
+}
+
+/* ───────────────────────── Add client (staff incl. coaches) ───────────────────────── */
+
+export type AddClientResult =
+  | { ok: true; userId: string; message: string }
+  | { ok: false; message: string };
+
+/**
+ * Create a bare member User row from the staff panel. Coaches are allowed —
+ * this is additive-only (no role/balance edits, those stay admin-only in
+ * updateClientAction). The person claims the row on first sign-in via
+ * `syncUserFromSupabase` (matches by phone/email).
+ */
+export async function addClientAction(
+  input: AddClientInput,
+): Promise<AddClientResult> {
+  const staff = await getStaffUser();
+  if (!staff) {
+    return { ok: false, message: "Нямаш достъп до тази функция." };
+  }
+
+  const parsed = addClientSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, message: "Невалидни данни. Провери полетата." };
+  }
+  const data = parsed.data;
+  const phone = data.phone?.trim() ? data.phone.trim() : null;
+  const email = data.email?.trim() ? data.email.trim().toLowerCase() : null;
+
+  // Friendly duplicate check before insert (unique indexes are the backstop).
+  const existing = await prisma.user.findFirst({
+    where: {
+      OR: [
+        ...(phone ? [{ phone }] : []),
+        ...(email ? [{ email }] : []),
+      ],
+    },
+    select: { id: true, fullName: true },
+  });
+  if (existing) {
+    return {
+      ok: false,
+      message: `Вече има клиент с този телефон/имейл${existing.fullName ? ` (${existing.fullName})` : ""}.`,
+    };
+  }
+
+  try {
+    const user = await prisma.user.create({
+      data: {
+        fullName: data.fullName.trim(),
+        phone,
+        email,
+        role: Role.member,
+      },
+    });
+
+    console.log(
+      `[admin-audit] addClient by=${staff.id} role=${staff.role} user=${user.id}`,
+    );
+
+    revalidatePath("/admin/clients");
+    return { ok: true, userId: user.id, message: "Клиентът е добавен." };
+  } catch (err) {
+    const e = err as { code?: string };
+    if (e.code === "P2002") {
+      return { ok: false, message: "Телефонът или имейлът вече се използват." };
+    }
+    console.error("[addClient] error:", err);
+    return { ok: false, message: "Грешка при запазване. Опитай отново." };
+  }
+}
+
+/* ───────────────────────── Loyalty partners ───────────────────────── */
+
+export type UpsertPartnerResult =
+  | { ok: true; partnerId: string; message: string }
+  | { ok: false; message: string };
+
+export async function upsertPartnerAction(
+  input: PartnerFormInput,
+): Promise<UpsertPartnerResult> {
+  const admin = await getAdminUser();
+  if (!admin) {
+    return { ok: false, message: "Нямаш достъп до тази функция." };
+  }
+
+  const parsed = partnerFormSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, message: "Невалидни данни. Провери полетата." };
+  }
+  const data = parsed.data;
+  const isCreate = !data.id;
+
+  // Normalize optional empties to NULL so the Profile card logic stays simple.
+  const payload = {
+    name: data.name.trim(),
+    description: data.description?.trim() ? data.description.trim() : null,
+    logoUrl: data.logoUrl?.trim() ? data.logoUrl.trim() : null,
+    siteUrl: data.siteUrl?.trim() ? data.siteUrl.trim() : null,
+    promoCode: data.promoCode?.trim() ? data.promoCode.trim() : null,
+    active: data.active,
+  };
+
+  try {
+    const partner = isCreate
+      ? await prisma.partner.create({ data: payload })
+      : await prisma.partner.update({ where: { id: data.id! }, data: payload });
+
+    console.log(
+      `[admin-audit] upsertPartner by=${admin.id} partner=${partner.id} mode=${isCreate ? "create" : "update"}`,
+    );
+
+    revalidatePath("/admin/partners");
+    revalidatePath("/account");
+
+    return {
+      ok: true,
+      partnerId: partner.id,
+      message: isCreate ? "Партньорът е добавен." : "Партньорът е обновен.",
+    };
+  } catch (err) {
+    console.error("[upsertPartner] error:", err);
+    return { ok: false, message: "Грешка при запазване. Опитай отново." };
+  }
+}
+
+export type DeletePartnerResult =
+  | { ok: true; message: string }
+  | { ok: false; message: string };
+
+export async function deletePartnerAction(
+  partnerId: string,
+): Promise<DeletePartnerResult> {
+  const admin = await getAdminUser();
+  if (!admin) {
+    return { ok: false, message: "Нямаш достъп до тази функция." };
+  }
+  // Destructive → super_admin only (CLAUDE.md admin policy). Admins can
+  // hide a partner via the active toggle instead.
+  if (admin.role !== Role.super_admin) {
+    return { ok: false, message: "Само super admin може да изтрива партньори." };
+  }
+
+  try {
+    await prisma.partner.delete({ where: { id: partnerId } });
+  } catch (err) {
+    console.error("[deletePartner] error:", err);
+    return { ok: false, message: "Грешка при изтриване. Опитай отново." };
+  }
+
+  console.log(`[admin-audit] deletePartner by=${admin.id} partner=${partnerId}`);
+  revalidatePath("/admin/partners");
+  revalidatePath("/account");
+
+  return { ok: true, message: "Партньорът е изтрит." };
 }
 
 /* ───────────────────────── Studio settings ───────────────────────── */

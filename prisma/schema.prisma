@@ -52,6 +52,7 @@ enum NotificationType {
   class_cancelled
   reminder_24h
   reminder_2h
+  new_booking
 }
 
 // ─── Core ──────────────────────────────────────────────────────────────────────
@@ -160,6 +161,15 @@ model Booking {
   reminder24hSentAt DateTime?
   reminder2hSentAt  DateTime?
 
+  /// For on-site (`onsite_deposit`) bookings only: how the client pays at the
+  /// desk — "cash" | "subscription" | "multisport". Captured from the booking
+  /// modal, editable by staff in Attendance. NULL for card/balance bookings.
+  onsiteMethod String?
+  /// When staff marked the on-site deposit as settled ("Разплати" in
+  /// Attendance). NULL = not yet collected. Orthogonal to attendance status —
+  /// payment and attendance are independent axes.
+  depositSettledAt DateTime?
+
   /// Prevents double-booking the same class by the same user (SPEC §5.2).
   /// Only applies to active (non-cancelled) bookings, allowing re-booking after cancellation.
   @@unique([userId, scheduledClassId], map: "unique_active_booking", where: raw("status != 'cancelled'"))
@@ -251,4 +261,21 @@ model Notification {
 model RecurringRule {
   id        String   @id @default(cuid())
   createdAt DateTime @default(now())
+}
+
+/// Loyalty-program partner brand. Shown on the client Profile page with the
+/// partner's logo, discount promo code, and a link to their site. Managed by
+/// admins at /admin/partners.
+model Partner {
+  id          String   @id @default(cuid())
+  name        String
+  /// Short benefit line shown under the name, e.g. "15% отстъпка с кода".
+  description String?
+  logoUrl     String?
+  siteUrl     String?
+  promoCode   String?
+  /// Hidden from the Profile page when false — soft off-switch, no delete.
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }

@@ -7,6 +7,7 @@ import { prisma } from "@/lib/db";
 import { createBooking } from "@/lib/booking";
 import { createCheckoutForBooking } from "@/lib/payments/createCheckoutForBooking";
 import { sendBookingConfirmationEmail } from "@/lib/email/sendBookingConfirmationEmail";
+import { notifyAdminsNewBooking } from "@/lib/notifications/notifyAdminsNewBooking";
 import { BookingSource, BookingStatus } from "@/lib/generated/prisma/enums";
 import { sofiaDateKey } from "@/lib/format";
 import type { ClassCardRow } from "./_components/ClassCard";
@@ -98,6 +99,9 @@ export type BookClassActionResult =
 export async function bookClassAction(input: {
   scheduledClassId: string;
   source: "card" | "onsite_deposit" | "balance";
+  /** UI payment method (cash | subscription | multisport). Not persisted —
+   *  only used for the admin new-booking notification message. */
+  method?: "cash" | "subscription" | "multisport";
 }): Promise<BookClassActionResult> {
   // 1. Auth gate.
   const supabase = await createClient();
@@ -170,6 +174,7 @@ export async function bookClassAction(input: {
     userId: profile.id,
     scheduledClassId: input.scheduledClassId,
     source,
+    onsiteMethod: source === BookingSource.onsite_deposit ? input.method : null,
   });
 
   if (!r.ok) {
@@ -238,6 +243,11 @@ export async function bookClassAction(input: {
   // 5. Balance / on-site path — send confirmation email now (card path
   //    waits for the Stripe webhook to flip to `paid` before notifying).
   await sendBookingConfirmationEmail(r.booking.id);
+  // Ping the admins about the new on-site booking (in-app bell + email).
+  // Best-effort; never blocks or fails the booking.
+  if (source === BookingSource.onsite_deposit) {
+    await notifyAdminsNewBooking(r.booking.id, input.method);
+  }
   revalidatePath("/schedule");
   return { ok: true, bookingId: r.booking.id };
 }

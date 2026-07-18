@@ -33,7 +33,14 @@ const ROLE_COLOR: Record<Role, string> = {
   member: "bg-[color:var(--brand-pink-soft)] text-[color:var(--brand-purple)]",
 };
 
-export function ClientList({ rows }: { rows: ClientRow[] }) {
+export function ClientList({
+  rows,
+  canOpenDetail = true,
+}: {
+  rows: ClientRow[];
+  /** Coaches see the list but can't open the (admin-only) detail editor. */
+  canOpenDetail?: boolean;
+}) {
   const [q, setQ] = useState("");
   const [sortBy, setSortBy] = useState<SortBy>("createdAt");
   const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
@@ -113,10 +120,7 @@ export function ClientList({ rows }: { rows: ClientRow[] }) {
         <ul className="space-y-2.5">
           {filtered.map((r) => (
             <li key={r.id}>
-              <Link
-                href={`/admin/clients/${r.id}`}
-                className="block overflow-hidden rounded-2xl bg-white px-5 py-4 shadow-[0_1px_2px_rgba(123,45,142,0.05),0_4px_16px_-8px_rgba(236,72,153,0.18)] transition-shadow hover:shadow-[0_4px_16px_-8px_rgba(236,72,153,0.28)]"
-              >
+              <CardShell id={r.id} canOpenDetail={canOpenDetail}>
                 <div className="mb-1 flex items-baseline justify-between gap-3">
                   <p className="font-display text-[15px] font-semibold leading-tight">
                     {r.fullName ?? "—"}
@@ -140,11 +144,34 @@ export function ClientList({ rows }: { rows: ClientRow[] }) {
                     {formatEurMinor(r.depositBalance)}
                   </span>
                 </div>
-              </Link>
+              </CardShell>
             </li>
           ))}
         </ul>
       )}
     </div>
+  );
+}
+
+/** Card wrapper: a Link into the detail editor for admins, a plain div for
+ *  coaches (the detail page is admin-only). */
+function CardShell({
+  id,
+  canOpenDetail,
+  children,
+}: {
+  id: string;
+  canOpenDetail: boolean;
+  children: React.ReactNode;
+}) {
+  const className =
+    "block overflow-hidden rounded-2xl bg-white px-5 py-4 shadow-[0_1px_2px_rgba(123,45,142,0.05),0_4px_16px_-8px_rgba(236,72,153,0.18)] transition-shadow hover:shadow-[0_4px_16px_-8px_rgba(236,72,153,0.28)]";
+  if (!canOpenDetail) {
+    return <div className={className}>{children}</div>;
+  }
+  return (
+    <Link href={`/admin/clients/${id}`} className={className}>
+      {children}
+    </Link>
   );
 }

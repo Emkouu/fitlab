@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist_Mono, Sofia_Sans, Unbounded } from "next/font/google";
 import "./globals.css";
 import { prisma } from "@/lib/db";
@@ -34,6 +34,16 @@ export const metadata: Metadata = {
   // Home-screen name when saved via iOS „Add to Home Screen" (the icon itself
   // is app/apple-icon.png, auto-linked by Next).
   appleWebApp: { title: "FitLab" },
+};
+
+// Lock the viewport: the app is a fixed mobile-first layout, so pinch-zoom
+// only ever mis-scales it. maximumScale:1 + userScalable:false disable the
+// accidental two-finger zoom on touch devices.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
 };
 
 export default async function RootLayout({

@@ -2,12 +2,16 @@ import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { getAdminUser } from "@/lib/auth/getAdminUser";
+import { getStaffUser } from "@/lib/auth/getStaffUser";
 import { BookingStatus } from "@/lib/generated/prisma/enums";
 import { ACTIVE_BOOKING_STATUSES } from "@/lib/booking";
 import { Heartbeat } from "@/app/_components/Heartbeat";
 import { formatSofiaDay, formatSofiaTime } from "@/lib/format";
 import { AdminBreadcrumb } from "../_components/AdminBreadcrumb";
+import {
+  AttendanceClassList,
+  type AttendanceClassRow,
+} from "./_components/AttendanceClassList";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +26,7 @@ const UNMARKED_STATUSES = [
 ];
 
 export default async function AdminAttendanceIndexPage() {
-  const admin = await getAdminUser();
+  const admin = await getStaffUser();
   if (!admin) redirect("/schedule");
 
   const now = new Date();
@@ -57,6 +61,18 @@ export default async function AdminAttendanceIndexPage() {
     }),
   );
 
+  const rows: AttendanceClassRow[] = byClass.map((c) => ({
+    id: c.id,
+    startAtISO: c.startAt.toISOString(),
+    dayText: formatSofiaDay(c.startAt),
+    timeText: formatSofiaTime(c.startAt),
+    practiceName: c.practice.name,
+    trainersText: c.trainers.map((t) => t.name).join(" & ") || "—",
+    bookingsCount: c._count.bookings,
+    unmarked: c.unmarked,
+    isUpcoming: c.startAt.getTime() > now.getTime(),
+  }));
+
   return (
     <main className="mx-auto w-full max-w-[440px] px-5 pb-12 pt-6 font-sans text-[color:var(--brand-ink)]">
       <header className="mb-7">
@@ -87,67 +103,7 @@ export default async function AdminAttendanceIndexPage() {
         Всички класове — маркирай присъствия по всяко време.
       </p>
 
-      {byClass.length === 0 ? (
-        <EmptyState />
-      ) : (
-        <ul className="space-y-2.5">
-          {byClass.map((c) => {
-            const isUpcoming = c.startAt.getTime() > now.getTime();
-            return (
-              <li key={c.id}>
-                <Link
-                  href={`/admin/attendance/${c.id}`}
-                  className="block overflow-hidden rounded-2xl bg-white px-5 py-4 shadow-[0_1px_2px_rgba(123,45,142,0.05),0_4px_16px_-8px_rgba(236,72,153,0.18)] transition-shadow hover:shadow-[0_1px_2px_rgba(123,45,142,0.06),0_8px_24px_-8px_rgba(236,72,153,0.28)]"
-                >
-                  <div className="mb-2 flex items-baseline justify-between gap-3">
-                    <span className="font-mono text-[11px] uppercase tracking-wider text-[color:var(--brand-purple)]/60">
-                      {formatSofiaDay(c.startAt)}
-                    </span>
-                    <span className="font-display text-sm font-bold text-[color:var(--brand-magenta)]">
-                      {formatSofiaTime(c.startAt)}
-                    </span>
-                  </div>
-                  <h3 className="font-display text-[15px] font-semibold leading-tight">
-                    {c.practice.name}
-                  </h3>
-                  <p className="mt-1 truncate text-sm text-[color:var(--brand-purple)]/75">
-                    {c.trainers.map((t) => t.name).join(" & ") || "—"}
-                  </p>
-                  <div className="mt-3 flex items-center justify-between text-[12px]">
-                    <span className="text-[color:var(--brand-purple)]/60">
-                      {c._count.bookings} записани
-                    </span>
-                    {isUpcoming ? (
-                      <span className="inline-flex items-center rounded-full bg-[color:var(--brand-purple)]/15 px-2.5 py-1 font-display text-[10px] font-bold uppercase tracking-wider text-[color:var(--brand-purple)]">
-                        Предстои
-                      </span>
-                    ) : c.unmarked > 0 ? (
-                      <span className="inline-flex items-center rounded-full bg-[color:var(--brand-magenta)] px-2.5 py-1 font-display text-[10px] font-bold uppercase tracking-wider text-white">
-                        {c.unmarked} необработени
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-1 font-display text-[10px] font-bold uppercase tracking-wider text-emerald-700">
-                        Готово
-                      </span>
-                    )}
-                  </div>
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+      <AttendanceClassList rows={rows} />
     </main>
-  );
-}
-
-function EmptyState() {
-  return (
-    <div className="rounded-2xl border border-[color:var(--brand-pink)] bg-white px-5 py-8 text-center">
-      <p className="font-display text-base font-semibold">Няма класове</p>
-      <p className="mt-2 text-sm leading-relaxed text-[color:var(--brand-purple)]/70">
-        Засега няма класове за обработка.
-      </p>
-    </div>
   );
 }

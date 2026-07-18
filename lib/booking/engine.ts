@@ -36,6 +36,9 @@ export type CreateBookingInput = {
   userId: string;
   scheduledClassId: string;
   source: BookingSource;
+  /** On-site payment method (cash | subscription | multisport). Persisted for
+   *  `onsite_deposit` bookings so staff see the intended method in Attendance. */
+  onsiteMethod?: string | null;
 };
 
 export type CreateBookingResult =
@@ -73,7 +76,7 @@ export async function createBooking(
   prisma: PrismaClient,
   input: CreateBookingInput,
 ): Promise<CreateBookingResult> {
-  const { userId, scheduledClassId, source } = input;
+  const { userId, scheduledClassId, source, onsiteMethod } = input;
 
   const initialStatus =
     source === BookingSource.card || source === BookingSource.balance
@@ -158,6 +161,8 @@ export async function createBooking(
           scheduledClassId,
           source,
           status: initialStatus,
+          onsiteMethod:
+            source === BookingSource.onsite_deposit ? onsiteMethod ?? null : null,
         },
       });
 

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { getAdminUser } from "@/lib/auth/getAdminUser";
+import { getStaffUser } from "@/lib/auth/getStaffUser";
+import { Role } from "@/lib/generated/prisma/enums";
 import { ACTIVE_BOOKING_STATUSES } from "@/lib/booking";
 import Image from "next/image";
 import Link from "next/link";
@@ -12,11 +13,12 @@ export const metadata = { title: "FitLab Varna — Admin Schedule" };
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
 export default async function AdminSchedulePage() {
-  // ─── Role gate ──────────────────────────────────────────────────────────
-  const admin = await getAdminUser();
+  // ─── Role gate: admins manage, coaches get a read-only view ─────────────
+  const admin = await getStaffUser();
   if (!admin) {
     redirect("/schedule");
   }
+  const readOnly = admin.role === Role.coach;
 
   const now = new Date();
   const thirtyDaysFromNow = new Date(Date.now() + THIRTY_DAYS_MS);
@@ -77,7 +79,11 @@ export default async function AdminSchedulePage() {
         </p>
       </div>
 
-      <AdminScheduleSurface classes={classes} isSuperAdmin={admin.role === "super_admin"} />
+      <AdminScheduleSurface
+        classes={classes}
+        isSuperAdmin={admin.role === Role.super_admin}
+        readOnly={readOnly}
+      />
     </main>
   );
 }

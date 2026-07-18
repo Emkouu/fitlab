@@ -4,6 +4,8 @@ import { SpotAvailable } from "@/emails/SpotAvailable";
 const FROM_ADDRESS =
   process.env.RESEND_FROM ?? "FitLab Varna <onboarding@resend.dev>";
 
+const STUDIO_PHONE = "088 241 4863";
+
 const LOGO_URL = process.env.NEXT_PUBLIC_APP_URL
   ? `${process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "")}/logo.png`
   : "https://fitlabvarna.com/logo.png";
@@ -43,6 +45,7 @@ export async function sendSpotAvailableEmail(
     trainersText: input.trainersText,
     studioName: input.studioName,
     studioAddress: input.studioAddress,
+    studioPhone: STUDIO_PHONE,
     scheduleUrl,
     logoUrl: LOGO_URL,
     footerSite: process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",

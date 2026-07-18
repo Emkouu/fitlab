@@ -20,7 +20,8 @@ export type ScheduleListProps = {
 export function ScheduleList({
   classes,
   isSuperAdmin,
-}: ScheduleListProps & { isSuperAdmin: boolean }) {
+  readOnly = false,
+}: ScheduleListProps & { isSuperAdmin: boolean; readOnly?: boolean }) {
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
   const [deleteClassId, setDeleteClassId] = useState<string | null>(null);
 
@@ -105,7 +106,8 @@ export function ScheduleList({
                   </div>
                 </div>
 
-                {/* Actions */}
+                {/* Actions — not rendered for coaches (read-only view) */}
+                {!readOnly && (
                 <div className="mt-3 flex gap-2">
                   {isCancelled ? (
                     <button
@@ -142,6 +144,7 @@ export function ScheduleList({
                     </button>
                   )}
                 </div>
+                )}
               </div>
             </li>
           );

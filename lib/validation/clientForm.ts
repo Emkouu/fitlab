@@ -22,3 +22,36 @@ export const adminCancelBookingSchema = z.object({
 });
 
 export type AdminCancelBookingInput = z.infer<typeof adminCancelBookingSchema>;
+
+/**
+ * Staff add-client form (admins + coaches). Creates a bare member User row;
+ * the person claims it on first sign-in — `syncUserFromSupabase` matches by
+ * phone/email and links the Supabase account to the existing row.
+ * At least one contact (phone or email) is required for that match to work.
+ */
+export const addClientSchema = z
+  .object({
+    fullName: z
+      .string()
+      .trim()
+      .min(1, "Името е задължително")
+      .max(120, "Името не може да надвишава 120 символа"),
+    phone: z
+      .string()
+      .trim()
+      .max(32, "Телефонът не може да надвишава 32 символа")
+      .optional()
+      .or(z.literal("")),
+    email: z
+      .string()
+      .trim()
+      .email("Невалиден имейл")
+      .optional()
+      .or(z.literal("")),
+  })
+  .refine((d) => (d.phone && d.phone !== "") || (d.email && d.email !== ""), {
+    message: "Добави телефон или имейл — иначе клиентът не може да влезе.",
+    path: ["phone"],
+  });
+
+export type AddClientInput = z.infer<typeof addClientSchema>;

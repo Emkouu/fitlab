@@ -9,7 +9,8 @@ type View = "list" | "calendar";
 export function AdminScheduleSurface({
   classes,
   isSuperAdmin,
-}: ScheduleListProps & { isSuperAdmin: boolean }) {
+  readOnly = false,
+}: ScheduleListProps & { isSuperAdmin: boolean; readOnly?: boolean }) {
   const [view, setView] = useState<View>("list");
 
   return (
@@ -30,9 +31,13 @@ export function AdminScheduleSurface({
       </div>
 
       {view === "list" ? (
-        <ScheduleList classes={classes} isSuperAdmin={isSuperAdmin} />
+        <ScheduleList
+          classes={classes}
+          isSuperAdmin={isSuperAdmin}
+          readOnly={readOnly}
+        />
       ) : (
-        <AdminScheduleCalendar classes={classes} />
+        <AdminScheduleCalendar classes={classes} readOnly={readOnly} />
       )}
     </>
   );

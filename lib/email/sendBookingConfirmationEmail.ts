@@ -12,6 +12,7 @@ const FROM_ADDRESS =
   process.env.RESEND_FROM ?? "FitLab Varna <onboarding@resend.dev>";
 
 const STUDIO_ADDRESS = "ул. Патриарх Евтимий 7а, Варна";
+const STUDIO_PHONE = "088 241 4863";
 const LOGO_URL = process.env.NEXT_PUBLIC_APP_URL
   ? `${process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "")}/logo.png`
   : "https://fitlabvarna.com/logo.png";
@@ -86,6 +87,7 @@ export async function sendBookingConfirmationEmail(
     trainersText,
     studioName: cls.studio.name,
     studioAddress: STUDIO_ADDRESS,
+    studioPhone: cls.studio.phone ?? STUDIO_PHONE,
     depositText: formatEurMinor(cls.depositAmount),
     depositStatusText: depositStatusText(booking.source, booking.status),
     cancelWindowHours: cls.studio.cancelWindowHours,

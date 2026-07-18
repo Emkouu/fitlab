@@ -24,7 +24,13 @@ type AdminClass = ScheduledClass & {
  * and shows a "N класа" badge. Tapping a day reveals that day's class list
  * (cancelled rows render with strikethrough).
  */
-export function AdminScheduleCalendar({ classes }: { classes: AdminClass[] }) {
+export function AdminScheduleCalendar({
+  classes,
+  readOnly = false,
+}: {
+  classes: AdminClass[];
+  readOnly?: boolean;
+}) {
   const initialKey = sofiaDateKey(new Date());
   const initialDate = new Date();
   const [year, setYear] = useState(Number(initialKey.slice(0, 4)));
@@ -45,7 +51,14 @@ export function AdminScheduleCalendar({ classes }: { classes: AdminClass[] }) {
   const todayKey = initialKey;
   const selectedClasses = selectedKey ? byKey.get(selectedKey) ?? [] : [];
 
+  // The calendar starts from today onward: past days are disabled and the
+  // „previous month" arrow is blocked once we're at the current month.
+  const currentYear = Number(initialKey.slice(0, 4));
+  const currentMonth = initialDate.getMonth();
+  const atCurrentMonth = year === currentYear && month === currentMonth;
+
   function prevMonth() {
+    if (atCurrentMonth) return; // don't navigate into the past
     if (month === 0) { setYear(year - 1); setMonth(11); }
     else setMonth(month - 1);
   }
@@ -61,8 +74,9 @@ export function AdminScheduleCalendar({ classes }: { classes: AdminClass[] }) {
           <button
             type="button"
             onClick={prevMonth}
+            disabled={atCurrentMonth}
             aria-label="Предишен месец"
-            className="flex h-9 w-9 items-center justify-center rounded-full text-[color:var(--brand-magenta)] hover:bg-[color:var(--brand-pink-soft)]"
+            className="flex h-9 w-9 items-center justify-center rounded-full text-[color:var(--brand-magenta)] transition-colors hover:bg-[color:var(--brand-pink-soft)] disabled:pointer-events-none disabled:opacity-30"
           >
             <Arrow direction="left" />
           </button>
@@ -100,6 +114,7 @@ export function AdminScheduleCalendar({ classes }: { classes: AdminClass[] }) {
                 cell={cell}
                 isToday={cell.key === todayKey}
                 isSelected={cell.key === selectedKey}
+                isPast={cell.key < todayKey}
                 count={activeCount}
                 onSelect={() => setSelectedKey(cell.key)}
               />
@@ -120,7 +135,7 @@ export function AdminScheduleCalendar({ classes }: { classes: AdminClass[] }) {
           ) : (
             <ul className="space-y-2.5">
               {selectedClasses.map((cls) => (
-                <ClassRow key={cls.id} cls={cls} />
+                <ClassRow key={cls.id} cls={cls} readOnly={readOnly} />
               ))}
             </ul>
           )}
@@ -130,7 +145,7 @@ export function AdminScheduleCalendar({ classes }: { classes: AdminClass[] }) {
   );
 }
 
-function ClassRow({ cls }: { cls: AdminClass }) {
+function ClassRow({ cls, readOnly = false }: { cls: AdminClass; readOnly?: boolean }) {
   const isCancelled = !!cls.cancelledAt;
   return (
     <li>
@@ -172,7 +187,7 @@ function ClassRow({ cls }: { cls: AdminClass }) {
           </div>
           <p>Депозит: {formatEurMinor(cls.depositAmount)}</p>
         </div>
-        {!isCancelled && (
+        {!isCancelled && !readOnly && (
           <div className="mt-3">
             <Link
               href={`/admin/schedule/${cls.id}/edit`}
@@ -191,16 +206,19 @@ function DayCell({
   cell,
   isToday,
   isSelected,
+  isPast,
   count,
   onSelect,
 }: {
   cell: Cell;
   isToday: boolean;
   isSelected: boolean;
+  isPast: boolean;
   count: number;
   onSelect: () => void;
 }) {
-  const interactive = cell.inMonth;
+  // Only in-month days that aren't in the past are selectable.
+  const interactive = cell.inMonth && !isPast;
   return (
     <button
       type="button"
@@ -214,13 +232,13 @@ function DayCell({
           : interactive
             ? "hover:bg-[color:var(--brand-pink-soft)]/60"
             : ""
-      }`}
+      } ${!interactive && cell.inMonth ? "cursor-not-allowed" : ""}`}
     >
       <span
         className={`flex h-7 w-7 items-center justify-center rounded-full font-display text-[13px] font-semibold ${
           isToday
             ? "ring-2 ring-[color:var(--brand-magenta)] text-[color:var(--brand-magenta)]"
-            : !cell.inMonth
+            : !cell.inMonth || isPast
               ? "text-[color:var(--brand-purple)]/35"
               : "text-[color:var(--brand-ink)]"
         }`}

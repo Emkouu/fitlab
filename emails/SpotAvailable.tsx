@@ -21,6 +21,7 @@ export type SpotAvailableProps = {
   trainersText: string;
   studioName: string;
   studioAddress: string;
+  studioPhone: string;
   scheduleUrl: string;
   logoUrl: string;
   footerSite: string;
@@ -42,6 +43,7 @@ export function SpotAvailable(props: SpotAvailableProps) {
     trainersText,
     studioName,
     studioAddress,
+    studioPhone,
     scheduleUrl,
     logoUrl,
     footerSite,
@@ -129,6 +131,12 @@ export function SpotAvailable(props: SpotAvailableProps) {
           <Section style={{ textAlign: "center" }}>
             <Text style={{ fontSize: 12, color: MUTED, margin: "4px 0" }}>
               {studioName} · {studioAddress}
+            </Text>
+            <Text style={{ fontSize: 12, color: MUTED, margin: "4px 0" }}>
+              Тел:{" "}
+              <Link href={`tel:${studioPhone.replace(/\s+/g, "")}`} style={{ color: MUTED }}>
+                {studioPhone}
+              </Link>
             </Text>
             <Text style={{ fontSize: 12, color: MUTED, margin: "4px 0" }}>
               <Link href={footerSite} style={{ color: MUTED }}>

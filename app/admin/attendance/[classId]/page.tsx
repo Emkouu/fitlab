@@ -2,7 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { getAdminUser } from "@/lib/auth/getAdminUser";
+import { getStaffUser } from "@/lib/auth/getStaffUser";
 import { PaymentStatus, BookingStatus } from "@/lib/generated/prisma/enums";
 import { Heartbeat } from "@/app/_components/Heartbeat";
 import { formatSofiaDay, formatSofiaTime } from "@/lib/format";
@@ -23,7 +23,7 @@ export default async function AdminAttendanceClassPage({
 }) {
   const { classId } = await params;
 
-  const admin = await getAdminUser();
+  const admin = await getStaffUser();
   if (!admin) redirect("/schedule");
 
   const cls = await prisma.scheduledClass.findUnique({
@@ -64,6 +64,8 @@ export default async function AdminAttendanceClassPage({
       b.source === "card" &&
       (b.payment?.status === PaymentStatus.paid ||
         b.status === BookingStatus.paid),
+    onsiteMethod: b.onsiteMethod,
+    depositSettled: b.depositSettledAt !== null,
   }));
 
   return (

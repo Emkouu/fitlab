@@ -2,9 +2,9 @@ import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { getAdminUser } from "@/lib/auth/getAdminUser";
+import { getStaffUser } from "@/lib/auth/getStaffUser";
 import { ACTIVE_BOOKING_STATUSES } from "@/lib/booking";
-import { BookingStatus } from "@/lib/generated/prisma/enums";
+import { BookingStatus, Role } from "@/lib/generated/prisma/enums";
 import { formatEurMinor, sofiaDateKey } from "@/lib/format";
 import { dailyStats } from "@/lib/stats/turnover";
 import { AdminActions } from "./_components/AdminActions";
@@ -14,10 +14,44 @@ export const metadata = { title: "FitLab Varna — Админ панел" };
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
 export default async function AdminPage() {
-  // ─── Role gate ──────────────────────────────────────────────────────────
-  const admin = await getAdminUser();
+  // ─── Role gate: admins get the full panel, coaches a reduced one ────────
+  const admin = await getStaffUser();
   if (!admin) {
     redirect("/schedule");
+  }
+  const isCoach = admin.role === Role.coach;
+
+  // Coaches: no KPIs (financial data) — just the reduced nav.
+  if (isCoach) {
+    return (
+      <main className="mx-auto w-full max-w-[440px] px-5 pb-12 pt-6 font-sans text-[color:var(--brand-ink)]">
+        <header className="mb-7">
+          <div className="flex items-center justify-center">
+            <Link href="/" className="hover:opacity-80 transition-opacity">
+              <Image
+                src="/logo.png"
+                alt="FitLab Varna"
+                width={180}
+                height={90}
+                priority
+                className="h-16 w-auto"
+              />
+            </Link>
+          </div>
+        </header>
+
+        <div className="mb-8">
+          <h1 className="font-display text-2xl font-bold tracking-tight">
+            Треньорски панел
+          </h1>
+          <p className="mt-1 text-xs text-[color:var(--brand-purple)]/70">
+            {admin.email}
+          </p>
+        </div>
+
+        <AdminActions isCoach />
+      </main>
+    );
   }
 
   const now = new Date();

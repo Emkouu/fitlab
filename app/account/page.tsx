@@ -9,6 +9,7 @@ import { Breadcrumb } from "@/app/_components/Breadcrumb";
 import { SignOutButton } from "./_components/SignOutButton";
 import { BookingsList } from "./_components/BookingsList";
 import { PaymentHistory } from "./_components/PaymentHistory";
+import { PartnerPerks } from "./_components/PartnerPerks";
 
 // Middleware already guards /account, but defence in depth: server-side re-check.
 export const dynamic = "force-dynamic";
@@ -52,6 +53,20 @@ export default async function AccountPage() {
   const pastBookings = bookings.filter((b) => {
     const startTime = new Date(b.scheduledClass.startAt).getTime();
     return startTime <= now;
+  });
+
+  // Loyalty-program partners (admin-managed at /admin/partners).
+  const partners = await prisma.partner.findMany({
+    where: { active: true },
+    orderBy: { name: "asc" },
+    select: {
+      id: true,
+      name: true,
+      description: true,
+      logoUrl: true,
+      siteUrl: true,
+      promoCode: true,
+    },
   });
 
   // Fetch all payments for this user (via their bookings)
@@ -120,12 +135,14 @@ export default async function AccountPage() {
         )}
       </dl>
 
-      {(profile?.role === "admin" || profile?.role === "super_admin") && (
+      {(profile?.role === "admin" ||
+        profile?.role === "super_admin" ||
+        profile?.role === "coach") && (
         <Link
           href="/admin"
           className="mb-8 flex min-h-12 w-full items-center justify-center rounded-2xl border-2 border-[color:var(--brand-magenta)] bg-white px-5 py-3.5 font-display text-sm font-bold uppercase tracking-wider text-[color:var(--brand-magenta)] transition-colors hover:bg-[color:var(--brand-pink-soft)]"
         >
-          Админ панел →
+          {profile.role === "coach" ? "Треньорски панел →" : "Админ панел →"}
         </Link>
       )}
 
@@ -148,6 +165,19 @@ export default async function AccountPage() {
             История на плащания
           </h2>
           <PaymentHistory payments={payments} />
+        </div>
+      )}
+
+      {/* Loyalty program — partner brands with discount codes */}
+      {partners.length > 0 && (
+        <div className="mb-8">
+          <h2 className="mb-1 font-display text-lg font-bold tracking-tight">
+            Лоялна програма
+          </h2>
+          <p className="mb-4 text-xs text-[color:var(--brand-purple)]/70">
+            Отстъпки от нашите партньори — само за клиенти на FitLab.
+          </p>
+          <PartnerPerks partners={partners} />
         </div>
       )}
 
