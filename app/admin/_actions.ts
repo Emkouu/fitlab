@@ -10,9 +10,12 @@ import {
   Role,
 } from "@/lib/generated/prisma/enums";
 import { getAdminUser } from "@/lib/auth/getAdminUser";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { DEPOSIT_UNIT_MINOR, depositsToMinor } from "@/lib/deposit";
 import { ACTIVE_BOOKING_STATUSES, cancelBooking } from "@/lib/booking";
 import { notifyWaitlist } from "@/lib/notifications/notifyWaitlist";
 import { notifyClassCancelled } from "@/lib/notifications/notifyClassCancelled";
+import { notifyBookingCancelled } from "@/lib/notifications/notifyBookingCancelled";
 import {
   classFormSchema,
   type ClassFormInput,
@@ -136,9 +139,7 @@ export async function cancelClassAction(
             await tx.user.update({
               where: { id: booking.userId },
               data: {
-                depositBalance: {
-                  increment: scheduledClass.depositAmount,
-                },
+                depositBalance: { increment: DEPOSIT_UNIT_MINOR },
               },
             });
             balanceRestoredIds.push(booking.id);
@@ -506,6 +507,7 @@ export async function upsertClassAction(
               depositAmount,
               isSpecialEvent: validatedInput.isSpecialEvent,
               eventNotes: validatedInput.eventNotes || null,
+              imageUrl: validatedInput.imageUrl || null,
               practiceId: validatedInput.practiceId,
               studioId: studio.id,
               trainers: {
@@ -572,6 +574,7 @@ export async function upsertClassAction(
           depositAmount,
           isSpecialEvent: validatedInput.isSpecialEvent,
           eventNotes: validatedInput.eventNotes || null,
+          imageUrl: validatedInput.imageUrl || null,
           practiceId: validatedInput.practiceId,
           studioId: studio.id, // Use actual studio ID from lookup
           trainers: {
@@ -585,6 +588,7 @@ export async function upsertClassAction(
           depositAmount,
           isSpecialEvent: validatedInput.isSpecialEvent,
           eventNotes: validatedInput.eventNotes || null,
+          imageUrl: validatedInput.imageUrl || null,
           practice: { connect: { id: validatedInput.practiceId } },
           trainers: {
             set: validatedInput.trainerIds.map((id) => ({ id })),
@@ -1044,9 +1048,7 @@ export async function adminCancelBookingAction(
   ) {
     await prisma.user.update({
       where: { id: booking.userId },
-      data: {
-        depositBalance: { increment: booking.scheduledClass.depositAmount },
-      },
+      data: { depositBalance: { increment: DEPOSIT_UNIT_MINOR } },
     });
     refundedToBalance = true;
   }
@@ -1054,6 +1056,17 @@ export async function adminCancelBookingAction(
   console.log(
     `[admin-audit] adminCancelBooking by=${admin.id} booking=${bookingId} override=${overrideRefund} forfeited=${result.depositForfeited} refunded=${refundedToBalance}`,
   );
+
+  // Tell the client their booking was cancelled (in-app + email). byAdmin=true
+  // → we don't re-notify admins (the acting admin already knows).
+  try {
+    await notifyBookingCancelled(bookingId, {
+      byAdmin: true,
+      depositReturned: refundedToBalance,
+    });
+  } catch (err) {
+    console.error("[adminCancelBooking] notifyBookingCancelled failed", err);
+  }
 
   // Spot just opened up — walk the waitlist.
   try {
@@ -1340,6 +1353,212 @@ export async function addClientAction(
     console.error("[addClient] error:", err);
     return { ok: false, message: "Грешка при запазване. Опитай отново." };
   }
+}
+
+/* ─────────────────── Add a client to a specific class (staff) ─────────────────── */
+
+export type AdminAddBookingResult =
+  | { ok: true; message: string }
+  | { ok: false; message: string };
+
+/**
+ * Staff manually add an existing client to a class from the attendance view.
+ * Creates an `onsite_deposit` booking (pay at the desk) so staff can then mark
+ * the payment method + „Разплати". Unlike the public booking engine this does
+ * NOT reject past classes — staff often add a walk-in to a class that already
+ * happened for the attendance record. Capacity + duplicate are still enforced.
+ */
+export async function adminAddBookingToClassAction(input: {
+  classId: string;
+  userId: string;
+}): Promise<AdminAddBookingResult> {
+  const staff = await getStaffUser();
+  if (!staff) {
+    return { ok: false, message: "Нямаш достъп до тази функция." };
+  }
+
+  const cls = await prisma.scheduledClass.findUnique({
+    where: { id: input.classId },
+    select: { id: true, cancelledAt: true },
+  });
+  if (!cls) return { ok: false, message: "Класът не е намерен." };
+  if (cls.cancelledAt) return { ok: false, message: "Класът е отменен." };
+
+  const user = await prisma.user.findUnique({
+    where: { id: input.userId },
+    select: { id: true },
+  });
+  if (!user) return { ok: false, message: "Клиентът не е намерен." };
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      // Row-lock the class so a concurrent insert can't overbook.
+      const locked = await tx.$queryRaw<{ id: string; capacity: number }[]>`
+        SELECT id, capacity FROM "ScheduledClass" WHERE id = ${input.classId} FOR UPDATE`;
+      if (locked.length === 0) throw new Error("not_found");
+      const activeCount = await tx.booking.count({
+        where: {
+          scheduledClassId: input.classId,
+          status: { in: ACTIVE_BOOKING_STATUSES },
+        },
+      });
+      if (activeCount >= locked[0].capacity) throw new Error("full");
+      await tx.booking.create({
+        data: {
+          userId: input.userId,
+          scheduledClassId: input.classId,
+          source: BookingSource.onsite_deposit,
+          status: BookingStatus.pending_deposit,
+          onsiteMethod: "cash",
+        },
+      });
+    });
+  } catch (err) {
+    if ((err as { code?: string }).code === "P2002") {
+      return { ok: false, message: "Клиентът вече е записан за този клас." };
+    }
+    if ((err as Error).message === "full") {
+      return { ok: false, message: "Класът е пълен." };
+    }
+    console.error("[adminAddBooking] error:", err);
+    return { ok: false, message: "Грешка при добавяне. Опитай отново." };
+  }
+
+  console.log(
+    `[admin-audit] adminAddBooking by=${staff.id} class=${input.classId} user=${input.userId}`,
+  );
+  revalidatePath(`/admin/attendance/${input.classId}`);
+  revalidatePath("/admin/attendance");
+  revalidatePath("/admin/schedule");
+  return { ok: true, message: "Клиентът е добавен към класа." };
+}
+
+/* ───────────────────────── Image upload ───────────────────────── */
+
+const MEDIA_BUCKET = "media";
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB
+
+export type UploadImageResult =
+  | { ok: true; url: string }
+  | { ok: false; message: string };
+
+/**
+ * Admin server action: upload an image file to Supabase Storage and return its
+ * public URL. Used by the reusable <ImageUpload> control (trainer photos, event
+ * images, partner logos). The DB still stores a URL — we just let staff upload
+ * a file instead of pasting a link. Uses the service-role client so it works
+ * without per-bucket RLS setup; the bucket is created public on first use.
+ */
+export async function uploadImageAction(
+  formData: FormData,
+): Promise<UploadImageResult> {
+  const admin = await getAdminUser();
+  if (!admin) return { ok: false, message: "Нямаш достъп до тази функция." };
+
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    return { ok: false, message: "Няма избран файл." };
+  }
+  if (!file.type.startsWith("image/")) {
+    return { ok: false, message: "Файлът трябва да е изображение." };
+  }
+  if (file.size > MAX_IMAGE_BYTES) {
+    return { ok: false, message: "Файлът е твърде голям (макс. 5 MB)." };
+  }
+
+  const rawFolder = formData.get("folder");
+  const folder =
+    typeof rawFolder === "string" && /^[a-z0-9_-]+$/.test(rawFolder)
+      ? rawFolder
+      : "misc";
+
+  const ext = (file.name.split(".").pop() ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const safeExt = ext || "jpg";
+  const path = `${folder}/${crypto.randomUUID()}.${safeExt}`;
+
+  try {
+    const supabase = createAdminClient();
+    // Ensure the bucket exists (public read). Ignore "already exists".
+    await supabase.storage
+      .createBucket(MEDIA_BUCKET, { public: true })
+      .catch(() => {});
+
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const { error } = await supabase.storage
+      .from(MEDIA_BUCKET)
+      .upload(path, bytes, { contentType: file.type, upsert: false });
+    if (error) {
+      console.error("[uploadImage] storage error", error);
+      return { ok: false, message: "Неуспешно качване. Опитай отново." };
+    }
+
+    const { data } = supabase.storage.from(MEDIA_BUCKET).getPublicUrl(path);
+    console.log(`[admin-audit] uploadImage by=${admin.id} path=${path}`);
+    return { ok: true, url: data.publicUrl };
+  } catch (err) {
+    console.error("[uploadImage] threw", err);
+    return { ok: false, message: "Неуспешно качване. Опитай отново." };
+  }
+}
+
+/* ───────────────────────── Client deposits ───────────────────────── */
+
+export type AdjustDepositResult =
+  | { ok: true; deposits: number; message: string }
+  | { ok: false; message: string };
+
+/**
+ * Admin: grant (+1) or revoke (−1) one prepaid deposit for a client. Deposits
+ * are discrete units (see lib/deposit.ts) — a client pays €10 on-site and an
+ * admin records it here; each online booking later consumes one. The revoke
+ * path clamps at 0 (never negative). Financial action → admin-gated only.
+ *
+ * `delta` is a signed count of whole deposits (typically +1 or −1).
+ */
+export async function adminAdjustClientDepositAction(input: {
+  userId: string;
+  delta: number;
+}): Promise<AdjustDepositResult> {
+  const admin = await getAdminUser();
+  if (!admin) {
+    return { ok: false, message: "Нямаш достъп до тази функция." };
+  }
+
+  const delta = Math.trunc(input.delta);
+  if (!Number.isFinite(delta) || delta === 0) {
+    return { ok: false, message: "Невалидна промяна." };
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: input.userId },
+    select: { id: true, depositBalance: true },
+  });
+  if (!user) return { ok: false, message: "Клиентът не е намерен." };
+
+  // Work in whole deposits, clamp at 0, then store back as cents.
+  const current = Math.floor(user.depositBalance / DEPOSIT_UNIT_MINOR);
+  const next = Math.max(0, current + delta);
+  if (next === current) {
+    return { ok: true, deposits: current, message: "Няма промяна." };
+  }
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { depositBalance: depositsToMinor(next) },
+  });
+
+  console.log(
+    `[admin-audit] adjustDeposit by=${admin.id} target=${user.id} delta=${delta} deposits=${next}`,
+  );
+
+  revalidatePath(`/admin/clients/${user.id}`);
+  revalidatePath("/admin/clients");
+  revalidatePath("/admin/attendance");
+  return {
+    ok: true,
+    deposits: next,
+    message: delta > 0 ? "Депозитът е записан." : "Депозитът е свален.",
+  };
 }
 
 /* ───────────────────────── Loyalty partners ───────────────────────── */

@@ -75,6 +75,7 @@ export default async function AdminScheduleEditPage({ params }: EditPageProps) {
     depositEur: (scheduledClass.depositAmount / 100).toFixed(2),
     isSpecialEvent: scheduledClass.isSpecialEvent,
     eventNotes: scheduledClass.eventNotes || "",
+    imageUrl: scheduledClass.imageUrl || "",
   };
 
   return (

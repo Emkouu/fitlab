@@ -106,9 +106,22 @@ export function ScheduleList({
                   </div>
                 </div>
 
-                {/* Actions — not rendered for coaches (read-only view) */}
+                {/* „Записани" — open the class's enrolled list + attendance
+                    + add-client. Shown for everyone (incl. read-only coaches). */}
+                {!isCancelled && (
+                  <div className="mt-3">
+                    <Link
+                      href={`/admin/attendance/${cls.id}`}
+                      className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-[color:var(--brand-magenta)]/40 bg-[color:var(--brand-pink-soft)]/50 px-3 py-2 text-center text-xs font-semibold text-[color:var(--brand-magenta)] transition-all hover:bg-[color:var(--brand-pink-soft)]"
+                    >
+                      Записани ({cls._count.bookings}) →
+                    </Link>
+                  </div>
+                )}
+
+                {/* Management actions — not rendered for coaches (read-only). */}
                 {!readOnly && (
-                <div className="mt-3 flex gap-2">
+                <div className="mt-2 flex gap-2">
                   {isCancelled ? (
                     <button
                       className="flex-1 rounded-lg bg-[color:var(--brand-purple)] px-3 py-2 text-xs font-semibold text-white opacity-50"

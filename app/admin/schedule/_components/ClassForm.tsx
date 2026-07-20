@@ -11,6 +11,7 @@ import {
 import { tomorrowSofiaDate, todaySofiaDateKey } from "@/lib/format/sofiaTime";
 import { sofiaDateKey } from "@/lib/format";
 import { generateRecurringDates } from "@/lib/schedule/generateRecurringDates";
+import { ImageUpload } from "@/app/admin/_components/ImageUpload";
 import { DayPicker } from "react-day-picker";
 import "react-day-picker/style.css";
 
@@ -107,6 +108,7 @@ export function ClassForm({
         depositEur: defaultDepositEur,
         isSpecialEvent: false,
         eventNotes: undefined,
+        imageUrl: "",
       };
     }
 
@@ -126,6 +128,7 @@ export function ClassForm({
       depositEur: initialData.depositEur,
       isSpecialEvent: initialData.isSpecialEvent,
       eventNotes: initialData.eventNotes,
+      imageUrl: initialData.imageUrl ?? "",
     };
   };
 
@@ -605,6 +608,27 @@ export function ClassForm({
               {errors.eventNotes.message}
             </p>
           )}
+
+          <div className="mt-4">
+            <Controller
+              name="imageUrl"
+              control={control}
+              render={({ field }) => (
+                <ImageUpload
+                  label="Снимка на събитието"
+                  folder="events"
+                  value={field.value ?? ""}
+                  onChange={field.onChange}
+                  disabled={isSubmitting || isLoading}
+                />
+              )}
+            />
+            {errors.imageUrl && (
+              <p className="mt-1 text-xs text-red-600">
+                {errors.imageUrl.message}
+              </p>
+            )}
+          </div>
         </div>
       )}
 

@@ -135,7 +135,7 @@ export function BookingCard({ booking, isPast, onCancelled }: Props) {
           {booking.source === "card"
             ? "💳 Платено с карта"
             : booking.source === "balance"
-              ? "✓ Платено с баланс"
+              ? "✓ Депозит удържан"
               : "💰 Плащане на място"}
         </p>
       </div>

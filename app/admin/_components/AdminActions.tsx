@@ -16,6 +16,7 @@ const GROUPS: { label: string; items: NavItem[] }[] = [
     items: [
       { href: "/admin/schedule", label: "Виж графика" },
       { href: "/admin/schedule/new", label: "Добави клас" },
+      { href: "/admin/attendance", label: "Присъствия" },
     ],
   },
   {
@@ -29,7 +30,6 @@ const GROUPS: { label: string; items: NavItem[] }[] = [
     label: "Дейности",
     items: [
       { href: "/admin/practices", label: "Практики" },
-      { href: "/admin/attendance", label: "Присъствия" },
       { href: "/admin/partners", label: "Лоялна програма" },
     ],
   },
@@ -43,14 +43,14 @@ const GROUPS: { label: string; items: NavItem[] }[] = [
 const COACH_GROUPS: { label: string; items: NavItem[] }[] = [
   {
     label: "График",
-    items: [{ href: "/admin/schedule", label: "Виж графика" }],
+    items: [
+      { href: "/admin/schedule", label: "Виж графика" },
+      { href: "/admin/attendance", label: "Присъствия" },
+    ],
   },
   {
     label: "Дейности",
-    items: [
-      { href: "/admin/attendance", label: "Присъствия" },
-      { href: "/admin/clients", label: "Клиенти" },
-    ],
+    items: [{ href: "/admin/clients", label: "Клиенти" }],
   },
 ];
 

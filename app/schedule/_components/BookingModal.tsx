@@ -4,51 +4,29 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { formatEurMinor, formatSofiaDay, formatSofiaTime } from "@/lib/format";
+import { DEPOSIT_UNIT_MINOR, depositCount } from "@/lib/deposit";
 import { bookClassAction } from "../_actions";
 import { Spinner } from "@/app/_components/Spinner";
-import { RedirectOverlay } from "@/app/_components/RedirectOverlay";
 import type { ClassCardRow } from "./ClassCard";
 
-// UI payment methods offered in the picker. All three are paid at the desk →
-// they all create an `onsite_deposit` booking (no schema change); the choice
-// only tells staff how the client intends to pay. Card-online is intentionally
-// NOT here yet — it lives behind the disabled „Потвърди" on the info step and
-// is wired up when Stripe is enabled for this flow.
-type Method = "cash" | "subscription" | "multisport";
-
-const METHOD_LABEL: Record<Method, string> = {
-  cash: "В брой",
-  subscription: "Абонаментна карта",
-  multisport: "Multisport",
-};
-
-// „Запознат/а съм, че …" line under the picker (deposit is settled on-site).
-function ackText(method: Method): string {
-  switch (method) {
-    case "multisport":
-      return "плащам с Multisport картата си на място, преди класа.";
-    case "subscription":
-      return "плащам с абонаментната си карта на място, преди класа.";
-    default:
-      return "плащам тренировката в брой на място, преди класа.";
-  }
-}
-
-// Two-step wizard: „info" explains the deposit, „method" picks how to pay.
-type Step = "info" | "method";
-
 type Phase =
-   | { kind: "form" }
-   | { kind: "submitting" }
-   | { kind: "success" }
-   | { kind: "redirecting" }
-   | { kind: "error"; message: string; reason: string };
+  | { kind: "form" }
+  | { kind: "submitting" }
+  | { kind: "success" }
+  | { kind: "error"; message: string; reason: string };
 
 /**
- * „Запазване на място" modal (CLAUDE.md booking-flow-reference). Renders as
- * a native <dialog> so we inherit focus trap, ESC-to-close, ::backdrop, and
- * inert background for free. Body scroll is locked while open via the
- * top-layer rendering modal dialogs get when shown with showModal().
+ * „Запазване на място" modal (CLAUDE.md booking-flow-reference).
+ *
+ * Deposit model (see lib/deposit.ts): a booking is backed by ONE prepaid
+ * deposit (€10, paid on-site, recorded by an admin). Confirming the booking
+ * consumes one deposit immediately; a timely cancel returns it. A client with
+ * no available deposit cannot reserve online — they must pay a deposit at the
+ * studio first. The class fee itself is NOT collected here — it is settled
+ * on-site and marked by staff in Attendance.
+ *
+ * Renders as a native <dialog> so we inherit focus trap, ESC-to-close,
+ * ::backdrop, and inert background for free.
  */
 export function BookingModal({
   row,
@@ -57,37 +35,31 @@ export function BookingModal({
 }: {
   row: ClassCardRow | null;
   onClose: () => void;
-  /** Deposit balance (EUR cents) on the profile. > 0 → skip the info step
-   *  and open straight on the payment picker. */
+  /** Deposit balance (EUR cents) on the profile — read as whole deposits. */
   userBalance?: number;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const router = useRouter();
-  const [step, setStep] = useState<Step>("info");
-  const [method, setMethod] = useState<Method>("cash");
   const [phase, setPhase] = useState<Phase>({ kind: "form" });
-  // Explicit "запознат съм" tick for the on-site deposit path so a client
-  // can't claim they never saw how the deposit works.
+  // Explicit acknowledgement that confirming consumes a deposit now.
   const [acknowledged, setAcknowledged] = useState(false);
   const [, startTransition] = useTransition();
+
+  const deposits = depositCount(userBalance);
+  const hasDeposit = deposits >= 1;
 
   // Open / close the dialog imperatively in response to the row prop.
   useEffect(() => {
     const d = dialogRef.current;
     if (!d) return;
     if (row && !d.open) {
-      // Reset state every time we open with a (possibly different) class.
-      // Clients who already hold a deposit skip the info step and land on the
-      // payment picker; everyone else starts on the info step. „В брой" default.
-      setStep(userBalance > 0 ? "method" : "info");
-      setMethod("cash");
       setAcknowledged(false);
       setPhase({ kind: "form" });
       d.showModal();
     } else if (!row && d.open) {
       d.close();
     }
-  }, [row, userBalance]);
+  }, [row]);
 
   // Reflect native dialog closes (ESC, backdrop click) back into parent state.
   useEffect(() => {
@@ -114,21 +86,12 @@ export function BookingModal({
     if (!row) return;
     setPhase({ kind: "submitting" });
     startTransition(async () => {
+      // Consumes one deposit server-side (source "balance" == prepaid deposit).
       const result = await bookClassAction({
         scheduledClassId: row.id,
-        source: "onsite_deposit",
-        method,
+        source: "balance",
       });
       if (result.ok) {
-        // Card path returns redirectTo → hand off to Stripe Checkout.
-        if (result.redirectTo) {
-          setPhase({ kind: "redirecting" });
-          const url = result.redirectTo;
-          await new Promise((r) => setTimeout(r, 300));
-          window.location.href = url;
-          return;
-        }
-        // On-site path: just show success + close.
         setPhase({ kind: "success" });
         router.refresh();
         setTimeout(() => {
@@ -136,7 +99,7 @@ export function BookingModal({
         }, 1400);
       } else if (result.reason === "unauthenticated") {
         // Bounce to /login carrying enough state to resume this exact booking
-        // after the magic-link / OTP round-trip.
+        // after the OTP round-trip.
         const next = `/schedule?openBooking=${encodeURIComponent(row.id)}`;
         router.push(`/login?next=${encodeURIComponent(next)}`);
       } else {
@@ -149,9 +112,9 @@ export function BookingModal({
     });
   }
 
+  const full = row ? row.capacity - row._count.bookings <= 0 : false;
+
   return (
-    <>
-    {phase.kind === "redirecting" && <RedirectOverlay />}
     <dialog
       ref={dialogRef}
       onClick={handleBackdropClick}
@@ -181,12 +144,13 @@ export function BookingModal({
           {/* Body */}
           <div className="max-h-[70vh] overflow-y-auto px-5 py-5">
             {phase.kind === "success" ? (
-              <SuccessState row={row} method={method} />
+              <SuccessState row={row} />
             ) : (
               <>
                 <ClassSummary row={row} />
+
                 {/* Class full banner */}
-                {row.capacity - row._count.bookings <= 0 && (
+                {full && (
                   <motion.div
                     initial={{ opacity: 0, y: -8 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -197,53 +161,59 @@ export function BookingModal({
                     </p>
                   </motion.div>
                 )}
-                {step === "info" ? (
-                  /* ── Step 1: информация за депозита ── */
-                  <Section
-                    title="Депозит"
-                    trailing={
-                      <span className="font-display text-sm font-bold text-[color:var(--brand-magenta)]">
-                        {formatEurMinor(row.depositAmount)}
-                      </span>
-                    }
-                  >
-                    <p className="text-[13px] leading-relaxed text-[color:var(--brand-purple)]/80">
-                      За запазване на място за тренировка е необходим депозит.
-                      Може да бъде заплатен на място в студиото.
-                    </p>
-                  </Section>
-                ) : (
-                  /* ── Step 2: избор на начин на плащане ── */
-                  <Section
-                    title="Как ще заплатиш тренировката?"
-                    trailing={
-                      <span className="font-display text-sm font-bold text-[color:var(--brand-magenta)]">
-                        {formatEurMinor(row.depositAmount)}
-                      </span>
-                    }
-                  >
-                    <MethodPicker
-                      value={method}
-                      onChange={(m) => {
-                        setMethod(m);
-                        setAcknowledged(false);
-                      }}
+
+                {/* Deposit section */}
+                <Section
+                  title="Депозит"
+                  trailing={
+                    <span className="font-display text-sm font-bold text-[color:var(--brand-magenta)]">
+                      {formatEurMinor(DEPOSIT_UNIT_MINOR)}
+                    </span>
+                  }
+                >
+                  <p className="text-[13px] leading-relaxed text-[color:var(--brand-purple)]/80">
+                    За запазване на място е нужен депозит. Той се плаща в
+                    студиото и се удържа при потвърждаване на записването.
+                    Таксата за тренировката се заплаща на място.
+                  </p>
+
+                  {hasDeposit ? (
+                    <div className="mt-3 rounded-2xl bg-[color:var(--brand-pink-soft)]/60 px-3.5 py-3">
+                      <p className="text-[12px] leading-relaxed text-[color:var(--brand-purple)]/85">
+                        Налични депозити:{" "}
+                        <strong className="font-display text-[color:var(--brand-magenta)]">
+                          {deposits}
+                        </strong>{" "}
+                        · при потвърждаване се удържа един.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3.5 py-3">
+                      <p className="text-[12px] leading-relaxed text-amber-800">
+                        Нямаш платен депозит. Плати депозит в студиото, за да
+                        можеш да запазиш място.
+                      </p>
+                    </div>
+                  )}
+                </Section>
+
+                {/* Acknowledgement — only meaningful when a deposit exists. */}
+                {hasDeposit && (
+                  <label className="mb-5 flex cursor-pointer items-start gap-2.5 rounded-2xl bg-[color:var(--brand-pink-soft)]/60 px-3.5 py-3">
+                    <input
+                      type="checkbox"
+                      checked={acknowledged}
+                      onChange={(e) => setAcknowledged(e.target.checked)}
                       disabled={phase.kind === "submitting"}
+                      className="mt-0.5 h-4 w-4 shrink-0 accent-[color:var(--brand-magenta)]"
                     />
-                    <label className="mt-3 flex cursor-pointer items-start gap-2.5 rounded-2xl bg-[color:var(--brand-pink-soft)]/60 px-3.5 py-3">
-                      <input
-                        type="checkbox"
-                        checked={acknowledged}
-                        onChange={(e) => setAcknowledged(e.target.checked)}
-                        disabled={phase.kind === "submitting"}
-                        className="mt-0.5 h-4 w-4 shrink-0 accent-[color:var(--brand-magenta)]"
-                      />
-                      <span className="text-[12px] leading-relaxed text-[color:var(--brand-purple)]/85">
-                        Запознат/а съм, че {ackText(method)}
-                      </span>
-                    </label>
-                  </Section>
+                    <span className="text-[12px] leading-relaxed text-[color:var(--brand-purple)]/85">
+                      Запознат/а съм, че депозитът се удържа веднага и се връща
+                      само при навременна отмяна.
+                    </span>
+                  </label>
                 )}
+
                 <Section title="Отказ">
                   <ul className="space-y-1 text-[12px] leading-relaxed text-[color:var(--brand-purple)]/75">
                     <li>
@@ -257,6 +227,7 @@ export function BookingModal({
                     <li>Неявяване — депозитът се удържа.</li>
                   </ul>
                 </Section>
+
                 {phase.kind === "error" && (
                   <motion.p
                     initial={{ opacity: 0, y: -8 }}
@@ -272,80 +243,37 @@ export function BookingModal({
           </div>
 
           {/* Footer CTA */}
-          {phase.kind !== "success" &&
-            (() => {
-              const full = row.capacity - row._count.bookings <= 0;
-              const primaryBtn =
-                "flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[color:var(--brand-magenta)] px-5 py-3.5 font-display text-sm font-bold uppercase tracking-wider text-white transition-colors hover:bg-[color:var(--brand-purple)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--brand-magenta)] focus-visible:ring-offset-2 disabled:opacity-60";
-              return (
-                <div className="space-y-2.5 border-t border-[color:var(--brand-pink)]/40 bg-white px-5 py-4">
-                  {step === "info" ? (
-                    <>
-                      {/* Active path → step 2 (on-site payment) */}
-                      <button
-                        type="button"
-                        onClick={() => setStep("method")}
-                        disabled={full}
-                        className={primaryBtn}
-                      >
-                        Плащане на място <Arrow />
-                      </button>
-                      {/* „Потвърди" stays grey/inactive — reserved for the
-                          future card-online path (wired when Stripe is on). */}
-                      <button
-                        type="button"
-                        disabled
-                        aria-disabled="true"
-                        title="Плащане с карта — предстои"
-                        className="flex min-h-11 w-full cursor-not-allowed items-center justify-center gap-2 rounded-2xl border border-[color:var(--brand-pink)]/50 bg-[color:var(--brand-pink-soft)]/40 px-5 py-3 font-display text-sm font-bold uppercase tracking-wider text-[color:var(--brand-purple)]/40"
-                      >
-                        Потвърди с карта (скоро)
-                      </button>
-                    </>
-                  ) : (
-                    <div className="flex items-stretch gap-2.5">
-                      {/* „Назад" only when the info step is part of this flow.
-                          Deposit-holders skip it, so there's nothing to go back to. */}
-                      {userBalance <= 0 && (
-                        <button
-                          type="button"
-                          onClick={() => setStep("info")}
-                          disabled={phase.kind === "submitting"}
-                          className="flex min-h-12 shrink-0 items-center justify-center rounded-2xl border border-[color:var(--brand-pink)]/60 px-4 font-display text-sm font-bold text-[color:var(--brand-purple)] transition-colors hover:bg-[color:var(--brand-pink-soft)] disabled:opacity-60"
-                        >
-                          ← Назад
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={handleConfirm}
-                        disabled={
-                          phase.kind === "submitting" || full || !acknowledged
-                        }
-                        className={primaryBtn}
-                      >
-                        {phase.kind === "submitting" ? (
-                          <>
-                            <Spinner size={18} />
-                            <span>Запазване</span>
-                          </>
-                        ) : phase.kind === "error" ? (
-                          <>Опитай отново</>
-                        ) : (
-                          <>
-                            Потвърди <Arrow />
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
+          {phase.kind !== "success" && (
+            <div className="space-y-2.5 border-t border-[color:var(--brand-pink)]/40 bg-white px-5 py-4">
+              <button
+                type="button"
+                onClick={handleConfirm}
+                disabled={
+                  phase.kind === "submitting" ||
+                  full ||
+                  !hasDeposit ||
+                  !acknowledged
+                }
+                className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[color:var(--brand-magenta)] px-5 py-3.5 font-display text-sm font-bold uppercase tracking-wider text-white transition-colors hover:bg-[color:var(--brand-purple)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--brand-magenta)] focus-visible:ring-offset-2 disabled:opacity-60"
+              >
+                {phase.kind === "submitting" ? (
+                  <>
+                    <Spinner size={18} />
+                    <span>Запазване</span>
+                  </>
+                ) : phase.kind === "error" ? (
+                  <>Опитай отново</>
+                ) : (
+                  <>
+                    Потвърди <Arrow />
+                  </>
+                )}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </dialog>
-    </>
   );
 }
 
@@ -400,34 +328,7 @@ function Section({
   );
 }
 
-function MethodPicker({
-  value,
-  onChange,
-  disabled,
-}: {
-  value: Method;
-  onChange: (m: Method) => void;
-  disabled: boolean;
-}) {
-  return (
-    <div className="relative">
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value as Method)}
-        disabled={disabled}
-        aria-label="Начин на плащане"
-        className="block w-full appearance-none rounded-2xl border border-[color:var(--brand-pink)]/60 bg-white px-4 py-3 pr-10 text-sm font-medium text-[color:var(--brand-ink)] focus:border-[color:var(--brand-magenta)] focus:outline-none focus:ring-2 focus:ring-[color:var(--brand-magenta)]/30 disabled:opacity-60"
-      >
-        <option value="cash">{METHOD_LABEL.cash}</option>
-        <option value="subscription">{METHOD_LABEL.subscription}</option>
-        <option value="multisport">{METHOD_LABEL.multisport}</option>
-      </select>
-      <Chevron className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[color:var(--brand-magenta)]" />
-    </div>
-  );
-}
-
-function SuccessState({ row, method }: { row: ClassCardRow; method: Method }) {
+function SuccessState({ row }: { row: ClassCardRow }) {
   return (
     <div className="py-6 text-center">
       <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-[color:var(--brand-pink-soft)]">
@@ -438,11 +339,8 @@ function SuccessState({ row, method }: { row: ClassCardRow; method: Method }) {
         Записан/а за <strong>{row.practice.name}</strong>.
       </p>
       <p className="mt-1 text-[12px] text-[color:var(--brand-purple)]/55">
-        {method === "multisport"
-          ? "Покажи Multisport картата си на място — преди класа."
-          : method === "subscription"
-          ? "Плати с абонаментната си карта на място — преди класа."
-          : "Плати депозита в брой на място — преди класа."}
+        Депозитът е удържан. Връща се при навременна отмяна. Таксата за
+        тренировката се плаща на място.
       </p>
     </div>
   );
@@ -467,13 +365,6 @@ function Close({ className = "" }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" aria-hidden className={className} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M4 4l8 8M12 4l-8 8" />
-    </svg>
-  );
-}
-function Chevron({ className = "" }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden className={className} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 6l4 4 4-4" />
     </svg>
   );
 }

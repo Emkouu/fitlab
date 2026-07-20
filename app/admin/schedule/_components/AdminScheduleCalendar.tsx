@@ -187,14 +187,22 @@ function ClassRow({ cls, readOnly = false }: { cls: AdminClass; readOnly?: boole
           </div>
           <p>Депозит: {formatEurMinor(cls.depositAmount)}</p>
         </div>
-        {!isCancelled && !readOnly && (
-          <div className="mt-3">
+        {!isCancelled && (
+          <div className="mt-3 flex gap-2">
             <Link
-              href={`/admin/schedule/${cls.id}/edit`}
-              className="inline-block rounded-lg bg-[color:var(--brand-purple)] px-3 py-2 text-xs font-semibold text-white transition-all hover:opacity-90"
+              href={`/admin/attendance/${cls.id}`}
+              className="flex-1 rounded-lg border border-[color:var(--brand-magenta)]/40 bg-[color:var(--brand-pink-soft)]/50 px-3 py-2 text-center text-xs font-semibold text-[color:var(--brand-magenta)] transition-all hover:bg-[color:var(--brand-pink-soft)]"
             >
-              Редактирай
+              Записани ({cls._count.bookings}) →
             </Link>
+            {!readOnly && (
+              <Link
+                href={`/admin/schedule/${cls.id}/edit`}
+                className="flex-1 rounded-lg bg-[color:var(--brand-purple)] px-3 py-2 text-center text-xs font-semibold text-white transition-all hover:opacity-90"
+              >
+                Редактирай
+              </Link>
+            )}
           </div>
         )}
       </div>

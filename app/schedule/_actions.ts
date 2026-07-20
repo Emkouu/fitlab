@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/db";
 import { createBooking } from "@/lib/booking";
 import { createCheckoutForBooking } from "@/lib/payments/createCheckoutForBooking";
+import { DEPOSIT_UNIT_MINOR } from "@/lib/deposit";
 import { sendBookingConfirmationEmail } from "@/lib/email/sendBookingConfirmationEmail";
 import { notifyAdminsNewBooking } from "@/lib/notifications/notifyAdminsNewBooking";
 import { BookingSource, BookingStatus } from "@/lib/generated/prisma/enums";
@@ -153,19 +154,15 @@ export async function bookClassAction(input: {
     }
   }
 
-  // Server-side balance guard. UI hides the balance option when funds are
-  // short, but never trust the client — re-check here to keep depositBalance
-  // from going negative.
+  // Server-side deposit guard. A booking consumes exactly one prepaid deposit
+  // (DEPOSIT_UNIT_MINOR). Clients with no available deposit can't reserve
+  // online — never trust the client, re-check here.
   if (source === BookingSource.balance) {
-    const cls = await prisma.scheduledClass.findUnique({
-      where: { id: input.scheduledClassId },
-      select: { depositAmount: true },
-    });
-    if (cls && profile.depositBalance < cls.depositAmount) {
+    if (profile.depositBalance < DEPOSIT_UNIT_MINOR) {
       return {
         ok: false,
         reason: "insufficient_balance",
-        message: "Балансът ти не е достатъчен за този клас.",
+        message: "Нямаш платен депозит. Плати депозит в студиото, за да запазиш място.",
       };
     }
   }
@@ -188,18 +185,13 @@ export async function bookClassAction(input: {
   // bookings for different classes can't both spend the same funds and drive
   // the balance negative (TOCTOU double-spend).
   if (source === BookingSource.balance) {
-    const classData = await prisma.scheduledClass.findUnique({
-      where: { id: input.scheduledClassId },
-      select: { depositAmount: true },
-    });
-    const amount = classData?.depositAmount ?? 0;
     const debit = await prisma.user.updateMany({
-      where: { id: profile.id, depositBalance: { gte: amount } },
-      data: { depositBalance: { decrement: amount } },
+      where: { id: profile.id, depositBalance: { gte: DEPOSIT_UNIT_MINOR } },
+      data: { depositBalance: { decrement: DEPOSIT_UNIT_MINOR } },
     });
     if (debit.count === 0) {
-      // Lost the race for our own funds — release the spot we just reserved
-      // so it doesn't sit held by a booking that was never paid for.
+      // Lost the race for our own deposit — release the spot we just reserved
+      // so it doesn't sit held by a booking that was never backed by a deposit.
       await prisma.booking.update({
         where: { id: r.booking.id },
         data: { status: BookingStatus.cancelled, cancelledAt: new Date() },
@@ -207,7 +199,7 @@ export async function bookClassAction(input: {
       return {
         ok: false,
         reason: "insufficient_balance",
-        message: "Балансът ти не е достатъчен за този клас.",
+        message: "Нямаш платен депозит. Плати депозит в студиото, за да запазиш място.",
       };
     }
   }
@@ -243,9 +235,13 @@ export async function bookClassAction(input: {
   // 5. Balance / on-site path — send confirmation email now (card path
   //    waits for the Stripe webhook to flip to `paid` before notifying).
   await sendBookingConfirmationEmail(r.booking.id);
-  // Ping the admins about the new on-site booking (in-app bell + email).
-  // Best-effort; never blocks or fails the booking.
-  if (source === BookingSource.onsite_deposit) {
+  // Ping the admins about the new booking (in-app bell + email). Fires for
+  // both deposit (balance) and on-site bookings — the two client paths that
+  // confirm immediately. Best-effort; never blocks or fails the booking.
+  if (
+    source === BookingSource.onsite_deposit ||
+    source === BookingSource.balance
+  ) {
     await notifyAdminsNewBooking(r.booking.id, input.method);
   }
   revalidatePath("/schedule");

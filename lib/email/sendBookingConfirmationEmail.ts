@@ -19,7 +19,7 @@ const LOGO_URL = process.env.NEXT_PUBLIC_APP_URL
 
 function depositStatusText(source: string, status: string): string {
   if (source === "card" && status === "paid") return "Платено онлайн";
-  if (source === "balance") return "Платено с баланс";
+  if (source === "balance") return "Депозитът е удържан";
   if (source === "onsite_deposit") return "Ще платиш на място";
   return "Очаква плащане";
 }

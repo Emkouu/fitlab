@@ -12,7 +12,9 @@ import {
   formatSofiaDay,
   formatSofiaTime,
 } from "@/lib/format";
+import { DEPOSIT_UNIT_MINOR, depositCount } from "@/lib/deposit";
 import {
+  adminAdjustClientDepositAction,
   adminCancelBookingAction,
   deleteBookingAction,
   updateClientAction,
@@ -68,7 +70,7 @@ const STATUS_COLOR: Record<BookingStatus, string> = {
 const SOURCE_LABEL: Record<BookingSource, string> = {
   card: "Карта",
   onsite_deposit: "На място",
-  balance: "Баланс",
+  balance: "Депозит",
 };
 
 const CANCELABLE_STATUSES: BookingStatus[] = [
@@ -97,6 +99,7 @@ export function ClientDetail({
         callerIsSelf={callerIsSelf}
         callerIsSuperAdmin={callerIsSuperAdmin}
       />
+      <DepositControl user={user} />
       <StatsBar user={user} stats={stats} />
       <BookingHistory bookings={bookings} canDelete={callerIsSuperAdmin} />
     </div>
@@ -118,25 +121,19 @@ function ProfileForm({
   const [fullName, setFullName] = useState(user.fullName ?? "");
   const [phone, setPhone] = useState(user.phone ?? "");
   const [role, setRole] = useState<Role>(user.role);
-  const [balanceEur, setBalanceEur] = useState(
-    (user.depositBalance / 100).toFixed(2),
-  );
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   function handleSave() {
     setMsg(null);
-    const cents = Math.round(parseFloat(balanceEur || "0") * 100);
-    if (Number.isNaN(cents) || cents < 0) {
-      setMsg({ ok: false, text: "Невалиден баланс." });
-      return;
-    }
     startTransition(async () => {
       const r = await updateClientAction({
         userId: user.id,
         fullName: fullName.trim() || null,
         phone: phone.trim() || null,
         role,
-        depositBalance: cents,
+        // Deposits are managed by DepositControl; pass the current value
+        // through unchanged so a profile save never alters them.
+        depositBalance: user.depositBalance,
       });
       setMsg({ ok: r.ok, text: r.message });
       if (r.ok) router.refresh();
@@ -199,16 +196,6 @@ function ProfileForm({
           )}
         </Field>
 
-        <Field label="Баланс (EUR)">
-          <input
-            type="number"
-            min={0}
-            step={0.01}
-            value={balanceEur}
-            onChange={(e) => setBalanceEur(e.target.value)}
-            className="w-full rounded-xl border border-[color:var(--brand-pink)]/40 bg-white px-3 py-2 text-sm focus:border-[color:var(--brand-magenta)] focus:outline-none"
-          />
-        </Field>
       </div>
 
       {msg && (
@@ -228,6 +215,75 @@ function ProfileForm({
       >
         {pending ? "Записва…" : "Запази промените"}
       </button>
+    </section>
+  );
+}
+
+function DepositControl({ user }: { user: UserView }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const deposits = depositCount(user.depositBalance);
+
+  function adjust(delta: number) {
+    setMsg(null);
+    startTransition(async () => {
+      const r = await adminAdjustClientDepositAction({ userId: user.id, delta });
+      setMsg({ ok: r.ok, text: r.message });
+      if (r.ok) router.refresh();
+    });
+  }
+
+  return (
+    <section className="rounded-2xl bg-white p-5 shadow-[0_1px_2px_rgba(123,45,142,0.05),0_4px_16px_-8px_rgba(236,72,153,0.18)]">
+      <h2 className="mb-1 font-display text-lg font-bold tracking-tight">
+        Депозити
+      </h2>
+      <p className="mb-4 text-[12px] leading-relaxed text-[color:var(--brand-purple)]/65">
+        Всеки депозит е {formatEurMinor(DEPOSIT_UNIT_MINOR)}, платен в студиото.
+        Една резервация удържа един депозит; за нова тренировка е нужен нов.
+      </p>
+
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-[11px] uppercase tracking-wider text-[color:var(--brand-purple)]/60">
+            Налични
+          </p>
+          <p
+            className={`mt-0.5 font-display text-3xl font-bold ${deposits > 0 ? "text-[color:var(--brand-magenta)]" : "text-[color:var(--brand-purple)]/50"}`}
+          >
+            {deposits}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => adjust(-1)}
+            disabled={pending || deposits <= 0}
+            aria-label="Свали един депозит"
+            className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[color:var(--brand-pink)]/60 font-display text-xl font-bold text-[color:var(--brand-purple)] transition-colors hover:bg-[color:var(--brand-pink-soft)] disabled:opacity-40"
+          >
+            −
+          </button>
+          <button
+            type="button"
+            onClick={() => adjust(1)}
+            disabled={pending}
+            className="flex h-11 items-center justify-center gap-1.5 rounded-2xl bg-[color:var(--brand-magenta)] px-4 font-display text-[12px] font-bold uppercase tracking-wider text-white transition-colors hover:bg-[color:var(--brand-purple)] disabled:opacity-60"
+          >
+            {pending ? "…" : "+ Депозит"}
+          </button>
+        </div>
+      </div>
+
+      {msg && (
+        <p
+          role="alert"
+          className={`mt-3 rounded-xl px-3 py-2 text-[12px] ${msg.ok ? "bg-green-50 text-green-700" : "bg-[color:var(--brand-pink-soft)] text-[color:var(--brand-magenta)]"}`}
+        >
+          {msg.text}
+        </p>
+      )}
     </section>
   );
 }
@@ -252,12 +308,12 @@ function StatsBar({ user, stats }: { user: UserView; stats: Stats }) {
       <Stat label="Общо платено" value={formatEurMinor(stats.totalSpendMinor)} />
       <div className="col-span-2 rounded-2xl bg-white px-4 py-3 shadow-[0_1px_2px_rgba(123,45,142,0.05),0_4px_16px_-8px_rgba(236,72,153,0.18)]">
         <p className="text-[11px] uppercase tracking-wider text-[color:var(--brand-purple)]/60">
-          Текущ баланс
+          Налични депозити
         </p>
         <p
           className={`mt-1 font-display text-2xl font-bold ${user.depositBalance > 0 ? "text-[color:var(--brand-magenta)]" : "text-[color:var(--brand-purple)]/50"}`}
         >
-          {formatEurMinor(user.depositBalance)}
+          {depositCount(user.depositBalance)}
         </p>
       </div>
     </section>

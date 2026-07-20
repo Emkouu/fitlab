@@ -3,13 +3,18 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { getStaffUser } from "@/lib/auth/getStaffUser";
-import { PaymentStatus, BookingStatus } from "@/lib/generated/prisma/enums";
+import { depositCount } from "@/lib/deposit";
+import { PaymentStatus, BookingStatus, Role } from "@/lib/generated/prisma/enums";
 import { Heartbeat } from "@/app/_components/Heartbeat";
 import { formatSofiaDay, formatSofiaTime } from "@/lib/format";
 import {
   AttendancePanel,
   type AttendanceRow,
 } from "../_components/AttendancePanel";
+import {
+  AddClientToClass,
+  type ClientOption,
+} from "../_components/AddClientToClass";
 import { AdminBreadcrumb } from "../../_components/AdminBreadcrumb";
 
 export const dynamic = "force-dynamic";
@@ -45,7 +50,15 @@ export default async function AdminAttendanceClassPage({
           },
         },
         include: {
-          user: { select: { fullName: true, email: true, phone: true } },
+          user: {
+            select: {
+              id: true,
+              fullName: true,
+              email: true,
+              phone: true,
+              depositBalance: true,
+            },
+          },
           payment: { select: { status: true } },
         },
         orderBy: [{ status: "asc" }, { createdAt: "asc" }],
@@ -55,11 +68,29 @@ export default async function AdminAttendanceClassPage({
 
   if (!cls) notFound();
 
+  // Clients available to add to this class (search list for the „+").
+  const allClients = await prisma.user.findMany({
+    select: { id: true, fullName: true, phone: true, email: true },
+    orderBy: { fullName: "asc" },
+    take: 1000,
+  });
+  const clientOptions: ClientOption[] = allClients.map((u) => ({
+    id: u.id,
+    name: u.fullName ?? u.email ?? u.phone ?? "—",
+    contact: u.phone ?? u.email ?? "",
+  }));
+  const enrolledIds = cls.bookings.map((b) => b.userId);
+
+  // Deposit management is a financial action → admins only, not coaches.
+  const canManageDeposits = admin.role !== Role.coach;
+
   const rows: AttendanceRow[] = cls.bookings.map((b) => ({
     id: b.id,
+    userId: b.user.id,
     status: b.status,
     source: b.source,
     who: b.user.fullName ?? b.user.email ?? b.user.phone ?? "—",
+    deposits: depositCount(b.user.depositBalance),
     cardPaid:
       b.source === "card" &&
       (b.payment?.status === PaymentStatus.paid ||
@@ -109,11 +140,18 @@ export default async function AdminAttendanceClassPage({
         </p>
       </section>
 
-      <h2 className="mb-3 font-display text-[11px] font-bold uppercase tracking-wider text-[color:var(--brand-purple)]/70">
-        Записани ({rows.length})
-      </h2>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h2 className="font-display text-[11px] font-bold uppercase tracking-wider text-[color:var(--brand-purple)]/70">
+          Записани ({rows.length})
+        </h2>
+        <AddClientToClass
+          classId={cls.id}
+          clients={clientOptions}
+          enrolledIds={enrolledIds}
+        />
+      </div>
 
-      <AttendancePanel rows={rows} />
+      <AttendancePanel rows={rows} canManageDeposits={canManageDeposits} />
     </main>
   );
 }

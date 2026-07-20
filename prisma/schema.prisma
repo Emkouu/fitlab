@@ -53,6 +53,7 @@ enum NotificationType {
   reminder_24h
   reminder_2h
   new_booking
+  booking_cancelled
 }
 
 // ─── Core ──────────────────────────────────────────────────────────────────────
@@ -119,6 +120,9 @@ model ScheduledClass {
   depositAmount   Int
   isSpecialEvent  Boolean  @default(false)
   eventNotes      String?
+  /// Promo image (public URL) shown above the card on the „Събития" screen.
+  /// Only meaningful for special events; NULL for regular classes.
+  imageUrl        String?
 
   practiceId      String
   practice        Practice @relation(fields: [practiceId], references: [id])

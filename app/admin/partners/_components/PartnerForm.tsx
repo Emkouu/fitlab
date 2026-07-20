@@ -10,6 +10,7 @@ import {
   type PartnerFormInput,
 } from "@/lib/validation/partnerForm";
 import { upsertPartnerAction } from "@/app/admin/_actions";
+import { ImageUpload } from "@/app/admin/_components/ImageUpload";
 
 export type PartnerFormProps = {
   mode: "create" | "edit";
@@ -35,7 +36,6 @@ export function PartnerForm({ mode, initialData }: PartnerFormProps) {
   const {
     control,
     handleSubmit,
-    watch,
     formState: { errors },
   } = useForm<PartnerFormInput>({
     resolver: zodResolver(partnerFormSchema),
@@ -60,8 +60,6 @@ export function PartnerForm({ mode, initialData }: PartnerFormProps) {
           },
     mode: "onChange",
   });
-
-  const logoPreview = watch("logoUrl");
 
   const onSubmit = async (data: PartnerFormInput) => {
     setSubmitError(null);
@@ -133,42 +131,21 @@ export function PartnerForm({ mode, initialData }: PartnerFormProps) {
       </div>
 
       <div>
-        <label className="block text-sm font-semibold text-[color:var(--brand-ink)]">
-          Лого (URL)
-        </label>
-        <p className="mt-1 text-xs text-[color:var(--brand-purple)]/60">
-          Опционално. Директен линк към изображение (PNG/SVG/JPG).
-        </p>
         <Controller
           name="logoUrl"
           control={control}
           render={({ field }) => (
-            <input
-              {...field}
+            <ImageUpload
+              label="Лого"
+              folder="partners"
               value={field.value ?? ""}
-              type="url"
-              placeholder="https://example.com/logo.png"
-              className={`${inputClass} font-mono`}
+              onChange={field.onChange}
               disabled={isPending}
             />
           )}
         />
         {errors.logoUrl && (
           <p className="mt-1 text-xs text-red-600">{errors.logoUrl.message}</p>
-        )}
-        {logoPreview && !errors.logoUrl && (
-          <div className="mt-3 flex items-center gap-3 rounded-lg bg-[color:var(--brand-pink-soft)]/40 px-3 py-2.5">
-            {/* Remote partner logos come from arbitrary hosts → plain <img>. */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={logoPreview}
-              alt="Преглед на логото"
-              className="h-10 w-10 rounded-lg bg-white object-contain p-1"
-            />
-            <span className="text-xs text-[color:var(--brand-purple)]/60">
-              Преглед на логото
-            </span>
-          </div>
         )}
       </div>
 

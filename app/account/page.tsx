@@ -3,7 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/db";
-import { formatEurMinor } from "@/lib/format";
+import { depositCount } from "@/lib/deposit";
 import { Heartbeat } from "@/app/_components/Heartbeat";
 import { Breadcrumb } from "@/app/_components/Breadcrumb";
 import { SignOutButton } from "./_components/SignOutButton";
@@ -127,10 +127,10 @@ export default async function AccountPage() {
         <Row label="Телефон" value={profile?.phone ?? "—"} />
         <Row label="Роля" value={profile?.role ?? "member"} mono />
         {profile?.depositBalance !== undefined && (
-          <Row 
-            label="Баланс" 
-            value={formatEurMinor(profile.depositBalance)} 
-            mono 
+          <Row
+            label="Депозити"
+            value={String(depositCount(profile.depositBalance))}
+            mono
           />
         )}
       </dl>

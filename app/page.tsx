@@ -68,6 +68,14 @@ export default async function Home() {
         >
           График
         </Link>
+
+        {/* Events Button */}
+        <Link
+          href="/events"
+          className="flex min-h-12 w-full items-center justify-center rounded-2xl border-2 border-[color:var(--brand-magenta)] bg-white px-5 py-3 font-display text-sm font-bold uppercase tracking-wider text-[color:var(--brand-magenta)] transition-colors hover:bg-[color:var(--brand-pink-soft)]"
+        >
+          Събития
+        </Link>
       </div>
 
       {/* Studio info */}

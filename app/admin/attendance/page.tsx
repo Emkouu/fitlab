@@ -103,7 +103,7 @@ export default async function AdminAttendanceIndexPage() {
         Всички класове — маркирай присъствия по всяко време.
       </p>
 
-      <AttendanceClassList rows={rows} />
+      <AttendanceClassList rows={rows} nowISO={now.toISOString()} />
     </main>
   );
 }

@@ -49,7 +49,15 @@ export async function notifyAdminsNewBooking(
   const cls = booking.scheduledClass;
   const dateText = formatSofiaDay(cls.startAt);
   const timeText = formatSofiaTime(cls.startAt);
-  const methodLabel = method ? METHOD_LABEL[method] ?? method : "на място";
+  // Payment label: on-site bookings carry a UI method; deposit (balance)
+  // bookings consumed a prepaid deposit online; card is paid online.
+  const methodLabel = method
+    ? METHOD_LABEL[method] ?? method
+    : booking.source === "balance"
+      ? "депозит (онлайн)"
+      : booking.source === "card"
+        ? "карта (онлайн)"
+        : "на място";
   const who =
     booking.user.fullName ??
     booking.user.phone ??
@@ -107,7 +115,7 @@ export async function notifyAdminsNewBooking(
         <tr><td style="padding:2px 12px 2px 0;color:#7b2d8e">Тренировка</td><td>${cls.practice.name}</td></tr>
         <tr><td style="padding:2px 12px 2px 0;color:#7b2d8e">Треньор</td><td>${trainersText}</td></tr>
         <tr><td style="padding:2px 12px 2px 0;color:#7b2d8e">Дата</td><td>${dateText} в ${timeText} ч.</td></tr>
-        <tr><td style="padding:2px 12px 2px 0;color:#7b2d8e">Плащане</td><td><strong>${methodLabel}</strong> (на място)</td></tr>
+        <tr><td style="padding:2px 12px 2px 0;color:#7b2d8e">Плащане</td><td><strong>${methodLabel}</strong></td></tr>
       </table>
     </div>`;
 

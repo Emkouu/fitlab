@@ -15,16 +15,23 @@ export type AttendanceClassRow = {
   isUpcoming: boolean;
 };
 
-type SortBy = "date_desc" | "date_asc" | "unmarked";
+type SortBy = "nearest" | "date_desc" | "date_asc" | "unmarked";
 
 const SORT_LABEL: Record<SortBy, string> = {
+  nearest: "Най-скорошна тренировка",
   date_desc: "Дата: нови → стари",
   date_asc: "Дата: стари → нови",
   unmarked: "Необработени най-отгоре",
 };
 
-export function AttendanceClassList({ rows }: { rows: AttendanceClassRow[] }) {
-  const [sortBy, setSortBy] = useState<SortBy>("date_desc");
+export function AttendanceClassList({
+  rows,
+  nowISO,
+}: {
+  rows: AttendanceClassRow[];
+  nowISO: string;
+}) {
+  const [sortBy, setSortBy] = useState<SortBy>("nearest");
 
   const sorted = useMemo(() => {
     const list = [...rows];
@@ -36,11 +43,19 @@ export function AttendanceClassList({ rows }: { rows: AttendanceClassRow[] }) {
         (a, b) =>
           b.unmarked - a.unmarked || a.startAtISO.localeCompare(b.startAtISO),
       );
+    } else if (sortBy === "nearest") {
+      // Closest to now first (today's / just-passed classes at the top).
+      const now = new Date(nowISO).getTime();
+      list.sort(
+        (a, b) =>
+          Math.abs(new Date(a.startAtISO).getTime() - now) -
+          Math.abs(new Date(b.startAtISO).getTime() - now),
+      );
     } else {
       list.sort((a, b) => b.startAtISO.localeCompare(a.startAtISO));
     }
     return list;
-  }, [rows, sortBy]);
+  }, [rows, sortBy, nowISO]);
 
   if (rows.length === 0) {
     return (

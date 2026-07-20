@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { BookingStatus, BookingSource } from "@/lib/generated/prisma/enums";
+import { adminAdjustClientDepositAction } from "@/app/admin/_actions";
 import { markAttendanceAction, setOnsitePaymentAction } from "../_actions";
 
 const ONSITE_METHODS = ["cash", "subscription", "multisport"] as const;
@@ -16,9 +17,12 @@ const METHOD_LABEL: Record<OnsiteMethod, string> = {
 
 export type AttendanceRow = {
   id: string;
+  userId: string;
   status: BookingStatus;
   source: BookingSource;
   who: string;
+  /** Whole prepaid deposits the client currently has available. */
+  deposits: number;
   cardPaid: boolean;
   /** On-site payment method (cash | subscription | multisport) or null. */
   onsiteMethod: string | null;
@@ -26,7 +30,14 @@ export type AttendanceRow = {
   depositSettled: boolean;
 };
 
-export function AttendancePanel({ rows }: { rows: AttendanceRow[] }) {
+export function AttendancePanel({
+  rows,
+  canManageDeposits = false,
+}: {
+  rows: AttendanceRow[];
+  /** Admins only — coaches never see deposit controls. */
+  canManageDeposits?: boolean;
+}) {
   if (rows.length === 0) {
     return (
       <div className="rounded-2xl border border-[color:var(--brand-pink)] bg-white px-5 py-8 text-center">
@@ -41,16 +52,27 @@ export function AttendancePanel({ rows }: { rows: AttendanceRow[] }) {
   return (
     <ul className="space-y-2.5">
       {rows.map((r) => (
-        <AttendanceItem key={r.id} row={r} />
+        <AttendanceItem
+          key={r.id}
+          row={r}
+          canManageDeposits={canManageDeposits}
+        />
       ))}
     </ul>
   );
 }
 
-function AttendanceItem({ row }: { row: AttendanceRow }) {
+function AttendanceItem({
+  row,
+  canManageDeposits,
+}: {
+  row: AttendanceRow;
+  canManageDeposits: boolean;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [errMsg, setErrMsg] = useState<string | null>(null);
+  const [deposits, setDeposits] = useState(row.deposits);
   const [method, setMethod] = useState<OnsiteMethod>(
     ONSITE_METHODS.includes(row.onsiteMethod as OnsiteMethod)
       ? (row.onsiteMethod as OnsiteMethod)
@@ -95,6 +117,22 @@ function AttendanceItem({ row }: { row: AttendanceRow }) {
     if (settled) persistPayment(m, true);
   }
 
+  function adjustDeposit(delta: number) {
+    setErrMsg(null);
+    startTransition(async () => {
+      const r = await adminAdjustClientDepositAction({
+        userId: row.userId,
+        delta,
+      });
+      if (!r.ok) {
+        setErrMsg(r.message);
+        return;
+      }
+      setDeposits(r.deposits);
+      router.refresh();
+    });
+  }
+
   const isMarked =
     row.status === BookingStatus.attended ||
     row.status === BookingStatus.no_show;
@@ -117,6 +155,44 @@ function AttendanceItem({ row }: { row: AttendanceRow }) {
       </div>
 
       <MoneyNote status={row.status} source={row.source} cardPaid={row.cardPaid} />
+
+      {/* Deposit management (admins only). Records that a client paid a
+          deposit at the desk, or removes one. Discrete units (€10 each). */}
+      {canManageDeposits && (
+        <div className="flex items-center justify-between gap-3 px-5 pb-3">
+          <span className="text-[11px] uppercase tracking-wider text-[color:var(--brand-purple)]/60">
+            Депозити:{" "}
+            <strong
+              className={
+                deposits > 0
+                  ? "text-[color:var(--brand-magenta)]"
+                  : "text-[color:var(--brand-purple)]/50"
+              }
+            >
+              {deposits}
+            </strong>
+          </span>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => adjustDeposit(-1)}
+              disabled={pending || deposits <= 0}
+              aria-label="Свали един депозит"
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-[color:var(--brand-pink)]/60 font-display text-lg font-bold text-[color:var(--brand-purple)] transition-colors hover:bg-[color:var(--brand-pink-soft)] disabled:opacity-40"
+            >
+              −
+            </button>
+            <button
+              type="button"
+              onClick={() => adjustDeposit(1)}
+              disabled={pending}
+              className="flex h-8 items-center justify-center rounded-lg bg-[color:var(--brand-magenta)] px-3 font-display text-[10px] font-bold uppercase tracking-wider text-white transition-colors hover:bg-[color:var(--brand-purple)] disabled:opacity-60"
+            >
+              + Депозит
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* On-site payment: method picker (same options as the booking modal). */}
       {isOnsite && (
@@ -276,7 +352,7 @@ function MoneyNote({
       source === BookingSource.card
         ? "Депозитът е удържан."
         : source === BookingSource.balance
-          ? "Балансът е удържан."
+          ? "Депозитът е удържан."
           : "Плащане на място.";
     return (
       <p className="mt-2 px-5 pb-2 text-[11px] leading-relaxed text-[color:var(--brand-magenta)]">
@@ -291,7 +367,7 @@ function MoneyNote({
         ? 'Депозит с карта · "Дойде" → връщане (предстои интеграция); "Не дойде" → удържан.'
         : "Депозит с карта, без потвърдено плащане."
       : source === BookingSource.balance
-        ? 'Депозит от баланс · "Не дойде" → балансът е удържан.'
+        ? 'Депозит · "Не дойде" → депозитът е удържан.'
         : "Депозит на място — маркирай начина на плащане и „Разплати“.";
   return (
     <p className="mt-2 px-5 pb-2 text-[11px] leading-relaxed text-[color:var(--brand-purple)]/55">
@@ -305,7 +381,7 @@ function sourceLabel(source: BookingSource, cardPaid: boolean): string {
     return cardPaid ? "Карта · платено" : "Карта · чака плащане";
   }
   if (source === BookingSource.balance) {
-    return "Баланс";
+    return "Депозит";
   }
   return "На място";
 }

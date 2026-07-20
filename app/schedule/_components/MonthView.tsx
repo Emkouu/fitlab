@@ -191,7 +191,9 @@ function DayCell({
   count: number;
   onSelect: () => void;
 }) {
-  const interactive = cell.inMonth;
+  // Calendar is always "today onward": past days are inert (not selectable)
+  // and show no class dots, so previous classes never surface automatically.
+  const interactive = cell.inMonth && !isPast;
   const muted = !cell.inMonth || isPast;
 
   return (
@@ -220,7 +222,7 @@ function DayCell({
       >
         {cell.day}
       </span>
-      {hasClasses && cell.inMonth && (
+      {hasClasses && cell.inMonth && !isPast && (
         <span
           aria-hidden
           className="absolute bottom-1 h-1.5 w-1.5 rounded-full bg-[color:var(--brand-magenta)]"

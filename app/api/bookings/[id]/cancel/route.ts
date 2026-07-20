@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/db";
 import { cancelBooking } from "@/lib/booking/engine";
+import { DEPOSIT_UNIT_MINOR } from "@/lib/deposit";
 import { notifyWaitlist } from "@/lib/notifications/notifyWaitlist";
+import { notifyBookingCancelled } from "@/lib/notifications/notifyBookingCancelled";
 
 /**
  * POST /api/bookings/[id]/cancel
@@ -63,29 +65,25 @@ export async function POST(
     );
   }
 
-  // If deposit was NOT forfeited, add it to user's balance — but only for
-  // sources where money actually moved (card charge or balance debit).
-  // On-site deposits were never charged, so crediting them here would mint
-  // free balance for the user.
-  if (!result.depositForfeited && (booking.source === "card" || booking.source === "balance")) {
-    // Fetch booking with deposit amount
-    const bookingWithClass = await prisma.booking.findUnique({
-      where: { id: bookingId },
-      include: { scheduledClass: { select: { depositAmount: true } } },
+  // If the deposit was NOT forfeited (timely cancel), return it — but only for
+  // sources where a deposit actually moved. `balance` == a prepaid deposit was
+  // consumed; returning it restores exactly one deposit. On-site bookings never
+  // consumed a recorded deposit, so crediting them would mint a free deposit.
+  const depositReturned =
+    !result.depositForfeited &&
+    (booking.source === "card" || booking.source === "balance");
+  if (depositReturned) {
+    await prisma.user.update({
+      where: { id: fitlabUser.id },
+      data: { depositBalance: { increment: DEPOSIT_UNIT_MINOR } },
     });
+  }
 
-    if (bookingWithClass) {
-      const depositAmount = bookingWithClass.scheduledClass.depositAmount;
-      // Add deposit to user's balance
-      await prisma.user.update({
-        where: { id: fitlabUser.id },
-        data: {
-          depositBalance: {
-            increment: depositAmount,
-          },
-        },
-      });
-    }
+  // Notify the client (confirmation) + admins (freed spot). Best-effort.
+  try {
+    await notifyBookingCancelled(bookingId, { byAdmin: false, depositReturned });
+  } catch (err) {
+    console.error("[cancel] notifyBookingCancelled failed", err);
   }
 
   // Spot just opened up — walk the waitlist (best effort, never blocks).

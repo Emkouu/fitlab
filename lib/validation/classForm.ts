@@ -43,6 +43,12 @@ export const classFormSchema = z
       ),
     isSpecialEvent: z.boolean().default(false),
     eventNotes: z.string().optional(),
+    /** Promo image URL for the „Събития" screen (special events only). */
+    imageUrl: z
+      .string()
+      .url("Невалиден URL адрес")
+      .optional()
+      .or(z.literal("")),
     recurrence: z
       .object({
         weekdays: z.array(z.number().int().min(0).max(6)).min(1),

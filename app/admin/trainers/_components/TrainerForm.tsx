@@ -7,6 +7,7 @@ import {
   trainerFormSchema,
   type TrainerFormInput,
 } from "@/lib/validation/trainerForm";
+import { ImageUpload } from "@/app/admin/_components/ImageUpload";
 import Link from "next/link";
 
 export type TrainerFormProps = {
@@ -126,20 +127,17 @@ export function TrainerForm({
         )}
       </div>
 
-      {/* Photo URL Field */}
+      {/* Photo Upload */}
       <div>
-        <label className="block text-sm font-semibold text-[color:var(--brand-ink)]">
-          URL на снимка
-        </label>
         <Controller
           name="photoUrl"
           control={control}
           render={({ field }) => (
-            <input
-              {...field}
-              type="url"
-              placeholder="https://example.com/photo.jpg"
-              className="mt-2 w-full rounded-lg border border-[color:var(--brand-purple)]/20 px-3 py-2.5 text-sm font-medium text-[color:var(--brand-ink)] placeholder-[color:var(--brand-purple)]/40 transition-all focus:border-[color:var(--brand-magenta)] focus:outline-none focus:ring-1 focus:ring-[color:var(--brand-magenta)]/30"
+            <ImageUpload
+              label="Снимка"
+              folder="trainers"
+              value={field.value ?? ""}
+              onChange={field.onChange}
               disabled={isSubmitting || isLoading}
             />
           )}
