@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   getNotificationsAction,
   markNotificationsReadAction,
+  clearNotificationAction,
   type NotificationRow,
 } from "../_actions";
 
@@ -53,6 +54,19 @@ export function NotificationBell({
     await markNotificationsReadAction(unreadIds);
     setItems(items.map((r) => ({ ...r, read: true })));
     setUnread(0);
+  }
+
+  function clearOne(id: string) {
+    // Optimistic removal; also drop the unread badge if it was unread.
+    setItems((prev) => {
+      if (!prev) return prev;
+      const target = prev.find((r) => r.id === id);
+      if (target && !target.read) setUnread((u) => Math.max(0, u - 1));
+      return prev.filter((r) => r.id !== id);
+    });
+    startTransition(async () => {
+      await clearNotificationAction(id);
+    });
   }
 
   return (
@@ -126,6 +140,15 @@ export function NotificationBell({
                             {relativeTime(n.createdAt)}
                           </p>
                         </div>
+                        <button
+                          type="button"
+                          onClick={() => clearOne(n.id)}
+                          aria-label="Изчисти известието"
+                          title="Изчисти"
+                          className="-mr-1 -mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[color:var(--brand-purple)]/45 transition-colors hover:bg-[color:var(--brand-pink-soft)] hover:text-[color:var(--brand-magenta)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--brand-magenta)]"
+                        >
+                          <CloseIcon className="h-3.5 w-3.5" />
+                        </button>
                       </div>
                     </li>
                   ))}
@@ -150,6 +173,23 @@ function relativeTime(iso: string): string {
   const d = Math.floor(h / 24);
   if (d < 7) return `преди ${d} ${d === 1 ? "ден" : "дни"}`;
   return new Date(iso).toLocaleDateString("bg-BG");
+}
+
+function CloseIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      aria-hidden
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M4 4l8 8M12 4l-8 8" />
+    </svg>
+  );
 }
 
 function BellIcon({ className = "" }: { className?: string }) {

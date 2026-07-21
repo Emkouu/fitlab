@@ -3,6 +3,7 @@ import { stripe } from "@/lib/stripe";
 import { prisma } from "@/lib/db";
 import { BookingStatus, PaymentStatus } from "@/lib/generated/prisma/enums";
 import { sendBookingConfirmationEmail } from "@/lib/email/sendBookingConfirmationEmail";
+import { notifyTrainersNewBooking } from "@/lib/notifications/notifyTrainersNewBooking";
 
 /**
  * Stripe webhook receiver. Signature is verified against
@@ -113,6 +114,8 @@ async function handleSucceeded(session: Stripe.Checkout.Session) {
   // Fire-and-forget confirmation email. Failures are swallowed inside the
   // helper so a Resend hiccup never causes Stripe to retry the webhook.
   await sendBookingConfirmationEmail(payment.booking.id);
+  // Notify the trainer(s) of this class now that the card booking is paid.
+  await notifyTrainersNewBooking(payment.booking.id);
 }
 
 /**

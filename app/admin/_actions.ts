@@ -16,6 +16,7 @@ import { ACTIVE_BOOKING_STATUSES, cancelBooking } from "@/lib/booking";
 import { notifyWaitlist } from "@/lib/notifications/notifyWaitlist";
 import { notifyClassCancelled } from "@/lib/notifications/notifyClassCancelled";
 import { notifyBookingCancelled } from "@/lib/notifications/notifyBookingCancelled";
+import { notifyTrainersNewBooking } from "@/lib/notifications/notifyTrainersNewBooking";
 import {
   classFormSchema,
   type ClassFormInput,
@@ -1390,6 +1391,7 @@ export async function adminAddBookingToClassAction(input: {
   });
   if (!user) return { ok: false, message: "Клиентът не е намерен." };
 
+  let newBookingId: string | null = null;
   try {
     await prisma.$transaction(async (tx) => {
       // Row-lock the class so a concurrent insert can't overbook.
@@ -1403,7 +1405,7 @@ export async function adminAddBookingToClassAction(input: {
         },
       });
       if (activeCount >= locked[0].capacity) throw new Error("full");
-      await tx.booking.create({
+      const created = await tx.booking.create({
         data: {
           userId: input.userId,
           scheduledClassId: input.classId,
@@ -1412,6 +1414,7 @@ export async function adminAddBookingToClassAction(input: {
           onsiteMethod: "cash",
         },
       });
+      newBookingId = created.id;
     });
   } catch (err) {
     if ((err as { code?: string }).code === "P2002") {
@@ -1427,6 +1430,14 @@ export async function adminAddBookingToClassAction(input: {
   console.log(
     `[admin-audit] adminAddBooking by=${staff.id} class=${input.classId} user=${input.userId}`,
   );
+  // Email the trainer(s) of this class about the new booking. Best-effort.
+  if (newBookingId) {
+    try {
+      await notifyTrainersNewBooking(newBookingId);
+    } catch (err) {
+      console.error("[adminAddBooking] notifyTrainersNewBooking failed", err);
+    }
+  }
   revalidatePath(`/admin/attendance/${input.classId}`);
   revalidatePath("/admin/attendance");
   revalidatePath("/admin/schedule");

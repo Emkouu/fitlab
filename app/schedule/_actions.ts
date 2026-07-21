@@ -9,6 +9,7 @@ import { createCheckoutForBooking } from "@/lib/payments/createCheckoutForBookin
 import { DEPOSIT_UNIT_MINOR } from "@/lib/deposit";
 import { sendBookingConfirmationEmail } from "@/lib/email/sendBookingConfirmationEmail";
 import { notifyAdminsNewBooking } from "@/lib/notifications/notifyAdminsNewBooking";
+import { notifyTrainersNewBooking } from "@/lib/notifications/notifyTrainersNewBooking";
 import { BookingSource, BookingStatus } from "@/lib/generated/prisma/enums";
 import { sofiaDateKey } from "@/lib/format";
 import type { ClassCardRow } from "./_components/ClassCard";
@@ -244,6 +245,8 @@ export async function bookClassAction(input: {
   ) {
     await notifyAdminsNewBooking(r.booking.id, input.method);
   }
+  // Email the trainer(s) of THIS class (only those with a linked account).
+  await notifyTrainersNewBooking(r.booking.id);
   revalidatePath("/schedule");
   return { ok: true, bookingId: r.booking.id };
 }
@@ -387,6 +390,33 @@ export async function markNotificationsReadAction(
   await prisma.notification.updateMany({
     where: { id: { in: notificationIds }, userId: profile.id },
     data: { read: true },
+  });
+  revalidatePath("/schedule");
+  return { ok: true };
+}
+
+/**
+ * Clear (delete) a single notification for the current user. Scoped to the
+ * authenticated user via `userId` in the WHERE so nobody can delete another
+ * user's notifications — `deleteMany` no-ops if the id isn't theirs.
+ */
+export async function clearNotificationAction(
+  notificationId: string,
+): Promise<{ ok: boolean }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false };
+
+  const profile = await prisma.user.findUnique({
+    where: { supabaseUserId: user.id },
+    select: { id: true },
+  });
+  if (!profile) return { ok: false };
+
+  await prisma.notification.deleteMany({
+    where: { id: notificationId, userId: profile.id },
   });
   revalidatePath("/schedule");
   return { ok: true };
