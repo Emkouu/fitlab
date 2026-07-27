@@ -6,10 +6,12 @@ import { prisma } from "@/lib/db";
 import { depositCount } from "@/lib/deposit";
 import { Heartbeat } from "@/app/_components/Heartbeat";
 import { Breadcrumb } from "@/app/_components/Breadcrumb";
+import { NotificationBell } from "@/app/schedule/_components/NotificationPanel";
 import { SignOutButton } from "./_components/SignOutButton";
 import { BookingsList } from "./_components/BookingsList";
 import { PaymentHistory } from "./_components/PaymentHistory";
 import { PartnerPerks } from "./_components/PartnerPerks";
+import { TrainersSection } from "./_components/TrainersSection";
 
 // Middleware already guards /account, but defence in depth: server-side re-check.
 export const dynamic = "force-dynamic";
@@ -55,6 +57,25 @@ export default async function AccountPage() {
     return startTime <= now;
   });
 
+  // Unread notification count for the bell badge (same source as /schedule).
+  const unreadNotificationCount = profile
+    ? await prisma.notification.count({
+        where: { userId: profile.id, read: false },
+      })
+    : 0;
+
+  // Trainers directory — read-only, client-facing (photo + short bio).
+  const trainers = await prisma.trainer.findMany({
+    orderBy: { name: "asc" },
+    select: {
+      id: true,
+      name: true,
+      photoUrl: true,
+      bio: true,
+      specialties: { orderBy: { name: "asc" }, select: { id: true, name: true } },
+    },
+  });
+
   // Loyalty-program partners (admin-managed at /admin/partners).
   const partners = await prisma.partner.findMany({
     where: { active: true },
@@ -93,17 +114,22 @@ export default async function AccountPage() {
   return (
     <main className="mx-auto w-full max-w-[440px] px-5 pb-12 pt-6 font-sans text-[color:var(--brand-ink)]">
       <header className="mb-8">
-        <div className="flex items-center justify-center">
-          <Link href="/" className="hover:opacity-80 transition-opacity">
-            <Image
-              src="/logo.png"
-              alt="FitLab Varna"
-              width={180}
-              height={90}
-              priority
-              className="h-16 w-auto"
-            />
-          </Link>
+        <div className="relative">
+          <div className="flex items-center justify-center">
+            <Link href="/" className="hover:opacity-80 transition-opacity">
+              <Image
+                src="/logo.png"
+                alt="FitLab Varna"
+                width={180}
+                height={90}
+                priority
+                className="h-16 w-auto"
+              />
+            </Link>
+          </div>
+          <div className="absolute left-0 top-0">
+            <NotificationBell initialUnreadCount={unreadNotificationCount} />
+          </div>
         </div>
         <Heartbeat className="mx-auto mt-2 h-3 w-40 opacity-90" />
         <Breadcrumb current="Профил" />
@@ -178,6 +204,19 @@ export default async function AccountPage() {
             Отстъпки от нашите партньори — само за клиенти на FitLab.
           </p>
           <PartnerPerks partners={partners} />
+        </div>
+      )}
+
+      {/* Trainers directory — photo + short bio so clients know their coaches */}
+      {trainers.length > 0 && (
+        <div className="mb-8">
+          <h2 className="mb-1 font-display text-lg font-bold tracking-tight">
+            Треньори
+          </h2>
+          <p className="mb-4 text-xs text-[color:var(--brand-purple)]/70">
+            Запознай се с екипа на FitLab.
+          </p>
+          <TrainersSection trainers={trainers} />
         </div>
       )}
 

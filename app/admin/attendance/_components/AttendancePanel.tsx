@@ -79,6 +79,9 @@ function AttendanceItem({
       : "cash",
   );
   const [settled, setSettled] = useState(row.depositSettled);
+  // When a booking is already marked, staff can re-open the buttons to correct
+  // an accidental "Дойде"/"Не дойде" (e.g. client actually did / didn't show).
+  const [editing, setEditing] = useState(false);
 
   const isOnsite = row.source === BookingSource.onsite_deposit;
 
@@ -90,6 +93,7 @@ function AttendanceItem({
         setErrMsg(r.message);
         return;
       }
+      setEditing(false);
       router.refresh();
     });
   }
@@ -213,14 +217,17 @@ function AttendanceItem({
         </div>
       )}
 
-      {/* Action row. For on-site, „Разплати" sits between Дойде / Не дойде. */}
-      {!isMarked ? (
+      {/* Action row. For on-site, „Разплати" sits between Дойде / Не дойде.
+          When already marked, the buttons stay hidden until staff taps
+          „Промени“ — so an accidental verdict can always be corrected. */}
+      {!isMarked || editing ? (
         isOnsite ? (
           <div className="grid grid-cols-3 border-t border-[color:var(--brand-pink)]/30">
             <button
               type="button"
               disabled={pending}
               onClick={() => handle("attended")}
+              aria-pressed={row.status === BookingStatus.attended}
               className="flex min-h-12 items-center justify-center bg-[color:var(--brand-magenta)] px-2 py-3 font-display text-[11px] font-bold uppercase tracking-wider text-white transition-colors hover:bg-[color:var(--brand-purple)] disabled:opacity-60"
             >
               {pending ? "…" : "Дойде"}
@@ -235,6 +242,7 @@ function AttendanceItem({
               type="button"
               disabled={pending}
               onClick={() => handle("no_show")}
+              aria-pressed={row.status === BookingStatus.no_show}
               className="flex min-h-12 items-center justify-center border-l border-[color:var(--brand-pink)]/40 bg-white px-2 py-3 font-display text-[11px] font-bold uppercase tracking-wider text-[color:var(--brand-purple)] transition-colors hover:bg-[color:var(--brand-pink-soft)] disabled:opacity-60"
             >
               {pending ? "…" : "Не дойде"}
@@ -246,6 +254,7 @@ function AttendanceItem({
               type="button"
               disabled={pending}
               onClick={() => handle("attended")}
+              aria-pressed={row.status === BookingStatus.attended}
               className="flex min-h-12 items-center justify-center bg-[color:var(--brand-magenta)] px-4 py-3 font-display text-[11px] font-bold uppercase tracking-wider text-white transition-colors hover:bg-[color:var(--brand-purple)] disabled:opacity-60"
             >
               {pending ? "…" : "Дойде"}
@@ -254,6 +263,7 @@ function AttendanceItem({
               type="button"
               disabled={pending}
               onClick={() => handle("no_show")}
+              aria-pressed={row.status === BookingStatus.no_show}
               className="flex min-h-12 items-center justify-center border-l border-[color:var(--brand-pink)]/40 bg-white px-4 py-3 font-display text-[11px] font-bold uppercase tracking-wider text-[color:var(--brand-purple)] transition-colors hover:bg-[color:var(--brand-pink-soft)] disabled:opacity-60"
             >
               {pending ? "…" : "Не дойде"}
@@ -271,6 +281,18 @@ function AttendanceItem({
             />
           </div>
         )
+      )}
+
+      {/* Correction affordance: reveal / hide the mark buttons once marked. */}
+      {isMarked && (
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => setEditing((v) => !v)}
+          className="flex min-h-10 w-full items-center justify-center border-t border-[color:var(--brand-pink)]/30 bg-white px-4 py-2.5 font-display text-[11px] font-bold uppercase tracking-wider text-[color:var(--brand-purple)]/70 transition-colors hover:bg-[color:var(--brand-pink-soft)] hover:text-[color:var(--brand-magenta)] disabled:opacity-60"
+        >
+          {editing ? "Отказ" : "Промени отбелязването"}
+        </button>
       )}
 
       {errMsg && (
