@@ -74,6 +74,15 @@ Pure tested functions in `/lib`, separate from API routes (reusable by RN + cron
 
 After step 10, MVP done. Only then consider Phase 2.
 
+## Public schedule visibility window
+
+Staff schedule a whole month ahead; **clients only see a rolling 7 days — today + the next 6 Sofia days**. Each weekday appears exactly once in the window, so nobody can look at „събота", book, and land on *next* week's Saturday.
+
+- Single source of truth: `lib/schedule/publicWindow.ts` (`PUBLIC_WINDOW_DAYS`, `publicWindowEndKey`, `publicWindowEndExclusive`, `isWithinPublicWindow`) + tests.
+- Applied to `/schedule` only: the agenda query, `getClassesForMonth` (days outside the window come back empty), and the Месец grid (out-of-window days inert/no dots, next-month arrow disabled).
+- `/admin/**` is **not** windowed — staff keep the full month.
+- **Special events are exempt.** `/events` lists them however far out they are, and `?openBooking=<id>` resolves server-side (`loadDeepLinkRow` in `app/schedule/page.tsx`) so an out-of-window event still opens its booking modal. Regular classes can only be deep-linked inside the window.
+
 ## Booking flow reference (steps 4–6)
 
 Design intent for the „Избор" tap → confirmation flow. Do **not** build any of this until we reach those roadmap steps; this note exists so the visual reference isn't lost.

@@ -12,6 +12,7 @@ import { notifyAdminsNewBooking } from "@/lib/notifications/notifyAdminsNewBooki
 import { notifyTrainersNewBooking } from "@/lib/notifications/notifyTrainersNewBooking";
 import { BookingSource, BookingStatus } from "@/lib/generated/prisma/enums";
 import { sofiaDateKey } from "@/lib/format";
+import { isWithinPublicWindow } from "@/lib/schedule/publicWindow";
 import type { ClassCardRow } from "./_components/ClassCard";
 
 const ACTIVE_STATUSES: BookingStatus[] = [
@@ -27,6 +28,9 @@ const ACTIVE_STATUSES: BookingStatus[] = [
  *
  * Sofia is UTC+2/+3 — we fetch a one-day buffer on either side and filter by
  * `sofiaDateKey` so DST and TZ edges can't drop a class onto the wrong month.
+ *
+ * Clamped to the public 7-day window: days outside it come back empty, so the
+ * calendar can't leak (or book) a class further out than clients should see.
  */
 export async function getClassesForMonth(
   year: number,
@@ -62,6 +66,7 @@ export async function getClassesForMonth(
   for (const r of rows) {
     const key = sofiaDateKey(r.startAt);
     if (!key.startsWith(prefix)) continue;
+    if (!isWithinPublicWindow(key)) continue;
     (byKey[key] ??= []).push(r);
   }
   return byKey;

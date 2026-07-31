@@ -5,6 +5,10 @@ import { AuthChip } from "@/app/_components/AuthChip";
 import { createClient } from "@/lib/supabase/server";
 import { ScheduleSurface, type PracticeOption } from "./_components/ScheduleSurface";
 import { getClassesForMonth } from "./_actions";
+import {
+  publicWindowEndExclusive,
+  publicWindowEndKey,
+} from "@/lib/schedule/publicWindow";
 import type { DayBucket } from "./_components/AgendaView";
 import type { ClassCardRow } from "./_components/ClassCard";
 
@@ -19,27 +23,58 @@ const ACTIVE_STATUSES: BookingStatus[] = [
   BookingStatus.attended,
 ];
 
+/** Everything a schedule card needs — shared by the agenda query and the
+ *  single-row deep-link lookup so both produce the same `ClassCardRow`. */
+const CLASS_CARD_INCLUDE = {
+  practice: { select: { name: true, description: true } },
+  trainers: { orderBy: { name: "asc" }, select: { name: true } },
+  studio: {
+    select: { name: true, cancelWindowHours: true, cardPaymentsEnabled: true },
+  },
+  _count: {
+    select: {
+      bookings: { where: { status: { in: ACTIVE_STATUSES } } },
+    },
+  },
+} as const;
+
 /**
- * Pulls every upcoming class for the Списък (agenda) view. The Месец view
- * fetches its own month-bounded data via `getClassesForMonth`.
+ * Pulls the upcoming classes inside the public 7-day window for the Списък
+ * (agenda) view. The Месец view fetches its own month-bounded data via
+ * `getClassesForMonth`, clamped to the same window.
  */
 async function loadUpcoming(): Promise<ClassCardRow[]> {
   return prisma.scheduledClass.findMany({
     where: {
-      startAt: { gte: new Date() },
+      startAt: { gte: new Date(), lt: publicWindowEndExclusive() },
     },
     orderBy: { startAt: "asc" },
-    include: {
-      practice: { select: { name: true, description: true } },
-      trainers: { orderBy: { name: "asc" }, select: { name: true } },
-      studio: { select: { name: true, cancelWindowHours: true, cardPaymentsEnabled: true } },
-      _count: {
-        select: {
-          bookings: { where: { status: { in: ACTIVE_STATUSES } } },
-        },
-      },
-    },
+    include: CLASS_CARD_INCLUDE,
     take: 400,
+  });
+}
+
+/**
+ * Resolves `?openBooking=<id>` server-side. Special events live outside the
+ * 7-day window (they're promoted weeks ahead on /events), so the row backing a
+ * deep link isn't necessarily in the agenda or month payload — fetch it
+ * directly instead of silently swallowing the link.
+ */
+async function loadDeepLinkRow(id: string | undefined): Promise<ClassCardRow | null> {
+  if (!id) return null;
+  return prisma.scheduledClass.findFirst({
+    where: {
+      id,
+      cancelledAt: null,
+      startAt: { gte: new Date() },
+      // Regular classes stay inside the window; only special events may be
+      // deep-linked from further out.
+      OR: [
+        { isSpecialEvent: true },
+        { startAt: { lt: publicWindowEndExclusive() } },
+      ],
+    },
+    include: CLASS_CARD_INCLUDE,
   });
 }
 
@@ -66,9 +101,14 @@ function currentSofiaMonth(): { year: number; month: number } {
   return { year: Number(key.slice(0, 4)), month: Number(key.slice(5, 7)) - 1 };
 }
 
-export default async function SchedulePage() {
+export default async function SchedulePage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ openBooking?: string }>;
+}) {
   const { year, month } = currentSofiaMonth();
-  const [rows, supabase, monthData, practices] = await Promise.all([
+  const { openBooking } = searchParams ? await searchParams : {};
+  const [rows, supabase, monthData, practices, deepLinkRow] = await Promise.all([
     loadUpcoming(),
     createClient(),
     getClassesForMonth(year, month),
@@ -76,6 +116,7 @@ export default async function SchedulePage() {
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }) as Promise<PracticeOption[]>,
+    loadDeepLinkRow(openBooking),
   ]);
   const {
     data: { user },
@@ -133,6 +174,8 @@ export default async function SchedulePage() {
       waitlistedClassIds={waitlistedClassIds}
       unreadNotificationCount={unreadNotificationCount}
       practices={practices}
+      windowEndKey={publicWindowEndKey()}
+      deepLinkRow={deepLinkRow}
     />
   );
 }

@@ -31,6 +31,8 @@ export function ScheduleSurface({
   waitlistedClassIds = [],
   unreadNotificationCount = 0,
   practices = [],
+  windowEndKey,
+  deepLinkRow = null,
 }: {
   agendaDays: DayBucket[];
   monthYear: number;
@@ -43,6 +45,11 @@ export function ScheduleSurface({
   waitlistedClassIds?: string[];
   unreadNotificationCount?: number;
   practices?: PracticeOption[];
+  /** Last Sofia day ("YYYY-MM-DD") clients can see — end of the 7-day window. */
+  windowEndKey: string;
+  /** Row behind `?openBooking=<id>`, resolved server-side. Lets a special
+   *  event outside the 7-day window still open its booking modal. */
+  deepLinkRow?: ClassCardRow | null;
 }) {
   const bookedSet = new Set(bookedClassIds);
   const waitlistedSet = new Set(waitlistedClassIds);
@@ -72,6 +79,7 @@ export function ScheduleSurface({
     for (const key of Object.keys(monthData)) {
       for (const r of monthData[key]) m.set(r.id, r);
     }
+    if (deepLinkRow) m.set(deepLinkRow.id, deepLinkRow);
     return m;
   })();
 
@@ -148,7 +156,7 @@ export function ScheduleSurface({
       )}
 
       {/* ─── Title row ────────────────────────────────────────── */}
-      <div className="mb-5 flex items-baseline justify-between">
+      <div className="mb-2 flex items-baseline justify-between">
         <h1 className="font-display text-2xl font-bold tracking-tight">
           График
         </h1>
@@ -160,6 +168,11 @@ export function ScheduleSurface({
             : ""}
         </span>
       </div>
+
+      {/* Rolling 7-day window — spelled out so „събота" is never ambiguous. */}
+      <p className="mb-5 text-[11px] leading-snug text-[color:var(--brand-purple)]/55">
+        Показваме програмата за 7 дни напред — до {formatWindowEnd(windowEndKey)}.
+      </p>
 
       {/* ─── Active view ──────────────────────────────────────── */}
       <AnimatePresence mode="wait">
@@ -189,6 +202,7 @@ export function ScheduleSurface({
               onInfo={setInfoClass}
               bookedClassIds={bookedSet}
               practiceFilter={practiceFilter}
+              windowEndKey={windowEndKey}
             />
           </motion.div>
         )}
@@ -206,6 +220,19 @@ export function ScheduleSurface({
       />
     </main>
   );
+}
+
+/** "2026-08-13" → "четвъртък, 13.08". The key is a plain Sofia calendar date,
+ *  so it is formatted in UTC to keep the day from drifting. */
+const WINDOW_END_FMT = new Intl.DateTimeFormat("bg-BG", {
+  timeZone: "UTC",
+  weekday: "long",
+  day: "2-digit",
+  month: "2-digit",
+});
+function formatWindowEnd(key: string): string {
+  const [y, m, d] = key.split("-").map(Number);
+  return WINDOW_END_FMT.format(new Date(Date.UTC(y, m - 1, d, 12)));
 }
 
 function PracticePills({

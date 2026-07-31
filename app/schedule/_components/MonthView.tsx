@@ -27,6 +27,7 @@ export function MonthView({
   onInfo,
   bookedClassIds,
   practiceFilter = null,
+  windowEndKey,
 }: {
   initialYear: number;
   initialMonth: number; // 0-indexed
@@ -37,6 +38,9 @@ export function MonthView({
   /** When non-null, only show classes for this practiceId. Dots and the
    *  selected-day rows reflect the filter. */
   practiceFilter?: string | null;
+  /** Last Sofia day ("YYYY-MM-DD") inside the public 7-day window. Days after
+   *  it are inert — clients book at most a week ahead. */
+  windowEndKey: string;
 }) {
   const [year, setYear] = useState(initialYear);
   const [month, setMonth] = useState(initialMonth);
@@ -71,6 +75,13 @@ export function MonthView({
       )
     : data;
   const selectedRows = selectedKey ? filteredData[selectedKey] ?? [] : [];
+
+  // The window never spans more than two calendar months, so there is nothing
+  // to show past the month holding its last day.
+  const windowEndMonth = Number(windowEndKey.slice(5, 7)) - 1;
+  const windowEndYear = Number(windowEndKey.slice(0, 4));
+  const canGoNext =
+    year < windowEndYear || (year === windowEndYear && month < windowEndMonth);
 
   function prevMonth() {
     if (month === 0) {
@@ -112,8 +123,9 @@ export function MonthView({
           <button
             type="button"
             onClick={nextMonth}
+            disabled={!canGoNext}
             aria-label="Следващ месец"
-            className="flex h-9 w-9 items-center justify-center rounded-full text-[color:var(--brand-magenta)] transition-colors hover:bg-[color:var(--brand-pink-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--brand-magenta)]"
+            className="flex h-9 w-9 items-center justify-center rounded-full text-[color:var(--brand-magenta)] transition-colors hover:bg-[color:var(--brand-pink-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--brand-magenta)] disabled:pointer-events-none disabled:opacity-30"
           >
             <Arrow direction="right" />
           </button>
@@ -139,6 +151,7 @@ export function MonthView({
               cell={cell}
               isToday={cell.key === todayKey}
               isPast={cell.key < todayKey}
+              isBeyondWindow={cell.key > windowEndKey}
               isSelected={cell.key === selectedKey}
               hasClasses={(filteredData[cell.key]?.length ?? 0) > 0}
               count={filteredData[cell.key]?.length ?? 0}
@@ -178,6 +191,7 @@ function DayCell({
   cell,
   isToday,
   isPast,
+  isBeyondWindow,
   isSelected,
   hasClasses,
   count,
@@ -186,15 +200,17 @@ function DayCell({
   cell: Cell;
   isToday: boolean;
   isPast: boolean;
+  isBeyondWindow: boolean;
   isSelected: boolean;
   hasClasses: boolean;
   count: number;
   onSelect: () => void;
 }) {
-  // Calendar is always "today onward": past days are inert (not selectable)
-  // and show no class dots, so previous classes never surface automatically.
-  const interactive = cell.inMonth && !isPast;
-  const muted = !cell.inMonth || isPast;
+  // Calendar is always "today onward, 7 days out": past days and days past the
+  // public window are inert (not selectable) and show no class dots, so neither
+  // previous classes nor next week's ever surface.
+  const interactive = cell.inMonth && !isPast && !isBeyondWindow;
+  const muted = !cell.inMonth || isPast || isBeyondWindow;
 
   return (
     <button
@@ -222,7 +238,7 @@ function DayCell({
       >
         {cell.day}
       </span>
-      {hasClasses && cell.inMonth && !isPast && (
+      {hasClasses && interactive && (
         <span
           aria-hidden
           className="absolute bottom-1 h-1.5 w-1.5 rounded-full bg-[color:var(--brand-magenta)]"
