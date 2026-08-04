@@ -11,6 +11,7 @@ import {
   Section,
   Text,
 } from "@react-email/components";
+import { COMPANY } from "@/lib/legal/company";
 
 export type BookingConfirmationProps = {
   greetingName: string | null;
@@ -135,7 +136,11 @@ export function BookingConfirmation(props: BookingConfirmationProps) {
               <ReceiptRow label="Дата на транзакция" value={transactionDateText} />
               <ReceiptRow label="Услуга" value={`${practiceName} — ${dateText}, ${timeText}`} />
               <ReceiptRow label="Депозит" value={`${depositText} — ${depositStatusText}`} />
-              <ReceiptRow label="Търговец" value={`${studioName}, ${studioAddress}`} />
+              <ReceiptRow
+                label="Търговец"
+                value={`${COMPANY.legalName}, ЕИК ${COMPANY.eik}`}
+              />
+              <ReceiptRow label="Обект" value={`${studioName}, ${studioAddress}`} />
               <Text style={{ fontSize: 11, color: MUTED, margin: "8px 0 0" }}>
                 Запази този имейл — той е твоята разписка за направената поръчка.
               </Text>
@@ -169,6 +174,9 @@ export function BookingConfirmation(props: BookingConfirmationProps) {
           <Section style={{ textAlign: "center" }}>
             <Text style={{ fontSize: 12, color: MUTED, margin: "4px 0" }}>
               {studioName} · {studioAddress}
+            </Text>
+            <Text style={{ fontSize: 12, color: MUTED, margin: "4px 0" }}>
+              {COMPANY.legalName} · ЕИК {COMPANY.eik}
             </Text>
             <Text style={{ fontSize: 12, color: MUTED, margin: "4px 0" }}>
               Тел:{" "}

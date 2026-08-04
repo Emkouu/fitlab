@@ -74,6 +74,13 @@ Pure tested functions in `/lib`, separate from API routes (reusable by RN + cron
 
 After step 10, MVP done. Only then consider Phase 2.
 
+## Legal identity + policies
+
+- The trader and GDPR controller is **ФИЗИОЛАЙФ 22 ЕООД (ЕИК 207009324)**; „FitLab Varna" is only a trade name. All of it lives in `lib/legal/company.ts` (`COMPANY`, `ACQUIRER`, `PROCESSORS`, `DPA`, `CPC`, `POLICIES_LAST_UPDATED`) — never hardcode the company anywhere else. Bump `POLICIES_LAST_UPDATED` on every policy edit.
+- `/policies` renders five anchored sections: Търговец, Поверителност (GDPR Art. 13 disclosure set), Плащания и депозити (virtual POS), Общи условия, Бисквитки. Studio-specific numbers (address, phone, `cancelWindowHours`) come from the DB; the deposit amount from `DEPOSIT_UNIT_MINOR`.
+- Online card deposits are documented as going through the **виртуален ПОС на Първа инвестиционна банка АД (Fibank)** — card data never touches our servers. ⚠️ The code still mints **Stripe** Checkout (test-key-only guard in `lib/stripe.ts`); either wire the Fibank virtual POS or add Stripe to `PROCESSORS` before real card payments go live.
+- Trader identity must stay permanently accessible: landing-page footer line + electronic receipt („Търговец" row in `emails/BookingConfirmation.tsx`).
+
 ## Public schedule visibility window
 
 Staff schedule a whole month ahead; **clients only see a rolling 7 days — today + the next 6 Sofia days**. Each weekday appears exactly once in the window, so nobody can look at „събота", book, and land on *next* week's Saturday.

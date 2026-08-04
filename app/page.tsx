@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/db";
 import { Heartbeat } from "./_components/Heartbeat";
 import { PaymentLogos } from "./_components/PaymentLogos";
+import { COMPANY } from "@/lib/legal/company";
 
 export const dynamic = "force-dynamic";
 
@@ -154,6 +155,10 @@ export default async function Home() {
         >
           Политики
         </Link>
+        {/* Trader identity must be permanently accessible (ЗЕТ чл. 4). */}
+        <p className="mt-4 text-[11px] leading-relaxed text-gray-400">
+          {COMPANY.legalName} · ЕИК {COMPANY.eik}
+        </p>
       </section>
     </main>
   );
