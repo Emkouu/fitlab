@@ -25,7 +25,7 @@ export const COMPANY = {
   /** Управител / законен представител. */
   representative: "Стивиян Иванов Иванов",
   /** Contact for GDPR requests, complaints and everything legal. */
-  email: "stivianivanov@gmail.com",
+  email: "info@fitlabvarna.com",
 } as const;
 
 /**
