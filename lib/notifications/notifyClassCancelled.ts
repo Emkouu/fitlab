@@ -43,7 +43,7 @@ export async function notifyClassCancelled(
 
   const dateText = formatSofiaDay(cls.startAt);
   const timeText = formatSofiaTime(cls.startAt);
-  const message = `Класът ${cls.practice.name} на ${dateText} в ${timeText} ч. е отменен. Ако си платил/а депозит, той е върнат.`;
+  const message = `Класът ${cls.practice.name} на ${dateText} в ${timeText} ч. е отменен. Депозитът ти остава по профила.`;
 
   // ── Channel 1: in-app bell ──────────────────────────────────────────────
   for (const u of users) {
@@ -87,8 +87,8 @@ export async function notifyClassCancelled(
           <strong>${dateText} в ${timeText} ч.</strong> беше отменен.
         </p>
         <p style="font-size:14px;line-height:1.6">
-          Ако си платил/а депозит, той вече е върнат. Разгледай другите
-          свободни часове в графика.
+          Депозитът ти остава по профила — разгледай другите свободни часове в
+          графика.
         </p>
         <p style="margin:20px 0">
           <a href="${appUrl}/schedule"

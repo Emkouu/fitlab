@@ -83,4 +83,4 @@ export const CPC = {
 } as const;
 
 /** Shown as „Последна актуализация" on the policies page. Bump on every edit. */
-export const POLICIES_LAST_UPDATED = "04.08.2026 г.";
+export const POLICIES_LAST_UPDATED = "06.08.2026 г.";

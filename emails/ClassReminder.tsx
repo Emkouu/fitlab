@@ -115,7 +115,7 @@ export function ClassReminder(props: ClassReminderProps) {
             )}
 
             <Text style={{ fontSize: 14, color: ACCENT, marginBottom: 20 }}>
-              Можеш да откажеш до {cancelWindowHours} часа преди класа. След това депозитът се удържа.
+              Можеш да се отпишеш до {cancelWindowHours} часа преди класа. След това депозитът се усвоява.
             </Text>
 
             <Section style={{ textAlign: "center", marginBottom: 8 }}>

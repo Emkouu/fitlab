@@ -65,19 +65,21 @@ export async function POST(
     );
   }
 
-  // If the deposit was NOT forfeited (timely cancel), return it — but only for
-  // sources where a deposit actually moved. `balance` == a prepaid deposit was
-  // consumed; returning it restores exactly one deposit. On-site bookings never
-  // consumed a recorded deposit, so crediting them would mint a free deposit.
-  const depositReturned =
-    !result.depositForfeited &&
+  // Money side (lib/deposit.ts): the deposit was never debited by the booking,
+  // so a timely cancel moves nothing — the client keeps it. A LATE cancel is
+  // exactly the case the deposit exists for: burn one. On-site bookings never
+  // had a recorded deposit behind them, so they stay untouched.
+  const depositBurned =
+    result.depositForfeited &&
     (booking.source === "card" || booking.source === "balance");
-  if (depositReturned) {
-    await prisma.user.update({
-      where: { id: fitlabUser.id },
-      data: { depositBalance: { increment: DEPOSIT_UNIT_MINOR } },
+  if (depositBurned) {
+    await prisma.user.updateMany({
+      where: { id: fitlabUser.id, depositBalance: { gte: DEPOSIT_UNIT_MINOR } },
+      data: { depositBalance: { decrement: DEPOSIT_UNIT_MINOR } },
     });
   }
+  // The client keeps their deposit whenever it wasn't burned.
+  const depositReturned = !result.depositForfeited;
 
   // Notify the client (confirmation) + admins (freed spot). Best-effort.
   try {

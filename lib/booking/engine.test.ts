@@ -458,4 +458,86 @@ describe("booking engine", () => {
     expect(a.ok).toBe(true);
     if (a.ok) expect(a.depositBurned).toBe(false);
   });
+
+  it("attended records how the class fee was paid on site", async () => {
+    const classId = await makeClass({ capacity: 5 });
+    const userId = await makeUser();
+
+    const r1 = await createBooking(prisma, {
+      userId,
+      scheduledClassId: classId,
+      source: BookingSource.balance,
+      onsiteMethod: "cash",
+    });
+    expect(r1.ok).toBe(true);
+    if (!r1.ok) return;
+    // The client's intent from the booking modal is persisted for any source.
+    expect(r1.booking.onsiteMethod).toBe("cash");
+
+    const a = await markAttendance(prisma, r1.booking.id, "attended", {
+      method: "multisport",
+    });
+    expect(a.ok).toBe(true);
+    if (a.ok) expect(a.previousStatus).toBe(BookingStatus.booked);
+
+    const updated = await prisma.booking.findUnique({
+      where: { id: r1.booking.id },
+      select: { status: true, onsiteMethod: true },
+    });
+    expect(updated?.status).toBe(BookingStatus.attended);
+    // Staff correction wins over the client's intent.
+    expect(updated?.onsiteMethod).toBe("multisport");
+  });
+
+  it("reports the previous status so a corrected no_show can be un-burned", async () => {
+    const classId = await makeClass({ capacity: 5 });
+    const userId = await makeUser();
+
+    const r1 = await createBooking(prisma, {
+      userId,
+      scheduledClassId: classId,
+      source: BookingSource.balance,
+    });
+    expect(r1.ok).toBe(true);
+    if (!r1.ok) return;
+
+    const first = await markAttendance(prisma, r1.booking.id, "no_show");
+    expect(first.ok).toBe(true);
+    if (first.ok) expect(first.previousStatus).toBe(BookingStatus.booked);
+
+    // Marking no_show twice must not read as two separate burns.
+    const again = await markAttendance(prisma, r1.booking.id, "no_show");
+    expect(again.ok).toBe(true);
+    if (again.ok) expect(again.previousStatus).toBe(BookingStatus.no_show);
+
+    // Correction back to attended — the caller restores the deposit on this.
+    const fixed = await markAttendance(prisma, r1.booking.id, "attended", {
+      method: "cash",
+    });
+    expect(fixed.ok).toBe(true);
+    if (fixed.ok) expect(fixed.previousStatus).toBe(BookingStatus.no_show);
+  });
+
+  it("does not debit the deposit when a booking is created", async () => {
+    const classId = await makeClass({ capacity: 5 });
+    const userId = await makeUser();
+    await prisma.user.update({
+      where: { id: userId },
+      data: { depositBalance: 1000 },
+    });
+
+    const r1 = await createBooking(prisma, {
+      userId,
+      scheduledClassId: classId,
+      source: BookingSource.balance,
+    });
+    expect(r1.ok).toBe(true);
+
+    // The deposit is a standing guarantee — booking never spends it.
+    const after = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { depositBalance: true },
+    });
+    expect(after?.depositBalance).toBe(1000);
+  });
 });

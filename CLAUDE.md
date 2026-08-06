@@ -47,17 +47,19 @@ Pure tested functions in `/lib`, separate from API routes (reusable by RN + cron
 
 1. **No overbooking.** Capacity check + insert must be **atomic** — one DB transaction with row-level lock (`SELECT … FOR UPDATE`) or conditional insert. Never read-count-then-insert.
 2. **No duplicates** — rely on the partial unique index on `(userId, scheduledClassId)` WHERE `status != 'cancelled'`; show "вече си записан" on violation. The partial predicate lets a user re-book the same class after cancelling.
-3. **Deposit required on every booking** (D1 — sole payment mechanism, no passes in MVP). Source → initial status:
+3. **Deposit is a ONE-OFF standing guarantee, not a per-booking fee** (`lib/deposit.ts`). €10 paid once at the studio, recorded by an admin on `User.depositBalance`; it is what makes online reserving possible and **stays** on the profile. Booking requires `depositBalance ≥ DEPOSIT_UNIT_MINOR` but **never debits it**. Source → initial status:
    - `card`    → `booked` → Stripe Checkout → webhook flips to `paid`.
-   - `balance` → `booked` (instant; debits `User.depositBalance` server-side).
+   - `balance` → `booked` (instant; the standing deposit backs it, no debit).
    - `onsite_deposit` → `pending_deposit` (paid in cash on arrival).
    - Spot is held in all three cases.
+   - The **class fee** is a separate thing, always settled on site. The client picks an intended method in the booking modal (`subscription | cash | multisport`, see `lib/payments/classFeeMethods.ts`), persisted on `Booking.onsiteMethod`; staff confirm or correct it in Attendance.
 4. **JIT abandoned-checkout sweep.** `createBooking` opportunistically cancels stale card holds on the same class inside the row-locked transaction: `source=card` AND `status=booked` AND no paid `Payment` AND `createdAt < now − 15min`. On-site and balance bookings are never swept.
-5. **Cancellation:** studio config `cancelWindowHours` (default **4** in MVP). Before (start − window) → cancel clean, deposit safe. After → `cancelled` + deposit forfeited. Refund routing by source:
-   - `card`    → if not forfeited, credit `User.depositBalance` (MVP simplification; Stripe refund is admin-side only).
-   - `balance` → if not forfeited, credit `User.depositBalance` back.
-   - `onsite_deposit` → **never** touch `depositBalance` — no money ever moved.
-6. **Attendance:** staff sets `attended` or `no_show`. `no_show` burns deposit.
+5. **Cancellation:** studio config `cancelWindowHours` (default **4** in MVP). Before (start − window) → cancel clean, **deposit stays** (nothing to refund — it was never debited). After → `cancelled` + **burn one deposit** (`card`/`balance` only; `onsite_deposit` never touches `depositBalance`). Admin can pass `overrideRefund` to skip the burn.
+6. **Attendance:** staff sets `attended` (with the class-fee method) or `no_show`.
+   - `attended` → deposit **untouched**, stays for the next booking.
+   - `no_show`  → burn one deposit, once (guarded on `previousStatus`).
+   - Correcting a `no_show` back to `attended` **restores** the deposit, so a mis-tap never costs the client €10.
+   - The engine only returns verdicts + `previousStatus`; the money moves in `app/admin/attendance/_actions.ts`.
 
 ## Roadmap (§9) — commit after each step
 
@@ -96,10 +98,9 @@ Design intent for the „Избор" tap → confirmation flow. Do **not** build
 
 - Tapping „Избор" opens a **„Запазване на място"** modal/sheet.
 - The modal shows class details: **studio, practice, date, time, duration**. (Trainer name optional; reuse what the card already shows.)
-- A **payment-method selector** with two options (D1):
-  1. **Плати депозит с карта сега** → Stripe Checkout → webhook → `paid`.
-  2. **Плати на място — до деня преди класа** → `pending_deposit`.
-- Visible **cancellation rules** under the choice: cancel ≥ studio.`cancelWindowHours` (default **4h** in MVP) → deposit safe; later → forfeited; **no-show forfeits deposit**.
+- **No deposit on the profile** → the modal explains the one-off deposit („Депозитът в размер на 10,00 € се заплаща еднократно…") + „плати депозит в студиото" nudge, and Потвърди stays disabled.
+- **Deposit already on the profile** → **no deposit copy at all**; instead „Избери как ще заплатиш тренировката" (Абонаментна карта / В брой / Multisport), required before Потвърди enables.
+- Visible **cancellation rules** under the choice: отписване ≥ studio.`cancelWindowHours` (default **4h** in MVP) → депозитът остава; later → усвоява се; **неявяване усвоява депозита**.
 - Primary action: **Потвърди**. Spot is held the moment the booking row is created (see SPEC §5 atomicity + unique-key rules).
 
 **Auth is SMS OTP, no passwords (D2).** The reference system we're looking at has password fields and an all-at-once registration step — **do not copy that**. Our model is:
@@ -111,19 +112,21 @@ Phone (E.164) is the only login identifier; email is a magic-link fallback confi
 
 ### Verdict vs money action (steps 7–8)
 
-The booking engine in `lib/booking/` returns booleans — `depositForfeited` from `cancelBooking`, `depositBurned` from `markAttendance` — **without touching money**. They are *verdicts*, not actions.
+The booking engine in `lib/booking/` returns booleans — `depositForfeited` from `cancelBooking`, `depositBurned` + `previousStatus` from `markAttendance` — **without touching money**. They are *verdicts*, not actions.
 
-When Stripe is wired (step 7) and staff attendance lands (step 8), the real money action depends on **both** the verdict *and* `Booking.source`:
+Because the deposit is never debited at booking time, the only money action is the **burn** (and its undo):
 
-| `source`           | `Booking.status` (typical) | verdict = false (safe / attended) | verdict = true (forfeited / no-show) |
-|--------------------|---------------------------|-----------------------------------|-------------------------------------|
-| `card`             | `booked` → `paid`         | credit `User.depositBalance` (Stripe refund is admin-only) | keep the charge (studio retains) |
-| `balance`          | `booked`                  | credit `User.depositBalance` back | studio retains the balance debit    |
-| `onsite_deposit`   | `pending_deposit`         | no money action (never charged)   | no money action (never charged)*    |
+| `source`           | verdict = false (timely cancel / attended) | verdict = true (late cancel / no-show) |
+|--------------------|--------------------------------------------|----------------------------------------|
+| `card`             | nothing — deposit stays on the profile     | decrement `User.depositBalance` by one unit |
+| `balance`          | nothing — deposit stays on the profile     | decrement `User.depositBalance` by one unit |
+| `onsite_deposit`   | nothing (no recorded deposit)              | nothing (no recorded deposit)*         |
 
-\* For on-site deposits, "forfeit" is a non-event for *us* because no card was charged. Studio staff handles cash in the room; the engine's job is just to set the booking status correctly so reports stay consistent.
+\* For on-site bookings no deposit was ever recorded, so "forfeit" is a non-event for us. Studio staff handles cash in the room; the engine's job is just to set the status correctly so reports stay consistent.
 
-Implication: the Stripe refund/keep logic lives in step 7 (webhook + a `lib/payments/` helper) and gates on `source === "card"` before doing anything. The engine never imports Stripe.
+Burns are **idempotent by construction**: `markAttendanceAction` burns only when `previousStatus !== no_show`, restores when a `no_show` is corrected to `attended`, and always clamps at 0 via a conditional `updateMany`. A studio-side class cancellation never burns anything.
+
+Implication: the Stripe refund logic lives in step 7 (webhook + a `lib/payments/` helper) and gates on `source === "card"` before doing anything. The engine never imports Stripe.
 
 ## Phase 2 — admin routes
 

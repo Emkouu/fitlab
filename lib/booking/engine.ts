@@ -36,8 +36,9 @@ export type CreateBookingInput = {
   userId: string;
   scheduledClassId: string;
   source: BookingSource;
-  /** On-site payment method (cash | subscription | multisport). Persisted for
-   *  `onsite_deposit` bookings so staff see the intended method in Attendance. */
+  /** How the client intends to pay the CLASS FEE on site
+   *  (subscription | cash | multisport). Persisted so staff see the intended
+   *  method in Attendance and can confirm or correct it there. */
   onsiteMethod?: string | null;
 };
 
@@ -57,7 +58,14 @@ export type CancelBookingResult =
 export type AttendanceOutcome = "attended" | "no_show";
 
 export type MarkAttendanceResult =
-  | { ok: true; depositBurned: boolean }
+  | {
+      ok: true;
+      depositBurned: boolean;
+      /** Status the booking had BEFORE this call — lets the caller decide
+       *  whether the deposit burn still needs applying (or undoing, when a
+       *  no_show is corrected to attended). */
+      previousStatus: BookingStatus;
+    }
   | { ok: false; reason: "not_found"; message: string };
 
 /* ───────────────────────────── createBooking ───────────────────────────── */
@@ -161,8 +169,9 @@ export async function createBooking(
           scheduledClassId,
           source,
           status: initialStatus,
-          onsiteMethod:
-            source === BookingSource.onsite_deposit ? onsiteMethod ?? null : null,
+          // The class fee is settled on site for every source, so the intended
+          // method is worth keeping regardless of how the spot was reserved.
+          onsiteMethod: onsiteMethod ?? null,
         },
       });
 
@@ -253,21 +262,37 @@ export async function cancelBooking(
 
 /**
  * Staff sets a booking to attended or no_show after the class. no_show
- * burns the deposit (SPEC §5.5). We return the boolean so payment-side
- * refund / forfeit logic can act on it once it exists.
+ * burns the deposit (SPEC §5.5) — we only return the verdict; the caller
+ * moves the money (see app/admin/attendance/_actions.ts).
+ *
+ * `attended` optionally records how the CLASS FEE was paid on site
+ * (subscription | cash | multisport) — the deposit is untouched either way.
  */
 export async function markAttendance(
   prisma: PrismaClient,
   bookingId: string,
   outcome: AttendanceOutcome,
+  opts: { method?: string | null } = {},
 ): Promise<MarkAttendanceResult> {
   const status =
     outcome === "attended" ? BookingStatus.attended : BookingStatus.no_show;
 
+  let previousStatus: BookingStatus;
   try {
+    const before = await prisma.booking.findUniqueOrThrow({
+      where: { id: bookingId },
+      select: { status: true },
+    });
+    previousStatus = before.status;
+
     await prisma.booking.update({
       where: { id: bookingId },
-      data: { status },
+      data: {
+        status,
+        // Only write the method when one was supplied — never blank out a
+        // method staff already recorded.
+        ...(opts.method != null ? { onsiteMethod: opts.method } : {}),
+      },
     });
   } catch (e) {
     if (
@@ -283,5 +308,9 @@ export async function markAttendance(
     throw e;
   }
 
-  return { ok: true, depositBurned: outcome === "no_show" };
+  return {
+    ok: true,
+    depositBurned: outcome === "no_show",
+    previousStatus,
+  };
 }

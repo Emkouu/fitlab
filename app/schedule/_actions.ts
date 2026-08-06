@@ -7,6 +7,10 @@ import { prisma } from "@/lib/db";
 import { createBooking } from "@/lib/booking";
 import { createCheckoutForBooking } from "@/lib/payments/createCheckoutForBooking";
 import { DEPOSIT_UNIT_MINOR } from "@/lib/deposit";
+import {
+  isClassFeeMethod,
+  type ClassFeeMethod,
+} from "@/lib/payments/classFeeMethods";
 import { sendBookingConfirmationEmail } from "@/lib/email/sendBookingConfirmationEmail";
 import { notifyAdminsNewBooking } from "@/lib/notifications/notifyAdminsNewBooking";
 import { notifyTrainersNewBooking } from "@/lib/notifications/notifyTrainersNewBooking";
@@ -106,9 +110,10 @@ export type BookClassActionResult =
 export async function bookClassAction(input: {
   scheduledClassId: string;
   source: "card" | "onsite_deposit" | "balance";
-  /** UI payment method (cash | subscription | multisport). Not persisted —
-   *  only used for the admin new-booking notification message. */
-  method?: "cash" | "subscription" | "multisport";
+  /** How the client intends to pay the CLASS FEE on site. Persisted on the
+   *  booking (staff confirm/correct it in Attendance) and mentioned in the
+   *  admin new-booking notification. */
+  method?: ClassFeeMethod;
 }): Promise<BookClassActionResult> {
   // 1. Auth gate.
   const supabase = await createClient();
@@ -160,9 +165,9 @@ export async function bookClassAction(input: {
     }
   }
 
-  // Server-side deposit guard. A booking consumes exactly one prepaid deposit
-  // (DEPOSIT_UNIT_MINOR). Clients with no available deposit can't reserve
-  // online — never trust the client, re-check here.
+  // Server-side deposit guard. The deposit is a standing guarantee (paid once
+  // at the studio, see lib/deposit.ts): a client needs one on the profile to
+  // reserve, but booking does NOT spend it. Never trust the client, re-check.
   if (source === BookingSource.balance) {
     if (profile.depositBalance < DEPOSIT_UNIT_MINOR) {
       return {
@@ -177,38 +182,17 @@ export async function bookClassAction(input: {
     userId: profile.id,
     scheduledClassId: input.scheduledClassId,
     source,
-    onsiteMethod: source === BookingSource.onsite_deposit ? input.method : null,
+    // The class fee is paid on site whatever the source — keep the client's
+    // intended method so staff see it in Attendance. Validated, never trusted.
+    onsiteMethod: isClassFeeMethod(input.method) ? input.method : null,
   });
 
   if (!r.ok) {
     return r;
   }
 
-  // If booking used balance source, debit atomically. The pre-check above is
-  // only a fast-fail UX guard against a stale read; the authoritative guard is
-  // this conditional update. `where: { depositBalance: { gte: amount } }` makes
-  // the read-check-decrement a single atomic operation, so two concurrent
-  // bookings for different classes can't both spend the same funds and drive
-  // the balance negative (TOCTOU double-spend).
-  if (source === BookingSource.balance) {
-    const debit = await prisma.user.updateMany({
-      where: { id: profile.id, depositBalance: { gte: DEPOSIT_UNIT_MINOR } },
-      data: { depositBalance: { decrement: DEPOSIT_UNIT_MINOR } },
-    });
-    if (debit.count === 0) {
-      // Lost the race for our own deposit — release the spot we just reserved
-      // so it doesn't sit held by a booking that was never backed by a deposit.
-      await prisma.booking.update({
-        where: { id: r.booking.id },
-        data: { status: BookingStatus.cancelled, cancelledAt: new Date() },
-      });
-      return {
-        ok: false,
-        reason: "insufficient_balance",
-        message: "Нямаш платен депозит. Плати депозит в студиото, за да запазиш място.",
-      };
-    }
-  }
+  // NOTE: no deposit debit here. The deposit is paid once and stays on the
+  // profile; it is only burned on a no-show or a late cancel (lib/deposit.ts).
 
   // 4. Card path → mint a Stripe Checkout session.
   if (source === BookingSource.card) {

@@ -87,8 +87,8 @@ export function BookingsList({ upcomingBookings, pastBookings }: Props) {
               Все още нямаш запазени тренировки
             </p>
             <p className="mt-2 text-sm leading-relaxed text-[color:var(--brand-purple)]/75">
-              Разгледай графика и запази първата си тренировка —
-              депозитът се връща при навременна отмяна.
+              Разгледай графика и запази първата си тренировка — депозитът
+              остава по профила ти, стига да се отпишеш навреме.
             </p>
             <Link
               href="/schedule"

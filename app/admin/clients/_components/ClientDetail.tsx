@@ -240,8 +240,9 @@ function DepositControl({ user }: { user: UserView }) {
         Депозити
       </h2>
       <p className="mb-4 text-[12px] leading-relaxed text-[color:var(--brand-purple)]/65">
-        Всеки депозит е {formatEurMinor(DEPOSIT_UNIT_MINOR)}, платен в студиото.
-        Една резервация удържа един депозит; за нова тренировка е нужен нов.
+        Депозитът е {formatEurMinor(DEPOSIT_UNIT_MINOR)}, платен еднократно в
+        студиото. Дава право на записване и остава по профила; усвоява се само
+        при неявяване или късна отмяна.
       </p>
 
       <div className="flex items-center justify-between gap-3">
@@ -450,7 +451,7 @@ function BookingRow({
               checked={override}
               onChange={(e) => setOverride(e.target.checked)}
             />
-            Override — върни депозита независимо от прозореца
+            Override — запази депозита независимо от прозореца
           </label>
           <button
             type="button"

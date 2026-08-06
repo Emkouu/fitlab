@@ -76,8 +76,8 @@ export type CancelClassResult =
  * 3. Find all active bookings (booked, pending_deposit, paid, attended)
  * 4. For each booking:
  *    - Card + paid → initiate Stripe refund
- *    - Balance → restore User.depositBalance
- *    - On-site → no-op
+ *    - Balance / on-site → no-op (the deposit was never debited, and a
+ *      studio-side cancel never burns it)
  * 5. Set all bookings to status = 'cancelled'
  * 6. Return refund summary
  *
@@ -131,21 +131,11 @@ export async function cancelClassAction(
           },
         });
 
-        // 3. Restore depositBalance for balance-source bookings (atomic with
-        //    the cancel below — if either fails, we don't want to credit
-        //    users for bookings that aren't actually cancelled).
+        // 3. Nothing to restore: booking never debited the deposit (it is a
+        //    standing guarantee, lib/deposit.ts), and a studio-side cancel is
+        //    never the client's fault, so nothing is burned either. The list
+        //    stays for the caller's summary shape.
         const balanceRestoredIds: string[] = [];
-        for (const booking of activeBookings) {
-          if (booking.source === "balance") {
-            await tx.user.update({
-              where: { id: booking.userId },
-              data: {
-                depositBalance: { increment: DEPOSIT_UNIT_MINOR },
-              },
-            });
-            balanceRestoredIds.push(booking.id);
-          }
-        }
 
         // 4. Cancel all active bookings on this class
         await tx.booking.updateMany({
@@ -1000,12 +990,12 @@ export type AdminCancelBookingResult =
  * Admin server action: cancel a single booking on behalf of a client.
  *
  * Default path → call the engine's cancelBooking; if the engine returns
- * depositForfeited=false AND source is card or balance, credit the user's
- * depositBalance (mirrors the user-side refund routing in SPEC §5).
+ * depositForfeited=true AND source is card or balance, burn one deposit
+ * (mirrors the user-side routing in SPEC §5 + lib/deposit.ts).
  *
- * Override path (overrideRefund=true) → bypass the window verdict and
- * credit the deposit anyway (card or balance only — on-site never moves
- * money). Lets admin handle edge cases (sick clients, studio errors).
+ * Override path (overrideRefund=true) → bypass the window verdict and leave
+ * the deposit on the profile. Lets admin handle edge cases (sick clients,
+ * studio errors).
  */
 export async function adminCancelBookingAction(
   input: AdminCancelBookingInput,
@@ -1039,23 +1029,28 @@ export async function adminCancelBookingAction(
     return { ok: false, message: result.message };
   }
 
-  // Money side: mirror user-side refund routing, with override path.
-  const shouldRefund = overrideRefund || !result.depositForfeited;
-  let refundedToBalance = false;
+  // Money side: the deposit was never debited by the booking, so a timely
+  // cancel moves nothing. A LATE cancel burns one deposit — unless the admin
+  // ticked „запази депозита" (overrideRefund), the escape hatch for sick
+  // clients and studio mistakes.
+  const shouldBurn = result.depositForfeited && !overrideRefund;
+  let depositBurned = false;
   if (
-    shouldRefund &&
+    shouldBurn &&
     (booking.source === BookingSource.card ||
       booking.source === BookingSource.balance)
   ) {
-    await prisma.user.update({
-      where: { id: booking.userId },
-      data: { depositBalance: { increment: DEPOSIT_UNIT_MINOR } },
+    const burn = await prisma.user.updateMany({
+      where: { id: booking.userId, depositBalance: { gte: DEPOSIT_UNIT_MINOR } },
+      data: { depositBalance: { decrement: DEPOSIT_UNIT_MINOR } },
     });
-    refundedToBalance = true;
+    depositBurned = burn.count > 0;
   }
+  // Deposit kept whenever we didn't burn it.
+  const refundedToBalance = !depositBurned;
 
   console.log(
-    `[admin-audit] adminCancelBooking by=${admin.id} booking=${bookingId} override=${overrideRefund} forfeited=${result.depositForfeited} refunded=${refundedToBalance}`,
+    `[admin-audit] adminCancelBooking by=${admin.id} booking=${bookingId} override=${overrideRefund} forfeited=${result.depositForfeited} burned=${depositBurned}`,
   );
 
   // Tell the client their booking was cancelled (in-app + email). byAdmin=true
@@ -1082,11 +1077,9 @@ export async function adminCancelBookingAction(
   return {
     ok: true,
     refundedToBalance,
-    message: refundedToBalance
-      ? "Записването е отменено и депозитът е върнат в баланса."
-      : result.depositForfeited
-        ? "Записването е отменено. Депозитът е удържан (късно)."
-        : "Записването е отменено.",
+    message: depositBurned
+      ? "Записването е отменено. Депозитът е усвоен (късна отмяна)."
+      : "Записването е отменено. Депозитът остава по профила.",
   };
 }
 
@@ -1519,10 +1512,11 @@ export type AdjustDepositResult =
   | { ok: false; message: string };
 
 /**
- * Admin: grant (+1) or revoke (−1) one prepaid deposit for a client. Deposits
- * are discrete units (see lib/deposit.ts) — a client pays €10 on-site and an
- * admin records it here; each online booking later consumes one. The revoke
- * path clamps at 0 (never negative). Financial action → admin-gated only.
+ * Admin: grant (+1) or revoke (−1) one prepaid deposit for a client. The
+ * deposit is a standing €10 guarantee (see lib/deposit.ts) — a client pays it
+ * once on-site and an admin records it here; bookings don't consume it, only a
+ * no-show or a late cancel does. The revoke path clamps at 0 (never negative).
+ * Financial action → admin-gated only.
  *
  * `delta` is a signed count of whole deposits (typically +1 or −1).
  */

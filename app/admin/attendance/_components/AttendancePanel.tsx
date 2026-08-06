@@ -4,16 +4,13 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { BookingStatus, BookingSource } from "@/lib/generated/prisma/enums";
 import { adminAdjustClientDepositAction } from "@/app/admin/_actions";
-import { markAttendanceAction, setOnsitePaymentAction } from "../_actions";
-
-const ONSITE_METHODS = ["cash", "subscription", "multisport"] as const;
-type OnsiteMethod = (typeof ONSITE_METHODS)[number];
-
-const METHOD_LABEL: Record<OnsiteMethod, string> = {
-  cash: "В брой",
-  subscription: "Абонаментна карта",
-  multisport: "Multisport",
-};
+import { markAttendanceAction, setPaymentMethodAction } from "../_actions";
+import {
+  CLASS_FEE_METHODS,
+  CLASS_FEE_METHOD_LABEL,
+  isClassFeeMethod,
+  type ClassFeeMethod,
+} from "@/lib/payments/classFeeMethods";
 
 export type AttendanceRow = {
   id: string;
@@ -24,7 +21,7 @@ export type AttendanceRow = {
   /** Whole prepaid deposits the client currently has available. */
   deposits: number;
   cardPaid: boolean;
-  /** On-site payment method (cash | subscription | multisport) or null. */
+  /** Class-fee method the client picked when booking, or null. */
   onsiteMethod: string | null;
   /** Whether staff marked the on-site deposit as settled ("Разплати"). */
   depositSettled: boolean;
@@ -73,10 +70,10 @@ function AttendanceItem({
   const [pending, startTransition] = useTransition();
   const [errMsg, setErrMsg] = useState<string | null>(null);
   const [deposits, setDeposits] = useState(row.deposits);
-  const [method, setMethod] = useState<OnsiteMethod>(
-    ONSITE_METHODS.includes(row.onsiteMethod as OnsiteMethod)
-      ? (row.onsiteMethod as OnsiteMethod)
-      : "cash",
+  // "" = staff hasn't picked how the client pays the class fee yet. Prefilled
+  // from what the client chose in the booking modal.
+  const [method, setMethod] = useState<ClassFeeMethod | "">(
+    isClassFeeMethod(row.onsiteMethod) ? row.onsiteMethod : "",
   );
   const [settled, setSettled] = useState(row.depositSettled);
   // When a booking is already marked, staff can re-open the buttons to correct
@@ -88,7 +85,12 @@ function AttendanceItem({
   function handle(outcome: "attended" | "no_show") {
     setErrMsg(null);
     startTransition(async () => {
-      const r = await markAttendanceAction({ bookingId: row.id, outcome });
+      const r = await markAttendanceAction({
+        bookingId: row.id,
+        outcome,
+        // „Дойде" carries how the fee was paid; „Не дойде" has nothing to pay.
+        method: outcome === "attended" && method !== "" ? method : undefined,
+      });
       if (!r.ok) {
         setErrMsg(r.message);
         return;
@@ -98,10 +100,10 @@ function AttendanceItem({
     });
   }
 
-  function persistPayment(nextMethod: OnsiteMethod, nextSettled: boolean) {
+  function persistPayment(nextMethod: ClassFeeMethod, nextSettled?: boolean) {
     setErrMsg(null);
     startTransition(async () => {
-      const r = await setOnsitePaymentAction({
+      const r = await setPaymentMethodAction({
         bookingId: row.id,
         method: nextMethod,
         settled: nextSettled,
@@ -110,15 +112,16 @@ function AttendanceItem({
         setErrMsg(r.message);
         return;
       }
-      setSettled(nextSettled);
+      setSettled(r.settled);
       router.refresh();
     });
   }
 
-  function handleMethodChange(m: OnsiteMethod) {
+  function handleMethodChange(m: ClassFeeMethod) {
     setMethod(m);
-    // If already settled, re-persist so the recorded method stays correct.
-    if (settled) persistPayment(m, true);
+    // Already marked (or already settled) → this is a correction, so persist
+    // right away. Otherwise the value rides along with „Дойде".
+    if (isMarked || settled) persistPayment(m);
   }
 
   function adjustDeposit(delta: number) {
@@ -198,24 +201,38 @@ function AttendanceItem({
         </div>
       )}
 
-      {/* On-site payment: method picker (same options as the booking modal). */}
-      {isOnsite && (
-        <div className="px-5 pb-3">
-          <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-[color:var(--brand-purple)]/55">
-            Начин на плащане
-          </label>
-          <select
-            value={method}
-            onChange={(e) => handleMethodChange(e.target.value as OnsiteMethod)}
-            disabled={pending}
-            className="block w-full rounded-xl border border-[color:var(--brand-pink)]/60 bg-white px-3 py-2 text-sm font-medium text-[color:var(--brand-ink)] focus:border-[color:var(--brand-magenta)] focus:outline-none disabled:opacity-60"
-          >
-            <option value="cash">{METHOD_LABEL.cash}</option>
-            <option value="subscription">{METHOD_LABEL.subscription}</option>
-            <option value="multisport">{METHOD_LABEL.multisport}</option>
-          </select>
-        </div>
-      )}
+      {/* Class-fee method (same options as the booking modal). Shown for every
+          booking and editable after the fact, so a fee charged to the wrong
+          person on the list can be corrected. */}
+      <div className="px-5 pb-3">
+        <label
+          htmlFor={`method-${row.id}`}
+          className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-[color:var(--brand-purple)]/55"
+        >
+          Плаща тренировката с
+        </label>
+        <select
+          id={`method-${row.id}`}
+          value={method}
+          onChange={(e) => handleMethodChange(e.target.value as ClassFeeMethod)}
+          disabled={pending}
+          className="block w-full rounded-xl border border-[color:var(--brand-pink)]/60 bg-white px-3 py-2 text-sm font-medium text-[color:var(--brand-ink)] focus:border-[color:var(--brand-magenta)] focus:outline-none disabled:opacity-60"
+        >
+          <option value="" disabled>
+            — избери —
+          </option>
+          {CLASS_FEE_METHODS.map((m) => (
+            <option key={m} value={m}>
+              {CLASS_FEE_METHOD_LABEL[m]}
+            </option>
+          ))}
+        </select>
+        {method === "" && !isMarked && (
+          <p className="mt-1.5 text-[11px] leading-relaxed text-[color:var(--brand-purple)]/55">
+            Избери начин на плащане, за да отбележиш „Дойде“.
+          </p>
+        )}
+      </div>
 
       {/* Action row. For on-site, „Разплати" sits between Дойде / Не дойде.
           When already marked, the buttons stay hidden until staff taps
@@ -225,7 +242,7 @@ function AttendanceItem({
           <div className="grid grid-cols-3 border-t border-[color:var(--brand-pink)]/30">
             <button
               type="button"
-              disabled={pending}
+              disabled={pending || method === ""}
               onClick={() => handle("attended")}
               aria-pressed={row.status === BookingStatus.attended}
               className="flex min-h-12 items-center justify-center bg-[color:var(--brand-magenta)] px-2 py-3 font-display text-[11px] font-bold uppercase tracking-wider text-white transition-colors hover:bg-[color:var(--brand-purple)] disabled:opacity-60"
@@ -235,7 +252,10 @@ function AttendanceItem({
             <SettleButton
               settled={settled}
               pending={pending}
-              onClick={() => persistPayment(method, !settled)}
+              disabled={method === ""}
+              onClick={() => {
+                if (method !== "") persistPayment(method, !settled);
+              }}
               middle
             />
             <button
@@ -252,7 +272,7 @@ function AttendanceItem({
           <div className="grid grid-cols-2 border-t border-[color:var(--brand-pink)]/30">
             <button
               type="button"
-              disabled={pending}
+              disabled={pending || method === ""}
               onClick={() => handle("attended")}
               aria-pressed={row.status === BookingStatus.attended}
               className="flex min-h-12 items-center justify-center bg-[color:var(--brand-magenta)] px-4 py-3 font-display text-[11px] font-bold uppercase tracking-wider text-white transition-colors hover:bg-[color:var(--brand-purple)] disabled:opacity-60"
@@ -277,7 +297,10 @@ function AttendanceItem({
             <SettleButton
               settled={settled}
               pending={pending}
-              onClick={() => persistPayment(method, !settled)}
+              disabled={method === ""}
+              onClick={() => {
+                if (method !== "") persistPayment(method, !settled);
+              }}
             />
           </div>
         )
@@ -310,18 +333,20 @@ function AttendanceItem({
 function SettleButton({
   settled,
   pending,
+  disabled = false,
   onClick,
   middle = false,
 }: {
   settled: boolean;
   pending: boolean;
+  disabled?: boolean;
   onClick: () => void;
   middle?: boolean;
 }) {
   return (
     <button
       type="button"
-      disabled={pending}
+      disabled={pending || disabled}
       onClick={onClick}
       className={`flex min-h-12 items-center justify-center px-2 py-3 font-display text-[11px] font-bold uppercase tracking-wider transition-colors disabled:opacity-60 ${
         middle ? "border-l border-r border-[color:var(--brand-pink)]/40" : "w-full"
@@ -367,15 +392,13 @@ function MoneyNote({
   source: BookingSource;
   cardPaid: boolean;
 }) {
-  // Source-aware money note. For no_show, surface the burn copy from the
-  // Phase 2b spec. For other statuses, keep the forward-looking copy.
+  // The deposit is a standing guarantee (lib/deposit.ts): „Дойде" leaves it
+  // alone, „Не дойде" usvoyava it. Only the class fee moves at „Дойде".
   if (status === BookingStatus.no_show) {
     const text =
-      source === BookingSource.card
-        ? "Депозитът е удържан."
-        : source === BookingSource.balance
-          ? "Депозитът е удържан."
-          : "Плащане на място.";
+      source === BookingSource.onsite_deposit
+        ? "Неявяване. Плащане на място."
+        : "Депозитът е усвоен. За нова резервация клиентът плаща нов депозит.";
     return (
       <p className="mt-2 px-5 pb-2 text-[11px] leading-relaxed text-[color:var(--brand-magenta)]">
         {text}
@@ -383,14 +406,18 @@ function MoneyNote({
     );
   }
 
+  if (status === BookingStatus.attended) {
+    return (
+      <p className="mt-2 px-5 pb-2 text-[11px] leading-relaxed text-[color:var(--brand-purple)]/55">
+        Дойде. Депозитът остава по профила за следващо записване.
+      </p>
+    );
+  }
+
   const text =
-    source === BookingSource.card
-      ? cardPaid
-        ? 'Депозит с карта · "Дойде" → връщане (предстои интеграция); "Не дойде" → удържан.'
-        : "Депозит с карта, без потвърдено плащане."
-      : source === BookingSource.balance
-        ? 'Депозит · "Не дойде" → депозитът е удържан.'
-        : "Депозит на място — маркирай начина на плащане и „Разплати“.";
+    source === BookingSource.card && !cardPaid
+      ? "Депозит с карта, без потвърдено плащане."
+      : '„Дойде" → таксата се плаща на място, депозитът остава. „Не дойде" → депозитът се усвоява.';
   return (
     <p className="mt-2 px-5 pb-2 text-[11px] leading-relaxed text-[color:var(--brand-purple)]/55">
       {text}

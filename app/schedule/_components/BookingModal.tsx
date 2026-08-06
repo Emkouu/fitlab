@@ -5,6 +5,11 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { formatEurMinor, formatSofiaDay, formatSofiaTime } from "@/lib/format";
 import { DEPOSIT_UNIT_MINOR, depositCount } from "@/lib/deposit";
+import {
+  CLASS_FEE_METHODS,
+  CLASS_FEE_METHOD_LABEL,
+  type ClassFeeMethod,
+} from "@/lib/payments/classFeeMethods";
 import { bookClassAction } from "../_actions";
 import { Spinner } from "@/app/_components/Spinner";
 import type { ClassCardRow } from "./ClassCard";
@@ -18,12 +23,15 @@ type Phase =
 /**
  * „Запазване на място" modal (CLAUDE.md booking-flow-reference).
  *
- * Deposit model (see lib/deposit.ts): a booking is backed by ONE prepaid
- * deposit (€10, paid on-site, recorded by an admin). Confirming the booking
- * consumes one deposit immediately; a timely cancel returns it. A client with
- * no available deposit cannot reserve online — they must pay a deposit at the
- * studio first. The class fee itself is NOT collected here — it is settled
- * on-site and marked by staff in Attendance.
+ * Deposit model (see lib/deposit.ts): the deposit (€10) is paid ONCE at the
+ * studio and stays on the profile — it is what makes reserving possible, and
+ * booking does not spend it. A client with no deposit can't reserve online and
+ * sees the explanation + the „плати в студиото" nudge; a client who already
+ * has one sees no deposit talk at all, just the class-fee method picker.
+ *
+ * The class fee itself is NOT collected here — the client says how they intend
+ * to pay (абонаментна карта / в брой / Multisport) and staff confirm it on
+ * site in Attendance.
  *
  * Renders as a native <dialog> so we inherit focus trap, ESC-to-close,
  * ::backdrop, and inert background for free.
@@ -41,8 +49,9 @@ export function BookingModal({
   const dialogRef = useRef<HTMLDialogElement>(null);
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>({ kind: "form" });
-  // Explicit acknowledgement that confirming consumes a deposit now.
-  const [acknowledged, setAcknowledged] = useState(false);
+  // How the client intends to pay the class fee on site. "" until chosen —
+  // Потвърди stays disabled so staff always get an answer.
+  const [method, setMethod] = useState<ClassFeeMethod | "">("");
   const [, startTransition] = useTransition();
 
   const deposits = depositCount(userBalance);
@@ -53,7 +62,7 @@ export function BookingModal({
     const d = dialogRef.current;
     if (!d) return;
     if (row && !d.open) {
-      setAcknowledged(false);
+      setMethod("");
       setPhase({ kind: "form" });
       d.showModal();
     } else if (!row && d.open) {
@@ -86,10 +95,13 @@ export function BookingModal({
     if (!row) return;
     setPhase({ kind: "submitting" });
     startTransition(async () => {
-      // Consumes one deposit server-side (source "balance" == prepaid deposit).
+      // source "balance" == backed by the standing deposit on the profile.
+      // The deposit is NOT debited; the chosen method is how the class fee
+      // will be settled on site.
       const result = await bookClassAction({
         scheduledClassId: row.id,
         source: "balance",
+        method: method === "" ? undefined : method,
       });
       if (result.ok) {
         setPhase({ kind: "success" });
@@ -162,69 +174,80 @@ export function BookingModal({
                   </motion.div>
                 )}
 
-                {/* Deposit section */}
-                <Section
-                  title="Депозит"
-                  trailing={
-                    <span className="font-display text-sm font-bold text-[color:var(--brand-magenta)]">
-                      {formatEurMinor(DEPOSIT_UNIT_MINOR)}
-                    </span>
-                  }
-                >
-                  <p className="text-[13px] leading-relaxed text-[color:var(--brand-purple)]/80">
-                    За запазване на място е нужен депозит. Той се плаща в
-                    студиото и се удържа при потвърждаване на записването.
-                    Таксата за тренировката се заплаща на място.
-                  </p>
+                {/* Deposit section — only for clients who don't have one yet.
+                    A client with a paid deposit has nothing to read here; they
+                    get the class-fee picker instead. */}
+                {!hasDeposit && (
+                  <Section
+                    title="Депозит"
+                    trailing={
+                      <span className="font-display text-sm font-bold text-[color:var(--brand-magenta)]">
+                        {formatEurMinor(DEPOSIT_UNIT_MINOR)}
+                      </span>
+                    }
+                  >
+                    <p className="text-[13px] leading-relaxed text-[color:var(--brand-purple)]/80">
+                      Депозитът в размер на {formatEurMinor(DEPOSIT_UNIT_MINOR)}{" "}
+                      се заплаща еднократно. Той ви дава възможност да запазите
+                      място за тренировка. При неявяване и неотписване на
+                      запазеното място в посочения интервал, депозитът се
+                      усвоява.
+                    </p>
 
-                  {hasDeposit ? (
-                    <div className="mt-3 rounded-2xl bg-[color:var(--brand-pink-soft)]/60 px-3.5 py-3">
-                      <p className="text-[12px] leading-relaxed text-[color:var(--brand-purple)]/85">
-                        Налични депозити:{" "}
-                        <strong className="font-display text-[color:var(--brand-magenta)]">
-                          {deposits}
-                        </strong>{" "}
-                        · при потвърждаване се удържа един.
-                      </p>
-                    </div>
-                  ) : (
                     <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3.5 py-3">
                       <p className="text-[12px] leading-relaxed text-amber-800">
                         Нямаш платен депозит. Плати депозит в студиото, за да
                         можеш да запазиш място.
                       </p>
                     </div>
-                  )}
-                </Section>
+                  </Section>
+                )}
 
-                {/* Acknowledgement — only meaningful when a deposit exists. */}
+                {/* Class fee — how the client will pay on site. */}
                 {hasDeposit && (
-                  <label className="mb-5 flex cursor-pointer items-start gap-2.5 rounded-2xl bg-[color:var(--brand-pink-soft)]/60 px-3.5 py-3">
-                    <input
-                      type="checkbox"
-                      checked={acknowledged}
-                      onChange={(e) => setAcknowledged(e.target.checked)}
-                      disabled={phase.kind === "submitting"}
-                      className="mt-0.5 h-4 w-4 shrink-0 accent-[color:var(--brand-magenta)]"
-                    />
-                    <span className="text-[12px] leading-relaxed text-[color:var(--brand-purple)]/85">
-                      Запознат/а съм, че депозитът се удържа веднага и се връща
-                      само при навременна отмяна.
-                    </span>
-                  </label>
+                  <Section title="Плащане на тренировката">
+                    <label
+                      htmlFor="booking-fee-method"
+                      className="mb-1.5 block text-[13px] leading-relaxed text-[color:var(--brand-purple)]/80"
+                    >
+                      Избери как ще заплатиш тренировката:
+                    </label>
+                    <select
+                      id="booking-fee-method"
+                      value={method}
+                      onChange={(e) =>
+                        setMethod(e.target.value as ClassFeeMethod)
+                      }
+                      disabled={phase.kind === "submitting" || full}
+                      className="block w-full rounded-2xl border border-[color:var(--brand-pink)]/70 bg-white px-3.5 py-3 text-sm font-medium text-[color:var(--brand-ink)] focus:border-[color:var(--brand-magenta)] focus:outline-none focus:ring-2 focus:ring-[color:var(--brand-magenta)]/30 disabled:opacity-60"
+                    >
+                      <option value="" disabled>
+                        — избери —
+                      </option>
+                      {CLASS_FEE_METHODS.map((m) => (
+                        <option key={m} value={m}>
+                          {CLASS_FEE_METHOD_LABEL[m]}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-2 text-[12px] leading-relaxed text-[color:var(--brand-purple)]/65">
+                      Таксата се заплаща на място. Депозитът ти остава по
+                      профила.
+                    </p>
+                  </Section>
                 )}
 
                 <Section title="Отказ">
                   <ul className="space-y-1 text-[12px] leading-relaxed text-[color:var(--brand-purple)]/75">
                     <li>
-                      Можеш да отмениш{" "}
+                      Можеш да се отпишеш{" "}
                       <strong className="font-display text-[color:var(--brand-purple)]">
                         до {row.studio.cancelWindowHours} часа
                       </strong>{" "}
-                      преди класа — депозитът се връща.
+                      преди класа — депозитът остава по профила ти.
                     </li>
-                    <li>След това депозитът се удържа.</li>
-                    <li>Неявяване — депозитът се удържа.</li>
+                    <li>След това депозитът се усвоява.</li>
+                    <li>Неявяване — депозитът се усвоява.</li>
                   </ul>
                 </Section>
 
@@ -252,7 +275,7 @@ export function BookingModal({
                   phase.kind === "submitting" ||
                   full ||
                   !hasDeposit ||
-                  !acknowledged
+                  method === ""
                 }
                 className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[color:var(--brand-magenta)] px-5 py-3.5 font-display text-sm font-bold uppercase tracking-wider text-white transition-colors hover:bg-[color:var(--brand-purple)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--brand-magenta)] focus-visible:ring-offset-2 disabled:opacity-60"
               >
@@ -339,8 +362,8 @@ function SuccessState({ row }: { row: ClassCardRow }) {
         Записан/а за <strong>{row.practice.name}</strong>.
       </p>
       <p className="mt-1 text-[12px] text-[color:var(--brand-purple)]/55">
-        Депозитът е удържан. Връща се при навременна отмяна. Таксата за
-        тренировката се плаща на място.
+        Депозитът ти остава по профила. Таксата за тренировката се плаща на
+        място.
       </p>
     </div>
   );

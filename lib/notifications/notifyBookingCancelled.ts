@@ -50,8 +50,8 @@ export async function notifyBookingCancelled(
   const who =
     booking.user.fullName ?? booking.user.phone ?? booking.user.email ?? "Клиент";
   const depositLine = opts.depositReturned
-    ? "Депозитът е върнат."
-    : "Депозитът е удържан.";
+    ? "Депозитът остава по профила ти."
+    : "Депозитът е усвоен.";
 
   const hasResend = Boolean(process.env.RESEND_API_KEY);
   const appUrl =
