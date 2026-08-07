@@ -139,8 +139,14 @@ curl -sv https://mdpay-test.fibank.bg:10443/ecomm_v2/MerchantHandler --max-time 
 слага в whitelist-а:
 
 ```bash
-curl -s https://ifconfig.me/ip
+curl -4 -s https://ifconfig.me/ip
 ```
+
+⚠️ **Задължително `-4`.** Сървърът е dual-stack и по подразбиране излиза по
+**IPv6** (`curl -s https://ifconfig.me/ip` връща `2a01:…`). Банката работи с IPv4
+адреса, затова кодът форсира IPv4 за връзките към ECOMM (`family: 4` в
+`lib/payments/ecomm/client.ts`) — без това щеше да се представя с адрес, който не
+е в whitelist-а, и заявките щяха да бъдат отказвани.
 
 ---
 
@@ -1028,7 +1034,7 @@ CCX23 има ресурс да върти втора инстанция, а тя
 | Вход | еднократен код по имейл | стига се до `/account` |
 | Резервация | клас с депозит по профила | чекбоксът за ОУ блокира „Потвърди" |
 | **Реален IP на клиента** | `journalctl -u fitlab -f` при резервация с карта | в лога **не** трябва да има `0.0.0.0` |
-| Изходящ IP | `curl -s https://ifconfig.me/ip` на сървъра | **същият IPv4**, който си дал на банката |
+| Изходящ IP | `curl -4 -s https://ifconfig.me/ip` на сървъра | **същият IPv4**, който си дал на банката |
 | Напомняния | `systemctl start fitlab-reminders` | `200` в лога |
 | Рестарт при срив | `systemctl kill -s SIGKILL fitlab` | вдига се сам за ~3 сек. |
 
