@@ -811,6 +811,56 @@ Cloudflare. Провери го при първата картова резер�
 
 Обновяването на сертификата HestiaCP го прави сам.
 
+### 8.1 „Let's Encrypt validation status 400 … 404"
+
+```
+403:"178.104.200.13: Invalid response from
+https://fitlabvarna.com/.well-known/acme-challenge/…: 404"
+```
+
+Забележи, че адресът в грешката е **`https://`** — Let's Encrypt пита по HTTP,
+следва редирект и съобщава последния URL. Значи има две различни възможности и
+трябва да се различат, преди да се пипа каквото и да е.
+
+**Тест 1 — обслужва ли нашият origin ACME пътя:**
+
+```bash
+mkdir -p /home/fitlab/web/fitlabvarna.com/public_html/.well-known/acme-challenge
+echo ok > /home/fitlab/web/fitlabvarna.com/public_html/.well-known/acme-challenge/test
+chown -R fitlab:fitlab /home/fitlab/web/fitlabvarna.com/public_html/.well-known
+curl -s --resolve fitlabvarna.com:80:178.104.200.13 \
+  http://fitlabvarna.com/.well-known/acme-challenge/test
+```
+
+- Връща **`ok`** → нашата конфигурация е наред, проблемът е **преди** сървъра
+  (виж тест 2).
+- Връща **301 или 404** → шаблонът е виновен; сравни ACME блока с вградения:
+  ```bash
+  grep -n -A6 "well-known" /usr/local/hestia/data/templates/web/nginx/default.{tpl,stpl}
+  ```
+
+**Тест 2 — къде сочи домейнът в момента:**
+
+```bash
+dig +short fitlabvarna.com; curl -sI http://fitlabvarna.com/ | grep -iE "^server|^location"
+```
+
+Ако виждаш **Cloudflare** адреси (`104.*`, `172.67.*`) или `server: cloudflare`,
+заявката на Let's Encrypt никога не стига до нас: Cloudflare я поема, прилага
+„Always Use HTTPS" (оттам `https://` в грешката) и я подава към каквото сочи
+origin-ът — ако A записът още не е сменен, това е Vercel, който връща 404.
+
+**Поправката** е тази от §7.3: сложи `fitlabvarna.com` на **DNS-only** (сивото
+облаче) с A запис към `178.104.200.13`. Тогава Let's Encrypt говори директно с
+нашия nginx и валидацията минава. Това е и препоръката за картовия поток.
+
+Ако задължително искаш Cloudflare proxy: издай сертификата, докато записът е сив,
+после включи оранжевото облаче — или ползвай DNS-01 валидация. Не забравяй, че при
+включен proxy важат предупрежденията от §7.3 за POST-а на банката.
+
+Изчисти тестовия файл след това:
+`rm -f /home/fitlab/web/fitlabvarna.com/public_html/.well-known/acme-challenge/test`
+
 **DNS-ът на kude.bg не се пипа.** Двата домейна сочат към същия IP и nginx ги
 разделя по `server_name` — това е нормалната работа на сървъра, не конфликт.
 
