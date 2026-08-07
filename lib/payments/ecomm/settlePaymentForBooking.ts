@@ -3,6 +3,7 @@ import { BookingStatus, PaymentStatus } from "@/lib/generated/prisma/enums";
 import { sendBookingConfirmationEmail } from "@/lib/email/sendBookingConfirmationEmail";
 import { notifyTrainersNewBooking } from "@/lib/notifications/notifyTrainersNewBooking";
 import { getTransactionResult } from "./client";
+import { formatResultCode } from "./responseCodes";
 
 /**
  * Settle a card booking against what the **bank** says happened.
@@ -98,6 +99,13 @@ export async function settleEcommPaymentForBooking(args: {
   }
 
   // FAILED / DECLINED / REVERSED / AUTOREVERSED / TIMEOUT — no money moved.
+  // Log the reason in words: a bare "116" in the journal tells staff nothing.
+  console.warn(
+    "[ecomm] payment not completed for booking",
+    booking.id,
+    `RESULT=${bankResult.result}`,
+    formatResultCode(bankResult.resultCode) ?? "",
+  );
   // The booking stays `booked` (the spot is still held per SPEC §5.3) so the
   // client can retry; the abandoned-checkout sweep frees it after 15 minutes.
   await prisma.payment.update({

@@ -50,3 +50,11 @@ next-env.d.ts
 
 # gstack local artifacts (security reports, etc.)
 .gstack/
+
+# Fibank reference material — the bank's own documents. Anchored to the repo
+# root so our deliverable in fibank/ stays tracked.
+/ECOMM_*.pdf
+/ECOMM_addresses_for_communication.txt
+/cardinfo_*.mustache*.html
+/ResponseCodes*.txt
+/Инструкция_*.pdf
