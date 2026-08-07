@@ -240,7 +240,7 @@ export type DeleteClassResult =
  * Guards (in order):
  * 1. super_admin only (destructive).
  * 2. No ACTIVE bookings — admin must cancel the class first so the refund
- *    routing (Stripe/balance/on-site) runs through the audited cancel path.
+ *    routing (card/balance/on-site) runs through the audited cancel path.
  * 3. No paid/refunded Payment rows on any of its bookings — the payment
  *    register must survive ≥13 months (acquirer instruction §III). Classes
  *    that ever took card money stay cancel-only.

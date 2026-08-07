@@ -13,7 +13,7 @@ Mobile-first booking app for a premium yoga/fitness studio. API-first so a futur
 - **TanStack Query** for server state; **Zustand** only for trivial UI state — never duplicate server data.
 - **Prisma + PostgreSQL**.
 - **Supabase Auth** — phone/SMS OTP primary, email magic link fallback. JWT sessions. Requires an SMS gateway (Twilio/MessageBird) — per-message cost.
-- **Fibank ECOMM (виртуален ПОС)** — the card provider for the one-off deposit. See „Card payments" below. Stripe is legacy/unused.
+- **Fibank ECOMM (виртуален ПОС)** — the card provider for the one-off deposit. See „Card payments" below. Stripe has been removed entirely.
 - **Supabase Storage** — trainer photos.
 - **Deploy:** Vercel (web) + Supabase (DB/auth/storage). Migration to a Hetzner box behind HestiaCP is planned so the Fibank virtual POS gets a static outbound IP — runbook in `fitlab-hetzner-migration.md`. Supabase (DB/auth/storage) stays either way.
 
@@ -24,7 +24,7 @@ Mobile-first booking app for a premium yoga/fitness studio. API-first so a futur
 - **Trainer** — id, name, photo, bio, specialties. **Many-to-many** with classes (some classes have two trainers).
 - **ScheduledClass** — start datetime, **duration minutes stored explicitly** (varies 45–240, never assume), practiceId, studioId, **capacity** (our addition, not in export), depositAmount, isSpecialEvent, eventNotes.
 - **Booking** — userId, scheduledClassId, status, createdAt, cancelledAt, paymentId (nullable), source (`card` | `onsite_deposit` | `balance`). **Partial unique index** on `(userId, scheduledClassId)` WHERE `status != 'cancelled'` — lets a user re-book a class after cancelling it.
-- **Payment** — Stripe ids, amount, currency (`EUR`), status. Every paid booking has one.
+- **Payment** — ECOMM transaction fields (`ecommTransId`, result, RRN, card mask, refund), amount, currency (`EUR`), status. The `stripe*` columns remain only for rows from the removed Stripe integration. Every paid booking has one.
 - **User/Role** — enum `super_admin | admin | coach | member`. User may also link to a Trainer. Verified phone. Carries `depositBalance Int @default(0)` (minor units / EUR cents) accumulated from refunded cancellations.
 - **Phase 2 stubs (table-ready, unused):** Membership/Pass, Waitlist, Notification, RecurringRule.
 
@@ -48,7 +48,7 @@ Pure tested functions in `/lib`, separate from API routes (reusable by RN + cron
 1. **No overbooking.** Capacity check + insert must be **atomic** — one DB transaction with row-level lock (`SELECT … FOR UPDATE`) or conditional insert. Never read-count-then-insert.
 2. **No duplicates** — rely on the partial unique index on `(userId, scheduledClassId)` WHERE `status != 'cancelled'`; show "вече си записан" on violation. The partial predicate lets a user re-book the same class after cancelling.
 3. **Deposit is a ONE-OFF standing guarantee, not a per-booking fee** (`lib/deposit.ts`). €10 paid once at the studio, recorded by an admin on `User.depositBalance`; it is what makes online reserving possible and **stays** on the profile. Booking requires `depositBalance ≥ DEPOSIT_UNIT_MINOR` but **never debits it**. Source → initial status:
-   - `card`    → `booked` → Stripe Checkout → webhook flips to `paid`.
+   - `card`    → `booked` → Fibank ECOMM (`/pay/<id>` → bank) → the return leg flips to `paid`.
    - `balance` → `booked` (instant; the standing deposit backs it, no debit).
    - `onsite_deposit` → `pending_deposit` (paid in cash on arrival).
    - Spot is held in all three cases.
@@ -69,7 +69,7 @@ Pure tested functions in `/lib`, separate from API routes (reusable by RN + cron
 4. Auth: SMS OTP primary + email magic-link fallback; route guard; redirect.
 5. **Booking engine (`/lib`) + tests** — pure functions, fully tested, *before any booking UI*.
 6. Booking UI: „Избор" sheet → deposit path; capacity + duplicate handling live.
-7. Stripe card deposit: Checkout + webhook → `paid`; on-site → `pending_deposit`.
+7. Card deposit through the Fibank virtual POS → `paid`; on-site → `pending_deposit`.
 8. Staff attendance: attended/no_show + deposit-burn.
 9. Profile: my bookings + deposit history.
 10. Polish: Framer transitions, view toggle, empty/full states, „Класът е пълен".
@@ -95,7 +95,8 @@ After step 10, MVP done. Only then consider Phase 2.
 - **`RESULT` is the only field that decides success** (manual §4.2); `RESULT_CODE` and `3DSECURE` are informational. Every returned field is preserved on `Payment.ecomm*`.
 - The return URLs are registered with the bank verbatim and **must never carry query parameters**. The booking is identified by the `ecomm_booking` cookie (`SameSite=None; Secure`, since the bank POSTs cross-site) with the `booking_id` form field as fallback.
 - The card charge is **`DEPOSIT_UNIT_MINOR`** (€10), never `ScheduledClass.depositAmount` — that column is an admin field the client is never shown.
-- Refunds go back **only** to the same card (`lib/payments/refundCardPayment.ts`, `command=k`). Legacy Stripe payments have no `ecommTransId` and are reported as `unsupported` rather than silently marked refunded.
+- Refunds go back **only** to the same card (`lib/payments/refundCardPayment.ts`, `command=k`). Payments with no `ecommTransId` (rows left from the removed Stripe integration) are reported as `unsupported` rather than silently marked refunded.
+- **Stripe is gone** — `lib/stripe.ts`, `createCheckoutForBooking.ts`, `/api/stripe/webhook` and the `stripe` dependency were deleted. Its `Payment.stripe*` columns stay for historical rows. Never reintroduce a module that throws at import over a missing key: that is what broke the production build.
 - Env: `ECOMM_ENVIRONMENT`, `ECOMM_CERT_PFX_BASE64`, `ECOMM_CERT_PASSWORD`, optional `ECOMM_MERCHANT_URL` / `ECOMM_CLIENT_URL`.
 - ⚠️ Vercel has no static outbound IP; if the bank requires an IP whitelist the calls need a fixed-IP proxy. Open decision — see `fitlab-fibank-integration.md` §B1.
 
@@ -146,12 +147,12 @@ Because the deposit is never debited at booking time, the only money action is t
 
 Burns are **idempotent by construction**: `markAttendanceAction` burns only when `previousStatus !== no_show`, restores when a `no_show` is corrected to `attended`, and always clamps at 0 via a conditional `updateMany`. A studio-side class cancellation never burns anything.
 
-Implication: the Stripe refund logic lives in step 7 (webhook + a `lib/payments/` helper) and gates on `source === "card"` before doing anything. The engine never imports Stripe.
+Implication: the refund logic lives in `lib/payments/refundCardPayment.ts` and gates on `source === "card"` before doing anything. The engine never talks to the bank.
 
 ## Phase 2 — admin routes
 
 - All admin tooling lives under `/admin/**` and is gated by `getAdminUser()` (role ∈ `{admin, super_admin}`); destructive operations (cancel class, refund all, delete trainer, super-admin role grants, edit studio config) require **`super_admin`** only. Admin pages re-check the role server-side on every request — never trust the client, never trust middleware alone.
-- Admin server actions live in `app/admin/_actions.ts` and must (a) call `getAdminUser()` first, (b) validate input with a Zod schema from `lib/validation/`, (c) keep network I/O (Stripe refunds) **outside** Prisma `$transaction` blocks.
+- Admin server actions live in `app/admin/_actions.ts` and must (a) call `getAdminUser()` first, (b) validate input with a Zod schema from `lib/validation/`, (c) keep network I/O (card refunds to the bank) **outside** Prisma `$transaction` blocks.
 - `/admin` is in `PROTECTED_PREFIXES` in `lib/supabase/middleware.ts` so anonymous visitors are bounced to `/login` before any Prisma query runs.
 - **Attendance lives at `/admin/attendance`** (Phase 2b — Step 15). The old `/staff` routes are removed; the proxy/middleware redirects `/staff*` → `/admin/attendance*` for any saved bookmarks.
 - **Coach panel.** The `coach` role gets a REDUCED `/admin` panel via `getStaffUser()` (`lib/auth/getStaffUser.ts`, role ∈ {admin, super_admin, coach}): schedule **view-only** (`readOnly` prop hides edit/cancel/delete), attendance marking (page + `markAttendanceAction` are staff-gated), and client list + **add client** (`/admin/clients/new`, `addClientAction`). Everything else — class CRUD, client detail editing, settings, partners, stats — stays behind `getAdminUser()`. Coach dashboard shows no financial KPIs.
@@ -168,4 +169,4 @@ Implication: the Stripe refund logic lives in step 7 (webhook + a `lib/payments/
 
 - Do not build Phase 2 features (passes/memberships, waitlist, recurring generator, SMS reminders, push, websockets, analytics, multi-location, native app, PWA). Leave seams, no code.
 - Business logic in `/lib` pure functions; API routes are thin wrappers.
-- Server-side role checks on every staff/admin route. Zod validation on every input. Stripe webhook signature verified. Rate-limit OTP + booking endpoints.
+- Server-side role checks on every staff/admin route. Zod validation on every input. Card results are read from the bank (`command=c`), never trusted from the client. Rate-limit OTP + booking endpoints.

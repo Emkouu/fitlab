@@ -30,7 +30,7 @@ function depositStatusText(source: string, status: string): string {
 /**
  * Send a one-shot booking confirmation email. Safe to call after any of:
  *   - balance/onsite booking creation (status: booked | pending_deposit)
- *   - Stripe webhook flipping a card booking to `paid`
+ *   - the ECOMM return leg flipping a card booking to `paid`
  * Skips silently if RESEND_API_KEY is not set or the user has no email.
  */
 export async function sendBookingConfirmationEmail(

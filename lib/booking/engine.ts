@@ -13,7 +13,7 @@ import { ACTIVE_BOOKING_STATUSES } from "./statuses";
 /**
  * How long a card-source booking can sit in `booked` status without a paid
  * Payment before the next createBooking on the same class will sweep it.
- * Stripe's Checkout sessions we mint expire at 1h; 15 min is a tighter
+ * The bank's payment page has a far longer life; 15 min is a tighter
  * window so a popular class doesn't sit half-full of orphan holds.
  */
 const ABANDONED_HOLD_MAX_AGE_MS = 15 * 60 * 1000;
@@ -27,7 +27,7 @@ const ABANDONED_HOLD_MAX_AGE_MS = 15 * 60 * 1000;
  *
  * Status mapping (CLAUDE.md booking-flow reference):
  *   source = "card"   → initial status `booked`     → flips to `paid` on
- *                       successful Stripe Checkout webhook (step 7).
+ *                       successful card payment (the ECOMM return leg).
  *   source = "onsite_deposit" → initial status `pending_deposit`.
  * Both states are active (count against capacity).
  */

@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -6,6 +7,7 @@ import { prisma } from "@/lib/db";
 import { depositCount } from "@/lib/deposit";
 import { Heartbeat } from "@/app/_components/Heartbeat";
 import { Breadcrumb } from "@/app/_components/Breadcrumb";
+import { PaymentBanner } from "@/app/_components/PaymentBanner";
 import { NotificationBell } from "@/app/schedule/_components/NotificationPanel";
 import { SignOutButton } from "./_components/SignOutButton";
 import { BookingsList } from "./_components/BookingsList";
@@ -113,6 +115,13 @@ export default async function AccountPage() {
 
   return (
     <main className="mx-auto w-full max-w-[440px] px-5 pb-12 pt-6 font-sans text-[color:var(--brand-ink)]">
+      {/* Where the bank's return leg lands when the payment didn't succeed
+          (`?payment=failed|pending|error|unknown`). A success goes to the
+          receipt instead and never reaches this page. */}
+      <Suspense fallback={null}>
+        <PaymentBanner />
+      </Suspense>
+
       <header className="mb-8">
         <div className="relative">
           <div className="flex items-center justify-center">

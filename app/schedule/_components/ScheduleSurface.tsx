@@ -11,7 +11,7 @@ import { AgendaView, type DayBucket } from "./AgendaView";
 import { MonthView } from "./MonthView";
 import { BookingModal } from "./BookingModal";
 import { ClassInfoModal } from "./ClassInfoModal";
-import { PaymentBanner } from "./PaymentBanner";
+import { PaymentBanner } from "@/app/_components/PaymentBanner";
 import { NotificationBell } from "./NotificationPanel";
 import type { ClassCardRow } from "./ClassCard";
 
@@ -138,7 +138,7 @@ export function ScheduleSurface({
         <Breadcrumb current="График" />
       </header>
 
-      {/* ─── Payment banner (post-Stripe-Checkout landing) ─────── */}
+      {/* ─── Payment outcome banner (?payment=…) ──────────────── */}
       <PaymentBanner />
 
       {/* ─── Toggle ───────────────────────────────────────────── */}

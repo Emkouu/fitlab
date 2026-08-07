@@ -347,7 +347,7 @@ describe("booking engine", () => {
     expect(r1.ok).toBe(true);
     if (!r1.ok) return;
 
-    // Simulate an abandoned Stripe Checkout: 20 minutes since creation,
+    // Simulate an abandoned card payment: 20 minutes since creation,
     // no Payment row (paymentId is null).
     await backdateBooking(r1.booking.id, 20);
 

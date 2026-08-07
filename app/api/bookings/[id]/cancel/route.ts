@@ -10,7 +10,7 @@ import { notifyBookingCancelled } from "@/lib/notifications/notifyBookingCancell
  * POST /api/bookings/[id]/cancel
  * 
  * Server-side cancellation handler. Validates auth, calls the engine,
- * returns the forfeiture verdict. Stripe refund logic is Phase 7.
+ * returns the forfeiture verdict; the money action lives in the caller.
  */
 export async function POST(
   request: NextRequest,
