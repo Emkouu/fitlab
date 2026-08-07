@@ -81,6 +81,11 @@ function postWithClientCertificate(args: {
         method: "POST",
         pfx,
         passphrase,
+        // Force IPv4. The bank whitelists our server's IPv4 address, and a
+        // dual-stack host (every Hetzner box) may otherwise pick IPv6 for the
+        // outgoing connection — the bank would then see an address it doesn't
+        // know and reject the call.
+        family: 4,
         headers: {
           "content-type": "application/x-www-form-urlencoded",
           "content-length": Buffer.byteLength(body).toString(),

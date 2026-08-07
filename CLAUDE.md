@@ -15,7 +15,7 @@ Mobile-first booking app for a premium yoga/fitness studio. API-first so a futur
 - **Supabase Auth** — phone/SMS OTP primary, email magic link fallback. JWT sessions. Requires an SMS gateway (Twilio/MessageBird) — per-message cost.
 - **Fibank ECOMM (виртуален ПОС)** — the card provider for the one-off deposit. See „Card payments" below. Stripe is legacy/unused.
 - **Supabase Storage** — trainer photos.
-- **Deploy:** Vercel (web) + Supabase (DB/auth/storage).
+- **Deploy:** Vercel (web) + Supabase (DB/auth/storage). Migration to a Hetzner box behind HestiaCP is planned so the Fibank virtual POS gets a static outbound IP — runbook in `fitlab-hetzner-migration.md`. Supabase (DB/auth/storage) stays either way.
 
 ## Data model (§4)
 

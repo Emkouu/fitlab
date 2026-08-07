@@ -60,8 +60,18 @@ export function clientIpFromRequest(request: Request): string {
   );
 }
 
-/** Absolute URL on our own origin, for the 303 that ends the return leg. */
+/**
+ * Absolute URL on our own origin, for the 303 that ends the return leg.
+ *
+ * `NEXT_PUBLIC_APP_URL` wins when it is set: behind our own nginx the
+ * `X-Forwarded-*` headers are only as trustworthy as the proxy config, and the
+ * canonical origin is something we already know. The headers stay as a fallback
+ * for local development, where the variable points at localhost or is absent.
+ */
 export function absoluteUrl(request: Request, path: string): string {
+  const configured = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
+  if (configured) return new URL(path, configured).toString();
+
   const forwardedHost = request.headers.get("x-forwarded-host");
   const proto = request.headers.get("x-forwarded-proto") ?? "https";
   const host = forwardedHost ?? request.headers.get("host") ?? "localhost:3000";
