@@ -53,27 +53,34 @@
 разминават спокойно. Двата сайта се разделят по `server_name` в nginx и по
 отделни системни потребители.
 
-### 1.1 Проверка какво точно има на сървъра
+### 1.1 Конфигурацията на сървъра — установена
 
-Преди да добавяме каквото и да е, установи конфигурацията — от нея зависи кой
-шаблон се ползва в §7:
-
-```bash
-systemctl is-active apache2 nginx; ls /usr/local/hestia/data/templates/web/
+```
+# systemctl is-active apache2 nginx
+active
+active
+# ls /usr/local/hestia/data/templates/web/
+apache2  awstats  nginx  php-fpm  skel  suspend  unassigned
 ```
 
-- Ако `apache2` е **active** → HestiaCP е в режим **nginx (proxy) + Apache
-  (backend)**. За FitLab ще правим **proxy template**.
-- Ако `apache2` липсва или е inactive → **nginx-only** режим. За FitLab ще правим
-  **web template** от `nginx/php-fpm/`.
+Режимът е **nginx (proxy) + Apache (backend)** — стандартният HestiaCP за
+WordPress. Оттук следват две неща, които определят §7:
 
-Провери още, че порт 3000 е свободен и кой е потребителят на kude.bg:
+- Шаблоните за nginx в този режим са **proxy templates** и живеят в
+  `/usr/local/hestia/data/templates/web/nginx/`.
+- Прилагат се с **`v-change-web-domain-proxy-tpl`** (не с
+  `v-change-web-domain-tpl` — тя сменя Apache шаблона).
+- Домейнът трябва да има включен **Proxy Support**, иначе nginx няма конфигурация
+  за него и Apache отговаря директно на 80/443.
+
+Остава да провериш, че порт 3000 е свободен, и кой е потребителят на kude.bg:
 
 ```bash
-ss -ltnp | grep -E ':3000|:8080' ; v-list-users ; v-list-web-domains-all
+ss -ltnp | grep -E ':3000|:3001' ; v-list-users ; v-list-web-domains-all
 ```
 
 Ако нещо вече слуша на 3000, ползвай 3010 и смени порта навсякъде по-долу.
+(Порт `8080`/`8443` са на Apache — това е нормално и не пречи.)
 
 ### 1.2 Бекъп, преди да пипаш
 
@@ -296,40 +303,48 @@ systemctl daemon-reload && systemctl enable --now fitlab && systemctl status fit
 
 ---
 
-## 7. nginx шаблон само за fitlabvarna.com
+## 7. nginx proxy шаблон само за fitlabvarna.com
 
 HestiaCP презаписва конфигурациите на домейните при всяка промяна в панела —
 затова **никога не се редактира конфигурацията на домейна ръчно**. Прави се
-шаблон, който се прилага **само** за `fitlabvarna.com`. kude.bg си остава на
-своя шаблон и не се докосва.
+шаблон, който се прилага **само** за `fitlabvarna.com`. kude.bg си остава на своя
+шаблон и не се докосва.
 
-Кой шаблон правим зависи от резултата на проверката в §1.1:
-
-| Режим | Файлове | Команда за прилагане |
-|---|---|---|
-| nginx + Apache | `templates/web/nginx/nodejs.{tpl,stpl}` | `v-change-web-domain-proxy-tpl` |
-| само nginx | `templates/web/nginx/php-fpm/nodejs.{tpl,stpl}` | `v-change-web-domain-tpl` |
-
-Съдържанието на файловете е едно и също в двата случая. Сложи го в правилната
-папка според таблицата:
+Режимът е nginx + Apache (§1.1), значи: **proxy templates** в
+`/usr/local/hestia/data/templates/web/nginx/`.
 
 ```bash
 D=/usr/local/hestia/data/templates/web/nginx; nano $D/nodejs.tpl
 ```
 
-(при nginx-only: `D=/usr/local/hestia/data/templates/web/nginx/php-fpm`)
+**Порт 80.** Не е просто пренасочване към HTTPS — пътят на Let's Encrypt трябва
+да мине **преди** редиректа. HestiaCP валидира по HTTP-01, като слага файл в
+`public_html/.well-known/acme-challenge/`; ако порт 80 връща 301 безусловно,
+първото издаване на сертификата се проваля (още няма HTTPS, към който да
+пренасочва).
 
 ```nginx
 server {
     listen      %ip%:%web_port%;
     server_name %domain_idn% %alias_idn%;
-    return      301 https://$host$request_uri;
+
+    # Let's Encrypt HTTP-01 — обслужва се от диска, не от Node.
+    location ^~ /.well-known/acme-challenge/ {
+        root  /home/%user%/web/%domain%/public_html;
+        try_files $uri =404;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
 }
 ```
 
 ```bash
 nano $D/nodejs.stpl
 ```
+
+**Порт 443.**
 
 ```nginx
 server {
@@ -343,9 +358,8 @@ server {
 
     client_max_body_size 12m;   # качване на снимки на треньори
 
-    # Пътят за подновяване на Let's Encrypt трябва да мине покрай Node.
-    location ~ ^/\.well-known/acme-challenge/ {
-        root %docroot%;
+    location ^~ /.well-known/acme-challenge/ {
+        root  /home/%user%/web/%domain%/public_html;
         try_files $uri =404;
     }
 
@@ -380,17 +394,29 @@ server {
 }
 ```
 
-Приложи — **само за нашия домейн**, при nginx + Apache:
+Забележи, че `location /` изобщо не подава към Apache — за този домейн Apache
+остава неизползван. Неговият vhost стои на вътрешния порт, HestiaCP го очаква да е
+там, но никой не стига до него. Не го изтривай.
+
+### 7.0 Включи Proxy Support и приложи шаблона
+
+В този режим nginx получава конфигурация за домейна **само** ако Proxy Support е
+включен. Без него Apache отговаря директно и шаблонът е без значение.
+
+HestiaCP → (като `fitlab`) **Web → fitlabvarna.com → Edit**:
+- ✅ **Proxy Support**
+- Proxy Template: **nodejs**
+- Proxy Extensions: остави празно — иначе nginx ще прихваща разширения, които
+  трябва да минат през Node.
+
+Или от конзолата:
 
 ```bash
 chown root:root $D/nodejs.* && v-change-web-domain-proxy-tpl fitlab fitlabvarna.com nodejs yes
 ```
 
-…или при nginx-only:
-
-```bash
-chown root:root $D/nodejs.* && v-change-web-domain-tpl fitlab fitlabvarna.com nodejs yes
-```
+Последният аргумент `yes` презарежда nginx. Ако предпочиташ да провериш преди
+презареждането, подай `no` и продължи с §7.1.
 
 ### 7.1 Провери, че kude.bg не е засегнат
 
@@ -405,9 +431,13 @@ nginx -t && systemctl reload nginx && curl -I https://kude.bg && curl -I https:/
 отново и пробвай пак. Докато nginx не е презаредил, kude.bg работи със старата
 валидна конфигурация.
 
-При Apache-режим Apache пази свой vhost за `fitlabvarna.com` на вътрешния си порт.
-Той просто остава неизползван — nginx подава всичко към Node и никога не стига до
-Apache. Не го изтривай; HestiaCP го очаква да е там.
+Полезно за поглед какво реално е генерирал HestiaCP за нашия домейн:
+
+```bash
+cat /home/fitlab/conf/web/fitlabvarna.com/nginx.ssl.conf
+```
+
+Ако файлът не съществува, Proxy Support не е включен (§7.0).
 
 ---
 
@@ -546,11 +576,11 @@ CCX23 има ресурс да върти втора инстанция, а тя
 
 1. HestiaCP → Web → **Add Web Domain**: `test.fitlabvarna.com`, същият шаблон
    `nodejs`, включи Let's Encrypt.
-2. В шаблона `nodejs.stpl` портът е зашит на `3000`. За да не правиш втори
-   шаблон, направи копие `nodejs-staging.stpl` (и `.tpl`) с `3001` на мястото на
-   `3000` и `%domain%/nodeapp` пътя, и го приложи само за поддомейна:
+2. В шаблона `nodejs.stpl` портът е зашит на `3000`. Направи копие
+   `nodejs-staging.{tpl,stpl}` с `3001` на мястото на `3000` и го приложи само за
+   поддомейна (не забравяй Proxy Support и за него):
    ```bash
-   v-change-web-domain-tpl fitlab test.fitlabvarna.com nodejs-staging yes
+   v-change-web-domain-proxy-tpl fitlab test.fitlabvarna.com nodejs-staging yes
    ```
 3. Клонирай кода в `~/web/test.fitlabvarna.com/nodeapp`, направи собствен `.env` с:
    - `PORT=3001`
