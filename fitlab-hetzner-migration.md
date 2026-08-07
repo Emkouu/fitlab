@@ -674,12 +674,21 @@ echo "── SSL Key ──";         cat /tmp/fitlab-temp.key
 После, на сървъра:
 
 ```bash
-curl -kI --resolve fitlabvarna.com:443:127.0.0.1 https://fitlabvarna.com/schedule
+curl -kI --resolve fitlabvarna.com:443:178.104.200.13 https://fitlabvarna.com/schedule
 ```
 
-`--resolve` кара curl да пита локалния nginx вместо DNS; `-k` приема
-самоподписания сертификат. Очаква се **`HTTP/2 200`** — това доказва цялата верига
-nginx → Node, преди какъвто и да е трафик да е преместен.
+`--resolve` кара curl да заобиколи DNS и да удари нашия nginx директно; `-k`
+приема самоподписания сертификат. Очаква се **`HTTP/2 200`** — това доказва цялата
+верига nginx → Node, преди какъвто и да е трафик да е преместен.
+
+⚠️ **Задължително публичният IP, не `127.0.0.1`.** Шаблоните на HestiaCP слушат на
+`%ip%:%web_ssl_port%`, където `%ip%` е адресът на сървъра — nginx **не** е вързан
+за loopback, така че `--resolve …:127.0.0.1` дава `Connection refused`. Какво
+слуша и къде:
+
+```bash
+ss -ltnp | grep -E ':443|:80 '
+```
 
 Провери и че `X-Forwarded-For` стига до приложението (от него зависи
 `client_ip_addr` към банката):
