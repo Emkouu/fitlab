@@ -4,6 +4,7 @@ import {
   ECOMM_LANGUAGE,
   asEcommResult,
   formatEcommAmount,
+  isFibankTestCertificate,
   normalizeClientIp,
   parseEcommResponse,
   sanitizeEcommDescription,
@@ -138,6 +139,39 @@ describe("sanitizeEcommDescription", () => {
   it("never leaves a trailing space after truncation", () => {
     const out = sanitizeEcommDescription("ab ".repeat(80));
     expect(out).toBe(out.trim());
+  });
+});
+
+describe("isFibankTestCertificate", () => {
+  // The SAN string the test gateway actually presented on 08.08.2026.
+  const REAL = "DNS:eur-3ds-ecomm-test.int.fibank.bg, DNS:eur-3ds-ecomm-test, IP Address:10.10.34.211, DNS:localhost, IP Address:127.0.0.1";
+
+  it("recognises the bank's test certificate", () => {
+    expect(isFibankTestCertificate(REAL)).toBe(true);
+  });
+
+  it("matches whole names, not substrings", () => {
+    // A lookalike host must not inherit the exemption.
+    expect(
+      isFibankTestCertificate("DNS:evil-eur-3ds-ecomm-test.attacker.example"),
+    ).toBe(false);
+    expect(
+      isFibankTestCertificate("DNS:eur-3ds-ecomm-test.int.fibank.bg.attacker.example"),
+    ).toBe(false);
+  });
+
+  it("ignores IP entries — only DNS names grant the exemption", () => {
+    expect(isFibankTestCertificate("IP Address:10.10.34.211")).toBe(false);
+  });
+
+  it("is case-insensitive about the name, as DNS is", () => {
+    expect(isFibankTestCertificate("DNS:EUR-3DS-ECOMM-TEST")).toBe(true);
+  });
+
+  it("refuses an unrelated or absent SAN", () => {
+    expect(isFibankTestCertificate("DNS:example.com")).toBe(false);
+    expect(isFibankTestCertificate("")).toBe(false);
+    expect(isFibankTestCertificate(undefined)).toBe(false);
   });
 });
 

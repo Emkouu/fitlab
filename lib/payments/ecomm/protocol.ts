@@ -153,6 +153,41 @@ export function sanitizeEcommDescription(input: string): string {
   return cleaned.slice(0, ECOMM_DESCRIPTION_MAX).trim();
 }
 
+/* ─── TLS identity of the bank's test gateway ──────────────────────────────── */
+
+/**
+ * Host names the Fibank **test** gateway actually presents.
+ *
+ * `mdpay-test.fibank.bg` serves a certificate issued for the bank's internal
+ * names — `eur-3ds-ecomm-test.int.fibank.bg`, plus `localhost` and RFC1918
+ * addresses — so Node's hostname check fails with „Hostname/IP does not match
+ * certificate's altnames" even though the certificate chain itself verifies.
+ *
+ * Production (`mdpay.fibank.bg`) is expected to present a matching certificate
+ * and is never given this exemption — see `client.ts`.
+ */
+export const FIBANK_TEST_CERT_NAMES = [
+  "eur-3ds-ecomm-test.int.fibank.bg",
+  "eur-3ds-ecomm-test",
+] as const;
+
+/**
+ * Is this the bank's known test certificate?
+ *
+ * Takes the raw `subjectaltname` string from the peer certificate. Matching is
+ * exact per entry — a substring test would let `evil-eur-3ds-ecomm-test` pass.
+ */
+export function isFibankTestCertificate(subjectAltName: string | undefined): boolean {
+  if (!subjectAltName) return false;
+  const names = subjectAltName
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.toUpperCase().startsWith("DNS:"))
+    .map((entry) => entry.slice(4).trim().toLowerCase());
+
+  return FIBANK_TEST_CERT_NAMES.some((expected) => names.includes(expected));
+}
+
 /* ─── client IP ────────────────────────────────────────────────────────────── */
 
 /**

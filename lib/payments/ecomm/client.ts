@@ -1,10 +1,12 @@
 import { request as httpsRequest } from "node:https";
+import { checkServerIdentity as tlsCheckServerIdentity, type PeerCertificate } from "node:tls";
 import { URL } from "node:url";
 import { getEcommConfig } from "./config";
 import {
   ECOMM_CURRENCY_EUR,
   ECOMM_LANGUAGE,
   formatEcommAmount,
+  isFibankTestCertificate,
   parseEcommResponse,
   sanitizeEcommDescription,
   type EcommResponse,
@@ -53,6 +55,7 @@ async function callEcomm(params: Record<string, string>): Promise<EcommCallResul
       body,
       pfx: config.pfx,
       passphrase: config.passphrase,
+      allowTestCertificate: config.environment === "test",
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -64,13 +67,46 @@ async function callEcomm(params: Record<string, string>): Promise<EcommCallResul
   return { ok: true, fields: parsed.fields, raw };
 }
 
+/**
+ * Hostname verification for the TEST gateway only.
+ *
+ * `mdpay-test.fibank.bg` presents a certificate whose SANs cover the bank's
+ * internal names, not the public host we dial, so the default check rejects it.
+ * We keep `rejectUnauthorized` on — the chain is still verified by a public CA —
+ * and relax **only** the name check, and only when the peer really is the known
+ * test certificate. Anything else, including any failure in production, is
+ * returned to Node as the error it is.
+ *
+ * This is deliberately not `rejectUnauthorized: false`: that would accept any
+ * certificate from anyone, in every environment.
+ */
+function checkTestGatewayIdentity(
+  host: string,
+  cert: PeerCertificate,
+): Error | undefined {
+  const strict = tlsCheckServerIdentity(host, cert);
+  if (!strict) return undefined;
+  if (isFibankTestCertificate(cert.subjectaltname)) {
+    console.warn(
+      "[ecomm] accepting the bank's internal TEST certificate for",
+      host,
+      "— SANs:",
+      cert.subjectaltname,
+    );
+    return undefined;
+  }
+  return strict;
+}
+
 function postWithClientCertificate(args: {
   url: URL;
   body: string;
   pfx: Buffer;
   passphrase: string;
+  /** Relax the hostname check for the bank's test gateway (see above). */
+  allowTestCertificate: boolean;
 }): Promise<string> {
-  const { url, body, pfx, passphrase } = args;
+  const { url, body, pfx, passphrase, allowTestCertificate } = args;
   return new Promise((resolve, reject) => {
     const req = httpsRequest(
       {
@@ -86,6 +122,9 @@ function postWithClientCertificate(args: {
         // outgoing connection — the bank would then see an address it doesn't
         // know and reject the call.
         family: 4,
+        ...(allowTestCertificate
+          ? { checkServerIdentity: checkTestGatewayIdentity }
+          : {}),
         headers: {
           "content-type": "application/x-www-form-urlencoded",
           "content-length": Buffer.byteLength(body).toString(),
