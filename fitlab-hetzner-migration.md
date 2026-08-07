@@ -681,6 +681,37 @@ curl -kI --resolve fitlabvarna.com:443:178.104.200.13 https://fitlabvarna.com/sc
 приема самоподписания сертификат. Очаква се **`HTTP/2 200`** — това доказва цялата
 верига nginx → Node, преди какъвто и да е трафик да е преместен.
 
+#### Диагностика, ако отговорът не е 200
+
+Четири команди, които показват реалното състояние вместо да го предполагаш:
+
+```bash
+# 1. Какви конфигурации е генерирал HestiaCP за домейна
+ls -la /home/fitlab/conf/web/fitlabvarna.com/
+
+# 2. Кои шаблони са реално закачени за домейна (TPL / PROXY / SSL)
+grep fitlabvarna /usr/local/hestia/data/users/fitlab/web.conf
+
+# 3. Какво съдържа генерираният SSL vhost
+grep -nE "listen|server_name|301|proxy_pass|ssl_certificate" \
+  /home/fitlab/conf/web/fitlabvarna.com/nginx.ssl.conf
+
+# 4. Кои имена на променливи ползват вградените шаблони на тази инсталация
+grep -nE "ssl_certificate|listen|root" \
+  /usr/local/hestia/data/templates/web/nginx/default.stpl
+```
+
+Най-честите изводи:
+
+- **Няма `nginx.ssl.conf`** → заявката към 443 пада върху друг vhost (обикновено
+  kude.bg, който е зареден първи за този IP). Оттам идват чужди редиректи, включително
+  `301` към `http://`. Причината е, че SSL не е записан за домейна или шаблонът не е
+  приложен.
+- **`nginx.ssl.conf` съществува, но няма `proxy_pass`** → приложен е друг шаблон
+  (`default` вместо `nodejs`). Провери ред 2 и приложи пак §7.0.1.
+- **Различни имена на променливи** в ред 4 спрямо нашия шаблон → преименувай ги в
+  `nodejs.stpl` според вградения шаблон на твоята инсталация.
+
 ⚠️ **Задължително публичният IP, не `127.0.0.1`.** Шаблоните на HestiaCP слушат на
 `%ip%:%web_ssl_port%`, където `%ip%` е адресът на сървъра — nginx **не** е вързан
 за loopback, така че `--resolve …:127.0.0.1` дава `Connection refused`. Какво
