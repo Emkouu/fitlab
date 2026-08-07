@@ -2,7 +2,12 @@
 
 Причината за преместването е **фиксираният изходящ IP адрес**, който Fibank иска за
 виртуалния ПОС (виж `fitlab-fibank-integration.md` §B1). Vercel е serverless и не
-може да го даде; един Hetzner сървър го дава веднага и това решава блокера.
+може да го даде; Hetzner сървърът го дава веднага и това решава блокера.
+
+**Изходна точка:** сървърът е **CCX23** с вече инсталиран **HestiaCP**, на който
+работи **kude.bg** (WordPress) — жив production сайт. FitLab се добавя като втори
+домейн до него. Целият документ е написан с това наум: нищо глобално за сървъра не
+се пипа, всичко за FitLab е на ниво домейн и на ниво отделен системен потребител.
 
 ---
 
@@ -26,90 +31,71 @@
 
 ---
 
-## 1. Сървър в Hetzner
+## 1. Сървърът вече работи — какво НЕ правим
 
-Сървърът е **CCX23** — 4 dedicated vCPU, 16 GB RAM, 160 GB NVMe.
+Сървърът е **CCX23** (4 dedicated vCPU, 16 GB RAM, 160 GB NVMe), HestiaCP е
+инсталиран и на него живее **kude.bg** (WordPress) — production сайт. FitLab се
+добавя като **втори домейн до него**, без да пипаме нищо общо за сървъра.
 
-Това е с широк резерв за това приложение: един Next процес и nginx ще ползват
-2–3 GB под нормален товар. „Dedicated vCPU" значи още, че няма steal time от
-съседни виртуални машини — latency-то е равномерно, което е приятно за
-резервационен поток, в който клиентът чака отговор от банката.
+⚠️ **Тези команди НЕ се изпълняват** (в по-ранна версия на този документ ги
+имаше, преди да знаем, че сървърът е зает):
 
-Практическите следствия от този размер:
+| Не прави това | Защото |
+|---|---|
+| `hst-install.sh …` повторно | Пренаписва конфигурацията на HestiaCP и събаря kude.bg. HestiaCP се инсталира **веднъж**. |
+| `--apache no` / деинсталиране на Apache | WordPress работи през PHP. Ако Apache е backend-ът на kude.bg, махането му убива сайта. |
+| `hostnamectl set-hostname fitlab` | Hostname-ът на HestiaCP е вързан за сертификата на панела и за Exim. Остава както е. |
+| Смяна на **Reverse DNS** на `fitlabvarna.com` | rDNS е един за целия сървър. Ако kude.bg праща поща оттук, смяната ѝ вреди на доставимостта. Оставя се както е. |
+| `apt upgrade -y` „между другото" | Има жив сайт. Ъпгрейдът се прави съзнателно, в тих час, след като знаеш, че имаш бекъп. |
+| Пипане на глобални nginx/Apache конфигурации | Всичко за FitLab се прави **на ниво домейн** — шаблон само за `fitlabvarna.com`. |
 
-- **Swap не е нужен.** Оригиналната предпазна мярка беше срещу OOM при
-  `next build` на 2–4 GB машина. С 16 GB билдът е спокоен. (Ако все пак искаш
-  2 GB swap „за всеки случай", не пречи, но не решава нищо.)
-- **Билдът може да е на самия сървър** — няма нужда от отделен build агент или
-  от пренасяне на `.next` артефакти.
-- **Има място за staging инстанция** на същата машина — виж §11.1. Препоръчвам
-  го, защото тестовата среда на Fibank трябва да се пробва някъде, преди да
-  бута продукцията.
-- **Ресурсите не са причината** да оставяме базата в Supabase. С 16 GB локален
-  Postgres би бил напълно комфортен; причината е Supabase Auth (виж §0 и
-  Приложение Б), а тя не се променя от размера на сървъра.
+Ресурсно няма проблем: WordPress + MariaDB + един Next процес на 16 GB се
+разминават спокойно. Двата сайта се разделят по `server_name` в nginx и по
+отделни системни потребители.
 
-Ако сървърът още не е създаден или ще се пресъздава:
-- Локация: **Nuremberg** или **Falkenstein** (най-близо до България по latency).
-- Образ: **Ubuntu 24.04 LTS**.
-- SSH ключ: добави своя публичен ключ. Не ползвай парола.
-- Мрежа: остави IPv4 **включен** — това е адресът за банката.
+### 1.1 Проверка какво точно има на сървъра
 
-След това:
-1. Запиши IPv4 адреса. Той е това, което чака банката.
-2. Hetzner Console → сървърът → **Backups: Enable** (+20% към цената, струва си).
-
-### 1.1 Първи вход и основна хигиена
+Преди да добавяме каквото и да е, установи конфигурацията — от нея зависи кой
+шаблон се ползва в §7:
 
 ```bash
-ssh root@<IP>
+systemctl is-active apache2 nginx; ls /usr/local/hestia/data/templates/web/
 ```
+
+- Ако `apache2` е **active** → HestiaCP е в режим **nginx (proxy) + Apache
+  (backend)**. За FitLab ще правим **proxy template**.
+- Ако `apache2` липсва или е inactive → **nginx-only** режим. За FitLab ще правим
+  **web template** от `nginx/php-fpm/`.
+
+Провери още, че порт 3000 е свободен и кой е потребителят на kude.bg:
 
 ```bash
-apt update && apt upgrade -y && timedatectl set-timezone Europe/Sofia && hostnamectl set-hostname fitlab
+ss -ltnp | grep -E ':3000|:8080' ; v-list-users ; v-list-web-domains-all
 ```
 
-(Swap се пропуска — 16 GB RAM са предостатъчни за билда.)
+Ако нещо вече слуша на 3000, ползвай 3010 и смени порта навсякъде по-долу.
 
-### 1.2 Reverse DNS
+### 1.2 Бекъп, преди да пипаш
 
-Hetzner Console → сървърът → **Networking → Reverse DNS** → `fitlabvarna.com`.
-Подобрява доставимостта на имейлите и някои банки го проверяват.
+Има жив сайт — направи snapshot, за да има връщане назад:
+
+Hetzner Console → сървърът → **Snapshots → Take Snapshot**. Отделно, ако
+автоматичните бекъпи не са включени: **Backups: Enable**.
+
+```bash
+v-backup-user <потребителят-на-kude>
+```
 
 ---
 
-## 2. HestiaCP — инсталация **без Apache и без PHP**
+## 2. Firewall и изходяща свързаност
 
-Важно: стандартната инсталация вдига nginx + Apache + PHP-FPM. За Node приложение
-Apache само пречи. Инсталирай nginx-only:
+Firewall-ът вече е настроен за kude.bg — `22`, `80`, `443`, `8083` са отворени и
+това е всичко, което трябва. **Порт 3000 не се отваря** — Node слуша само на
+`127.0.0.1` и nginx го проксира.
 
-```bash
-wget https://raw.githubusercontent.com/hestiacp/hestiacp/release/install/hst-install.sh
-```
-
-```bash
-bash hst-install.sh --apache no --phpfpm yes --multiphp no --named yes --vsftpd no --proftpd no --exim yes --dovecot yes --clamav no --spamassassin no --iptables yes --fail2ban yes --quota no --api yes --port 8083 --hostname fitlab.fitlabvarna.com --email <твоя-имейл> --password '<силна-парола>'
-```
-
-Бележки по флаговете:
-- `--phpfpm yes` — HestiaCP панелът сам е на PHP, така че PHP остава, но **без
-  Apache** и без multiphp.
-- `--exim yes --dovecot yes` — само ако искаш пощенски кутии `@fitlabvarna.com` на
-  този сървър. Ако пощата е при друг доставчик (Google Workspace и подобни), сложи
-  `--exim no --dovecot no --named no` и спести RAM.
-- `--clamav no --spamassassin no` — на CCX23 има RAM и за тях (~1 GB), но нямаме
-  причина да ги вдигаме: транзакционните имейли излизат през Resend, не през
-  този сървър. Всяка непусната услуга е един процес по-малко за поддръжка.
-
-Рестартирай, влез в панела на `https://<IP>:8083`.
-
-### 2.1 Firewall
-
-HestiaCP → **Server → Firewall**. Трябват отворени: `22` (SSH), `80`, `443`,
-`8083` (панел). Порт `3000` **не** се отваря — Node слуша само на `127.0.0.1`.
-
-Изходящите връзки не се филтрират по подразбиране, така че `mdpay.fibank.bg:10443`
-е достъпен. Проверка след стъпка 4:
+Единственото ново изискване е изходяща връзка до банката. Изходящите не се
+филтрират по подразбиране, така че само проверяваме:
 
 ```bash
 curl -sv https://mdpay-test.fibank.bg:10443/ecomm_v2/MerchantHandler --max-time 10 2>&1 | grep -E 'Connected|SSL|certificate'
@@ -118,12 +104,23 @@ curl -sv https://mdpay-test.fibank.bg:10443/ecomm_v2/MerchantHandler --max-time 
 Очаква се да се свърже и да иска клиентски сертификат — това е правилното
 поведение.
 
+Изходящият IP е **един и същ за двата сайта** — това е адресът, който банката
+слага в whitelist-а:
+
+```bash
+curl -s https://ifconfig.me/ip
+```
+
 ---
 
-## 3. Потребител и домейн в HestiaCP
+## 3. Отделен потребител и домейн в HestiaCP
 
-1. **Users → Add User**: потребител `fitlab`, пакет `default`.
-2. Влез като `fitlab` (или Server → Users → Login as) → **Web → Add Web Domain**:
+FitLab получава **свой HestiaCP потребител**, не се слага при kude.bg. Причината
+е изолация: отделен `/home`, отделен cron, отделни бекъпи и отделни права — грешка
+в едното не стига до другото.
+
+1. HestiaCP → **Users → Add User**: потребител `fitlab`, пакет `default`.
+2. Server → Users → **Login as fitlab** → **Web → Add Web Domain**:
    - Domain: `fitlabvarna.com`
    - ✅ Alias `www.fitlabvarna.com`
    - Остави SSL за по-късно (нужно е DNS-ът да сочи насам).
@@ -131,6 +128,32 @@ curl -sv https://mdpay-test.fibank.bg:10443/ecomm_v2/MerchantHandler --max-time 
 Това създава `/home/fitlab/web/fitlabvarna.com/`. Приложението ще живее в
 `/home/fitlab/web/fitlabvarna.com/nodeapp` — извън `public_html`, така че nginx
 никога не може да сервира сорса или `.env` като статичен файл.
+
+### 3.1 Изключи `nodeapp` от бекъпите на HestiaCP
+
+Важно и лесно се пропуска: HestiaCP архивира целия `/home/fitlab`. В `nodeapp`
+има `node_modules` и `.next` — стотици мегабайти, които се възстановяват с
+`npm ci` и `npm run build`. Без изключение бекъпите на сървъра ще надуят диска и
+ще станат бавни за двата сайта.
+
+HestiaCP → (като `fitlab`) **Backup → Backup Exclusions** → в секцията Web за
+`fitlabvarna.com` добави:
+
+```
+nodeapp/node_modules
+nodeapp/.next
+nodeapp/.git
+```
+
+Или от конзолата:
+
+```bash
+v-add-user-backup-exclusions fitlab 'fitlabvarna.com:nodeapp/node_modules:nodeapp/.next:nodeapp/.git'
+```
+
+⚠️ Обратната страна: `.env` **остава** в бекъпа, а вътре има service-role ключ на
+Supabase и паролата на банковия сертификат. Дръж бекъпите там, където държиш и
+останалите тайни — не в публично достъпно място.
 
 ---
 
@@ -140,7 +163,11 @@ curl -sv https://mdpay-test.fibank.bg:10443/ecomm_v2/MerchantHandler --max-time 
 curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && apt install -y nodejs && node -v && npm -v
 ```
 
-Next 16 иска Node ≥ 20.9; 24 LTS е правилният избор за нов сървър.
+Next 16 иска Node ≥ 20.9; 24 LTS е правилният избор.
+
+Това е безопасно за kude.bg: NodeSource добавя само пакета `nodejs` и не пипа
+PHP, Apache, nginx или MariaDB. Ако HestiaCP е инсталирал свой Node (за някои
+свои инструменти), NodeSource го подменя с по-нов — панелът продължава да работи.
 
 ---
 
@@ -269,14 +296,28 @@ systemctl daemon-reload && systemctl enable --now fitlab && systemctl status fit
 
 ---
 
-## 7. nginx proxy template в HestiaCP
+## 7. nginx шаблон само за fitlabvarna.com
 
 HestiaCP презаписва конфигурациите на домейните при всяка промяна в панела —
-затова **не се редактират ръчно**. Прави се шаблон.
+затова **никога не се редактира конфигурацията на домейна ръчно**. Прави се
+шаблон, който се прилага **само** за `fitlabvarna.com`. kude.bg си остава на
+своя шаблон и не се докосва.
+
+Кой шаблон правим зависи от резултата на проверката в §1.1:
+
+| Режим | Файлове | Команда за прилагане |
+|---|---|---|
+| nginx + Apache | `templates/web/nginx/nodejs.{tpl,stpl}` | `v-change-web-domain-proxy-tpl` |
+| само nginx | `templates/web/nginx/php-fpm/nodejs.{tpl,stpl}` | `v-change-web-domain-tpl` |
+
+Съдържанието на файловете е едно и също в двата случая. Сложи го в правилната
+папка според таблицата:
 
 ```bash
-nano /usr/local/hestia/data/templates/web/nginx/nodejs.tpl
+D=/usr/local/hestia/data/templates/web/nginx; nano $D/nodejs.tpl
 ```
+
+(при nginx-only: `D=/usr/local/hestia/data/templates/web/nginx/php-fpm`)
 
 ```nginx
 server {
@@ -287,7 +328,7 @@ server {
 ```
 
 ```bash
-nano /usr/local/hestia/data/templates/web/nginx/nodejs.stpl
+nano $D/nodejs.stpl
 ```
 
 ```nginx
@@ -302,6 +343,12 @@ server {
 
     client_max_body_size 12m;   # качване на снимки на треньори
 
+    # Пътят за подновяване на Let's Encrypt трябва да мине покрай Node.
+    location ~ ^/\.well-known/acme-challenge/ {
+        root %docroot%;
+        try_files $uri =404;
+    }
+
     # Статичните файлове на Next се отдават от nginx, не от Node.
     location /_next/static/ {
         alias /home/%user%/web/%domain%/nodeapp/.next/static/;
@@ -314,7 +361,7 @@ server {
         proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
 
-        # Тези четири реда не са козметика:
+        # Тези редове не са козметика:
         #  * X-Forwarded-For захранва client_ip_addr към ECOMM
         #    (lib/payments/ecomm/protocol.ts) — без него банката получава 0.0.0.0
         #  * X-Forwarded-Proto пази HTTPS-а, иначе Secure cookie-тата се чупят
@@ -333,11 +380,34 @@ server {
 }
 ```
 
-Приложи:
+Приложи — **само за нашия домейн**, при nginx + Apache:
 
 ```bash
-chown root:root /usr/local/hestia/data/templates/web/nginx/nodejs.* && v-change-web-domain-tpl fitlab fitlabvarna.com nodejs yes
+chown root:root $D/nodejs.* && v-change-web-domain-proxy-tpl fitlab fitlabvarna.com nodejs yes
 ```
+
+…или при nginx-only:
+
+```bash
+chown root:root $D/nodejs.* && v-change-web-domain-tpl fitlab fitlabvarna.com nodejs yes
+```
+
+### 7.1 Провери, че kude.bg не е засегнат
+
+Това е стъпката, която не се пропуска. HestiaCP пише конфигурацията и презарежда
+nginx — ако шаблонът има грешка, пада **и** другият сайт.
+
+```bash
+nginx -t && systemctl reload nginx && curl -I https://kude.bg && curl -I https://fitlabvarna.com
+```
+
+Ако `nginx -t` даде грешка, **не презареждай** — оправи шаблона, приложи го
+отново и пробвай пак. Докато nginx не е презаредил, kude.bg работи със старата
+валидна конфигурация.
+
+При Apache-режим Apache пази свой vhost за `fitlabvarna.com` на вътрешния си порт.
+Той просто остава неизползван — nginx подава всичко към Node и никога не стига до
+Apache. Не го изтривай; HestiaCP го очаква да е там.
 
 ---
 
@@ -356,6 +426,15 @@ chown root:root /usr/local/hestia/data/templates/web/nginx/nodejs.* && v-change-
 5. Провери: `curl -I https://fitlabvarna.com` → `200`, валиден сертификат.
 
 Обновяването на сертификата HestiaCP го прави сам.
+
+**DNS-ът на kude.bg не се пипа.** Двата домейна сочат към същия IP и nginx ги
+разделя по `server_name` — това е нормалната работа на сървъра, не конфликт.
+
+⚠️ Ако DNS зоната на `fitlabvarna.com` ще се държи в HestiaCP (`--named yes`),
+не забравяй да смениш и NS записите при регистратора. По-простото е да оставиш
+зоната там, където е сега (Cloudflare, регистратор), и в HestiaCP да имаш само
+web домейна — тогава Let's Encrypt минава по HTTP-01 през `.well-known`, за което
+шаблонът в §7 вече прави изключение.
 
 ---
 
@@ -494,6 +573,7 @@ CCX23 има ресурс да върти втора инстанция, а тя
 
 | Проверка | Команда / стъпка | Очаквано |
 |---|---|---|
+| **kude.bg е непокътнат** | `curl -I https://kude.bg` | `200` — първата и най-важна проверка |
 | Сайтът е жив | `curl -I https://fitlabvarna.com` | `200`, валиден TLS |
 | График + цени | `/schedule` в браузър | класове с „10,00 €" |
 | ОУ | `/policies#terms` | всички раздели се зареждат |
@@ -511,6 +591,9 @@ CCX23 има ресурс да върти втора инстанция, а тя
 Кодът вече **форсира IPv4** за връзките към банката
 (`family: 4` в `lib/payments/ecomm/client.ts`) — иначе dual-stack сървър можеше да
 излезе по IPv6 и банката да види непознат адрес.
+
+Първият ред е също толкова важен: FitLab не е сам на този сървър и „работи" значи
+двата сайта да работят.
 
 ---
 
@@ -535,8 +618,17 @@ free -m                                          # RAM
 ```
 
 На CCX23 нито RAM, нито CPU ще са тесното място — следи предимно **диска**
-(`.next/cache` и `npm` кешът растат при всеки деплой) и логовете за грешки.
-Периодично: `npm cache clean --force` и `rm -rf ~/.npm/_cacache` при нужда.
+(`.next/cache`, `npm` кешът и бекъпите на HestiaCP растат при всеки деплой) и
+логовете за грешки. Периодично: `npm cache clean --force` и
+`rm -rf ~/.npm/_cacache` при нужда.
+
+Двата сайта делят един диск, така че препълването е споделен риск — това е
+единственият начин, по който FitLab може да събори kude.bg. Затова изключването на
+`node_modules` и `.next` от бекъпите (§3.1) не е разкош, а част от настройката.
+
+```bash
+du -sh /home/*/web/*/nodeapp /backup 2>/dev/null   # кой яде мястото
+```
 
 Логовете на nginx за домейна: `/var/log/nginx/domains/fitlabvarna.com.error.log`.
 
