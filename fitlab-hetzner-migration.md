@@ -247,8 +247,27 @@ runuser -u fitlab -- git clone git@github.com:Emkouu/fitlab.git /opt/fitlab/app
 ```
 
 ```bash
-runuser -u fitlab -- bash -lc 'cd /opt/fitlab/app && npm ci'
+runuser -u fitlab -- bash -lc 'cd /opt/fitlab/app && npm ci --include=dev'
 ```
+
+⚠️ **`--include=dev` не е излишно.** Билдът на този проект зависи от пакети, които
+са в `devDependencies`: `prisma` (CLI за `prisma generate`), `typescript`,
+`tailwindcss` и `@tailwindcss/postcss`. Ако npm пропусне dev пакетите — например
+защото `NODE_ENV=production` е в средата или `omit=dev` е в `.npmrc` — билдът пада с:
+
+```
+sh: 1: prisma: not found
+```
+
+Диагностика, ако все пак се случи:
+
+```bash
+ls /opt/fitlab/app/node_modules/.bin | grep -E 'prisma|next|tsc'
+npm config get omit
+```
+
+Очаква се да видиш `prisma`, `next` и `tsc`. Ако липсват, повтори `npm ci` с
+`--include=dev`.
 
 За SSH достъпа направи deploy key за същия потребител:
 
@@ -707,7 +726,7 @@ APP=/opt/fitlab/app
 as_fitlab() { runuser -u fitlab -- bash -lc "$1"; }
 
 as_fitlab "cd $APP && git fetch --all && git reset --hard origin/main"
-as_fitlab "cd $APP && npm ci"
+as_fitlab "cd $APP && npm ci --include=dev"   # билдът иска prisma/tsc/tailwind от devDeps
 # Без sourcing на .env — Prisma и Next си го четат сами (dotenv), а през shell
 # стойности с интервали (RESEND_FROM) чупят изпълнението.
 as_fitlab "cd $APP && npx prisma migrate deploy"
