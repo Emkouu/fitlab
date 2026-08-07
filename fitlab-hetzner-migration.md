@@ -502,6 +502,19 @@ HestiaCP презаписва конфигурациите на домейнит
 Режимът е nginx + Apache (§1.1), значи: **proxy templates** в
 `/usr/local/hestia/data/templates/web/nginx/`.
 
+⚠️ **Портовете са `%proxy_port%` / `%proxy_ssl_port%`, НЕ `%web_port%` /
+`%web_ssl_port%`.** В този режим `%web_*%` са портовете на **Apache** (8080/8443),
+а nginx слуша на `%proxy_*%` (80/443). Сбъркаш ли ги, HestiaCP генерира валидна
+конфигурация, която обслужва домейна на 8443 — заявката към 443 пада върху друг
+vhost (kude.bg е зареден първи за този IP) и получаваш чужд редирект вместо сайта.
+Симптомът е коварен, защото `nginx -t` минава и `proxy_pass` си е на място.
+
+Сверявай винаги с вградения шаблон на своята инсталация:
+
+```bash
+grep -nE "listen" /usr/local/hestia/data/templates/web/nginx/default.{tpl,stpl}
+```
+
 ```bash
 D=/usr/local/hestia/data/templates/web/nginx; nano $D/nodejs.tpl
 ```
@@ -514,7 +527,7 @@ D=/usr/local/hestia/data/templates/web/nginx; nano $D/nodejs.tpl
 
 ```nginx
 server {
-    listen      %ip%:%web_port%;
+    listen      %ip%:%proxy_port%;
     server_name %domain_idn% %alias_idn%;
 
     # Let's Encrypt HTTP-01 — обслужва се от диска, не от Node.
@@ -537,7 +550,7 @@ nano $D/nodejs.stpl
 
 ```nginx
 server {
-    listen      %ip%:%web_ssl_port% ssl;
+    listen      %ip%:%proxy_ssl_port% ssl;
     http2       on;
     server_name %domain_idn% %alias_idn%;
 
@@ -713,7 +726,7 @@ grep -nE "ssl_certificate|listen|root" \
   `nodejs.stpl` според вградения шаблон на твоята инсталация.
 
 ⚠️ **Задължително публичният IP, не `127.0.0.1`.** Шаблоните на HestiaCP слушат на
-`%ip%:%web_ssl_port%`, където `%ip%` е адресът на сървъра — nginx **не** е вързан
+`%ip%:%proxy_ssl_port%`, където `%ip%` е адресът на сървъра — nginx **не** е вързан
 за loopback, така че `--resolve …:127.0.0.1` дава `Connection refused`. Какво
 слуша и къде:
 
