@@ -64,3 +64,6 @@ next-env.d.ts
 *.p12
 *.pfx
 *.jks
+
+# Local preview of the bank card page (generated, never shipped)
+/public/_cardinfo-preview.html
