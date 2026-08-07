@@ -28,15 +28,36 @@
 
 ## 1. Сървър в Hetzner
 
-1. Hetzner Cloud → **Add Server**:
-   - Локация: **Nuremberg** или **Falkenstein** (най-близо до България по latency; Хелзинки също е ок).
-   - Образ: **Ubuntu 24.04 LTS**.
-   - Тип: **CPX21** (3 vCPU, 4 GB RAM, ~8 €/мес.). ⚠️ **Не по-малко от 4 GB** —
-     `next build` изяжда 2 GB и на CX22 (2 GB) билдът ще бъде убит от OOM.
-   - SSH ключ: добави своя публичен ключ. Не ползвай парола.
-   - Мрежа: остави IPv4 **включен** — това е адресът за банката.
-2. Запиши IPv4 адреса. Той е това, което чака банката.
-3. Hetzner Console → сървърът → **Backups: Enable** (+20% към цената, струва си).
+Сървърът е **CCX23** — 4 dedicated vCPU, 16 GB RAM, 160 GB NVMe.
+
+Това е с широк резерв за това приложение: един Next процес и nginx ще ползват
+2–3 GB под нормален товар. „Dedicated vCPU" значи още, че няма steal time от
+съседни виртуални машини — latency-то е равномерно, което е приятно за
+резервационен поток, в който клиентът чака отговор от банката.
+
+Практическите следствия от този размер:
+
+- **Swap не е нужен.** Оригиналната предпазна мярка беше срещу OOM при
+  `next build` на 2–4 GB машина. С 16 GB билдът е спокоен. (Ако все пак искаш
+  2 GB swap „за всеки случай", не пречи, но не решава нищо.)
+- **Билдът може да е на самия сървър** — няма нужда от отделен build агент или
+  от пренасяне на `.next` артефакти.
+- **Има място за staging инстанция** на същата машина — виж §11.1. Препоръчвам
+  го, защото тестовата среда на Fibank трябва да се пробва някъде, преди да
+  бута продукцията.
+- **Ресурсите не са причината** да оставяме базата в Supabase. С 16 GB локален
+  Postgres би бил напълно комфортен; причината е Supabase Auth (виж §0 и
+  Приложение Б), а тя не се променя от размера на сървъра.
+
+Ако сървърът още не е създаден или ще се пресъздава:
+- Локация: **Nuremberg** или **Falkenstein** (най-близо до България по latency).
+- Образ: **Ubuntu 24.04 LTS**.
+- SSH ключ: добави своя публичен ключ. Не ползвай парола.
+- Мрежа: остави IPv4 **включен** — това е адресът за банката.
+
+След това:
+1. Запиши IPv4 адреса. Той е това, което чака банката.
+2. Hetzner Console → сървърът → **Backups: Enable** (+20% към цената, струва си).
 
 ### 1.1 Първи вход и основна хигиена
 
@@ -48,11 +69,7 @@ ssh root@<IP>
 apt update && apt upgrade -y && timedatectl set-timezone Europe/Sofia && hostnamectl set-hostname fitlab
 ```
 
-Swap — застраховка срещу OOM по време на билд:
-
-```bash
-fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile && echo '/swapfile none swap sw 0 0' >> /etc/fstab
-```
+(Swap се пропуска — 16 GB RAM са предостатъчни за билда.)
 
 ### 1.2 Reverse DNS
 
@@ -80,7 +97,9 @@ bash hst-install.sh --apache no --phpfpm yes --multiphp no --named yes --vsftpd 
 - `--exim yes --dovecot yes` — само ако искаш пощенски кутии `@fitlabvarna.com` на
   този сървър. Ако пощата е при друг доставчик (Google Workspace и подобни), сложи
   `--exim no --dovecot no --named no` и спести RAM.
-- `--clamav no --spamassassin no` — иначе изяждат 1 GB RAM.
+- `--clamav no --spamassassin no` — на CCX23 има RAM и за тях (~1 GB), но нямаме
+  причина да ги вдигаме: транзакционните имейли излизат през Resend, не през
+  този сървър. Всяка непусната услуга е един процес по-малко за поддръжка.
 
 Рестартирай, влез в панела на `https://<IP>:8083`.
 
@@ -438,6 +457,37 @@ chmod +x /home/fitlab/deploy.sh && echo 'fitlab ALL=(root) NOPASSWD: /usr/bin/sy
 
 Оттук нататък деплоят е `ssh fitlab@<IP> ./deploy.sh`.
 
+### 11.1 Staging инстанция (силно препоръчително на този сървър)
+
+CCX23 има ресурс да върти втора инстанция, а тя ти трябва по конкретна причина:
+**тестовата среда на Fibank трябва да се пробва някъде.** Иначе първото истинско
+завъртане на картовия поток ще е върху продукцията, с реални клиенти.
+
+Схемата е същата, само с друг поддомейн, друг порт и друга папка:
+
+1. HestiaCP → Web → **Add Web Domain**: `test.fitlabvarna.com`, същият шаблон
+   `nodejs`, включи Let's Encrypt.
+2. В шаблона `nodejs.stpl` портът е зашит на `3000`. За да не правиш втори
+   шаблон, направи копие `nodejs-staging.stpl` (и `.tpl`) с `3001` на мястото на
+   `3000` и `%domain%/nodeapp` пътя, и го приложи само за поддомейна:
+   ```bash
+   v-change-web-domain-tpl fitlab test.fitlabvarna.com nodejs-staging yes
+   ```
+3. Клонирай кода в `~/web/test.fitlabvarna.com/nodeapp`, направи собствен `.env` с:
+   - `PORT=3001`
+   - `NEXT_PUBLIC_APP_URL=https://test.fitlabvarna.com`
+   - `ECOMM_ENVIRONMENT=test`
+   - ⚠️ **отделна Supabase база** (нов Supabase проект) — иначе тестовите
+     резервации ще влизат в реалния график и клиентите ще ги виждат.
+4. Втори systemd unit `fitlab-staging.service`, идентичен на §6, но с другия
+   `WorkingDirectory`, `EnvironmentFile` и `SyslogIdentifier`.
+5. На банката дай **и двата** OK/Fail адреса, за да може да тества:
+   - `https://test.fitlabvarna.com/api/payments/ecomm/return`
+   - `https://test.fitlabvarna.com/api/payments/ecomm/fail`
+
+Двете инстанции излизат от един и същ IPv4, така че whitelist-ът в банката важи
+и за двете — точно това прави staging-а полезен тук.
+
 ---
 
 ## 12. Проверки преди да кажем на банката, че сме готови
@@ -481,8 +531,12 @@ chmod +x /home/fitlab/deploy.sh && echo 'fitlab ALL=(root) NOPASSWD: /usr/bin/sy
 journalctl -u fitlab -p warning --since today   # грешки на приложението
 systemctl status fitlab nginx --no-pager        # живи ли са услугите
 df -h /                                          # диск (билдовете трупат .next/cache)
-free -m                                          # RAM и swap
+free -m                                          # RAM
 ```
+
+На CCX23 нито RAM, нито CPU ще са тесното място — следи предимно **диска**
+(`.next/cache` и `npm` кешът растат при всеки деплой) и логовете за грешки.
+Периодично: `npm cache clean --force` и `rm -rf ~/.npm/_cacache` при нужда.
 
 Логовете на nginx за домейна: `/var/log/nginx/domains/fitlabvarna.com.error.log`.
 
