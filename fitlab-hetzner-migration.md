@@ -645,12 +645,33 @@ ls /home/fitlab/conf/web/fitlabvarna.com/
 Vercel, не до нас). А без сертификат `nginx.ssl.conf` не съществува и целият
 `location /` от §7 е неактивен — port 80 само пренасочва към HTTPS.
 
-Заобикалянето е чисто: включи **SSL Support без Let's Encrypt**. HestiaCP слага
-самоподписан сертификат, генерира `nginx.ssl.conf` и цялата верига става тестваема
-локално.
+Заобикалянето е да включиш **SSL Support с временен самоподписан сертификат**.
+HestiaCP **не** генерира такъв сам — ако оставиш полетата празни, отказва с
+„Field 'ssl certificate, ssl key' can not be blank". Затова първо си направи един:
 
-HestiaCP → Web → `fitlabvarna.com` → Edit → ✅ **SSL Support**, ❌ Let's Encrypt →
-Save. После, на сървъра:
+```bash
+openssl req -x509 -newkey rsa:2048 -nodes -days 30 \
+  -keyout /tmp/fitlab-temp.key -out /tmp/fitlab-temp.crt \
+  -subj "/CN=fitlabvarna.com" \
+  -addext "subjectAltName=DNS:fitlabvarna.com,DNS:www.fitlabvarna.com"
+```
+
+После HestiaCP → Web → `fitlabvarna.com` → Edit → ✅ **SSL Support**,
+❌ Let's Encrypt, и попълни двете полета със съдържанието на файловете:
+
+```bash
+echo "── SSL Certificate ──"; cat /tmp/fitlab-temp.crt
+echo "── SSL Key ──";         cat /tmp/fitlab-temp.key
+```
+
+Копирай всеки блок **целия**, включително редовете `-----BEGIN …-----` и
+`-----END …-----`. Save.
+
+Сертификатът е валиден 30 дни и служи само за този тест — Let's Encrypt го заменя
+в §8. Изтрий временните файлове след това:
+`rm -f /tmp/fitlab-temp.key /tmp/fitlab-temp.crt`.
+
+После, на сървъра:
 
 ```bash
 curl -kI --resolve fitlabvarna.com:443:127.0.0.1 https://fitlabvarna.com/schedule
