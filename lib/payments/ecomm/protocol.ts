@@ -13,8 +13,17 @@
 /** ISO 4217 numeric code for the euro. FitLab is EUR everywhere. */
 export const ECOMM_CURRENCY_EUR = "978";
 
-/** cardinfo.html template language handed to the bank (ISO language name). */
-export const ECOMM_LANGUAGE_BG = "bg";
+/**
+ * `language` — the cardinfo template identifier sent with `command=v`.
+ *
+ * The manual calls this an "ISO language name / default value is 'Default'",
+ * which reads like a locale, but the acquirer instructed us explicitly
+ * (08.08.2026): „При заявката за генериране на транзакция, трябва да подавате
+ * default за параметъра language." The Bulgarian wording of the page comes from
+ * the template we submitted, not from this parameter, so `default` is both what
+ * they asked for and what selects our template.
+ */
+export const ECOMM_LANGUAGE = "default";
 
 /** `description` is capped at 125 characters by the bank. */
 export const ECOMM_DESCRIPTION_MAX = 125;

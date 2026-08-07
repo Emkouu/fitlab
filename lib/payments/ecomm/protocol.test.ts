@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ECOMM_DESCRIPTION_MAX,
+  ECOMM_LANGUAGE,
   asEcommResult,
   formatEcommAmount,
   normalizeClientIp,
@@ -62,6 +63,14 @@ describe("parseEcommResponse", () => {
   it("ignores blank and field-less lines", () => {
     const r = parseEcommResponse("RESULT: FAILED\n\nnot-a-field\nRESULT_CODE: 116");
     expect(r.ok && r.fields).toEqual({ RESULT: "FAILED", RESULT_CODE: "116" });
+  });
+});
+
+describe("ECOMM_LANGUAGE", () => {
+  it("is `default`, as the acquirer instructed", () => {
+    // Their letter of 08.08.2026: „трябва да подавате default за параметъра
+    // language". Sending a locale like "bg" is what we had first and is wrong.
+    expect(ECOMM_LANGUAGE).toBe("default");
   });
 });
 

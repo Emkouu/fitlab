@@ -3,7 +3,7 @@ import { URL } from "node:url";
 import { getEcommConfig } from "./config";
 import {
   ECOMM_CURRENCY_EUR,
-  ECOMM_LANGUAGE_BG,
+  ECOMM_LANGUAGE,
   formatEcommAmount,
   parseEcommResponse,
   sanitizeEcommDescription,
@@ -145,7 +145,7 @@ export async function registerTransaction(
     currency: ECOMM_CURRENCY_EUR,
     client_ip_addr: input.clientIp,
     description: sanitizeEcommDescription(input.description),
-    language: ECOMM_LANGUAGE_BG,
+    language: ECOMM_LANGUAGE,
     msg_type: "SMS",
   });
 

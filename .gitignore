@@ -58,3 +58,9 @@ next-env.d.ts
 /cardinfo_*.mustache*.html
 /ResponseCodes*.txt
 /Инструкция_*.pdf
+
+# Bank keystores — credentials, never in the repo
+*.pkcs12
+*.p12
+*.pfx
+*.jks
