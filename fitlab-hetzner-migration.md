@@ -270,6 +270,54 @@ runuser -u fitlab -- ssh -T -o StrictHostKeyChecking=accept-new git@github.com
 Очаква се „You've successfully authenticated, but GitHub does not provide shell
 access." — това е успех.
 
+#### Трябва ли ти deploy key изобщо?
+
+Само ако репото е частно. Проверката е една команда, изпълнима отвсякъде:
+
+```bash
+git ls-remote https://github.com/Emkouu/fitlab.git >/dev/null 2>&1 && echo PUBLIC || echo PRIVATE
+```
+
+`PUBLIC` → клонирай по HTTPS и прескочи целия SSH раздел.
+
+#### „Key is invalid. You must supply a key in OpenSSH public key format"
+
+GitHub отхвърля ключа. Почти винаги е едно от три неща:
+
+1. **Подаден е частният ключ.** Публичният е файлът с разширение **`.pub`**.
+   Частният започва с `-----BEGIN OPENSSH PRIVATE KEY-----` — той никога не се
+   качва никъде.
+2. **Копието е разчупено на няколко реда.** Публичният ключ е **един ред**;
+   терминалът го пренася визуално и при копиране влизат нови редове.
+3. **Влязъл е и промптът на shell-а** (`root@server:~#`) или празен ред.
+
+Провери, че самият файл е валиден:
+
+```bash
+ssh-keygen -l -f /home/fitlab/.ssh/id_ed25519.pub
+```
+
+Ако изведе отпечатък (`256 SHA256:… fitlab-deploy (ED25519)`), файлът е наред и
+проблемът е в копирането. Правилният вид е точно един ред:
+
+```
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI… fitlab-deploy
+```
+
+За чисто копиране без пренасяне провери дължината и я сравни с това, което си
+поставил в GitHub (ed25519 ключ е ~100–110 знака):
+
+```bash
+wc -c /home/fitlab/.ssh/id_ed25519.pub
+```
+
+Ако `ssh-keygen -l` даде грешка, ключът не е генериран успешно — изтрий двата
+файла и повтори:
+
+```bash
+runuser -u fitlab -- rm -f /home/fitlab/.ssh/id_ed25519 /home/fitlab/.ssh/id_ed25519.pub
+```
+
 > Ако предпочиташ да можеш да влизаш като `fitlab` по SSH, това се включва от
 > панела: **Users → fitlab → Edit → SSH Access → `bash`**. Тогава `su - fitlab`
 > работи и можеш да пропуснеш `runuser` навсякъде по-долу. Аз препоръчвам да
