@@ -519,22 +519,32 @@ grep -nE "listen" /usr/local/hestia/data/templates/web/nginx/default.{tpl,stpl}
 D=/usr/local/hestia/data/templates/web/nginx; nano $D/nodejs.tpl
 ```
 
-**Порт 80.** Не е просто пренасочване към HTTPS — пътят на Let's Encrypt трябва
-да мине **преди** редиректа. HestiaCP валидира по HTTP-01, като слага файл в
-`public_html/.well-known/acme-challenge/`; ако порт 80 връща 301 безусловно,
-първото издаване на сертификата се проваля (още няма HTTPS, към който да
-пренасочва).
+**Порт 80.** Пътят на Let's Encrypt трябва да работи, преди сертификат да
+съществува. ⚠️ **Не си пиши сам ACME блок** — HestiaCP не слага файл по диска, а
+генерира nginx location, който връща отговора директно:
+
+```nginx
+location ~ "^/\.well-known/acme-challenge/([-_A-Za-z0-9]+)$" {
+    default_type text/plain;
+    return 200 "$1.<thumbprint>";
+}
+```
+
+Пише го в `~/conf/web/<домейн>/nginx.conf_letsencrypt` (и symlink
+`nginx.ssl.conf_letsencrypt`) и **разчита шаблонът да го поеме с `include`** —
+точно както вграденият `default.tpl` на ред 41. Затова шаблонът ни трябва същия
+include, а собствен `location ^~ /.well-known/…` **пречи**: префиксният `^~` бие
+regex-а на HestiaCP в nginx и валидацията получава 404.
 
 ```nginx
 server {
     listen      %ip%:%proxy_port%;
     server_name %domain_idn% %alias_idn%;
 
-    # Let's Encrypt HTTP-01 — обслужва се от диска, не от Node.
-    location ^~ /.well-known/acme-challenge/ {
-        root  /home/%user%/web/%domain%/public_html;
-        try_files $uri =404;
-    }
+    # HestiaCP инжектира тук ACME блока при издаване на сертификат. Той е regex
+    # location, така че бие `location /` по-долу — валидацията минава, без нищо
+    # да се пише по диска. Wildcard-ът е безопасен и когато файлът липсва.
+    include %home%/%user%/conf/web/%domain%/nginx.conf_*;
 
     location / {
         return 301 https://$host$request_uri;
@@ -560,10 +570,8 @@ server {
 
     client_max_body_size 12m;   # качване на снимки на треньори
 
-    location ^~ /.well-known/acme-challenge/ {
-        root  /home/%user%/web/%domain%/public_html;
-        try_files $uri =404;
-    }
+    # Същият include, но за SSL vhost-а (HestiaCP symlink-ва блока и тук).
+    include %home%/%user%/conf/web/%domain%/nginx.ssl.conf_*;
 
     # Статичните файлове на Next се отдават от nginx, не от Node.
     location /_next/static/ {
@@ -818,48 +826,41 @@ Cloudflare. Провери го при първата картова резер�
 https://fitlabvarna.com/.well-known/acme-challenge/…: 404"
 ```
 
-Забележи, че адресът в грешката е **`https://`** — Let's Encrypt пита по HTTP,
-следва редирект и съобщава последния URL. Значи има две различни възможности и
-трябва да се различат, преди да се пипа каквото и да е.
-
-**Тест 1 — обслужва ли нашият origin ACME пътя:**
-
-```bash
-mkdir -p /home/fitlab/web/fitlabvarna.com/public_html/.well-known/acme-challenge
-echo ok > /home/fitlab/web/fitlabvarna.com/public_html/.well-known/acme-challenge/test
-chown -R fitlab:fitlab /home/fitlab/web/fitlabvarna.com/public_html/.well-known
-curl -s --resolve fitlabvarna.com:80:178.104.200.13 \
-  http://fitlabvarna.com/.well-known/acme-challenge/test
-```
-
-- Връща **`ok`** → нашата конфигурация е наред, проблемът е **преди** сървъра
-  (виж тест 2).
-- Връща **301 или 404** → шаблонът е виновен; сравни ACME блока с вградения:
-  ```bash
-  grep -n -A6 "well-known" /usr/local/hestia/data/templates/web/nginx/default.{tpl,stpl}
-  ```
-
-**Тест 2 — къде сочи домейнът в момента:**
+**Причина №1 (най-вероятната): шаблонът няма `include` за ACME блока.**
+HestiaCP генерира `nginx.conf_letsencrypt` и очаква шаблонът да го включи (§7).
+Липсва ли include-ът — или има собствен `location ^~ /.well-known/…`, който бие
+regex-а — валидацията получава 404. Провери какво реално е в живата конфигурация:
 
 ```bash
-dig +short fitlabvarna.com; curl -sI http://fitlabvarna.com/ | grep -iE "^server|^location"
+grep -n "include\|acme" /home/fitlab/conf/web/fitlabvarna.com/nginx.conf
+ls -la /home/fitlab/conf/web/fitlabvarna.com/nginx*letsencrypt*
 ```
 
-Ако виждаш **Cloudflare** адреси (`104.*`, `172.67.*`) или `server: cloudflare`,
-заявката на Let's Encrypt никога не стига до нас: Cloudflare я поема, прилага
-„Always Use HTTPS" (оттам `https://` в грешката) и я подава към каквото сочи
-origin-ът — ако A записът още не е сменен, това е Vercel, който връща 404.
+**Причина №2: заявката не стига до нас.** Адресът в грешката е `https://`, защото
+Let's Encrypt следва редиректи и съобщава последния URL — това крие кой е
+отговорил. Провери:
 
-**Поправката** е тази от §7.3: сложи `fitlabvarna.com` на **DNS-only** (сивото
-облаче) с A запис към `178.104.200.13`. Тогава Let's Encrypt говори директно с
-нашия nginx и валидацията минава. Това е и препоръката за картовия поток.
+```bash
+dig +short fitlabvarna.com www.fitlabvarna.com
+curl -sI http://fitlabvarna.com/ | grep -iE "^server|^location"
+```
 
-Ако задължително искаш Cloudflare proxy: издай сертификата, докато записът е сив,
-после включи оранжевото облаче — или ползвай DNS-01 валидация. Не забравяй, че при
-включен proxy важат предупрежденията от §7.3 за POST-а на банката.
+Ако виждаш Cloudflare адреси (`104.*`, `172.67.*`) или `server: cloudflare`,
+сложи домейна на **DNS-only** (сивото облаче) — §7.3 препоръчва това и заради
+POST-а на банката.
 
-Изчисти тестовия файл след това:
-`rm -f /home/fitlab/web/fitlabvarna.com/public_html/.well-known/acme-challenge/test`
+**Причина №3: липсва `www` в DNS.** HestiaCP иска един сертификат за домейна
+**и алиаса**. Няма ли A запис за `www`, валидацията пада за него и цялото издаване
+се проваля, включително за apex домейна.
+
+Повторно издаване след поправка:
+
+```bash
+v-add-letsencrypt-domain fitlab fitlabvarna.com www.fitlabvarna.com
+```
+
+⚠️ При повтарящи се неуспехи Let's Encrypt налага rate limit („too many failed
+authorizations") — изчакай час, без да сменяш нищо междувременно.
 
 **DNS-ът на kude.bg не се пипа.** Двата домейна сочат към същия IP и nginx ги
 разделя по `server_name` — това е нормалната работа на сървъра, не конфликт.
