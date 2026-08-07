@@ -222,22 +222,53 @@ HestiaCP създава потребителите с shell `nologin` и **то�
 който само върти приложение, няма нужда да може да влиза по SSH. Не го променяй;
 изпълнявай командите му с `runuser` от root:
 
+Репото е **`https://github.com/Emkouu/fitlab.git`** (виждаш го по всяко време с
+`git remote -v` в локалната папка на проекта).
+
+⚠️ **Първо push от локалната машина.** Сървърът клонира това, което е в GitHub — а
+всичко по Fibank и този runbook живее само локално, докато не бъде пушнато:
+
 ```bash
-runuser -u fitlab -- git clone <твоето-git-remote> /opt/fitlab/app
+git status -sb        # трябва да НЕ пише "ahead N"
+git push origin main
+```
+
+После, на сървъра:
+
+```bash
+runuser -u fitlab -- git clone https://github.com/Emkouu/fitlab.git /opt/fitlab/app
+```
+
+Ако репото е **частно**, HTTPS ще поиска парола, а deploy key работи само по SSH —
+тогава ползвай SSH адреса:
+
+```bash
+runuser -u fitlab -- git clone git@github.com:Emkouu/fitlab.git /opt/fitlab/app
 ```
 
 ```bash
 runuser -u fitlab -- bash -lc 'cd /opt/fitlab/app && npm ci'
 ```
 
-Ако репото е частно, направи deploy key за същия потребител:
+За SSH достъпа направи deploy key за същия потребител:
 
 ```bash
 runuser -u fitlab -- ssh-keygen -t ed25519 -C fitlab-deploy -f /home/fitlab/.ssh/id_ed25519 -N ""
 ```
 
-…и добави съдържанието на `/home/fitlab/.ssh/id_ed25519.pub` в GitHub → repo →
-Settings → **Deploy keys** (read-only).
+…и добави съдържанието на `/home/fitlab/.ssh/id_ed25519.pub`
+(`cat /home/fitlab/.ssh/id_ed25519.pub`) в GitHub → `Emkouu/fitlab` → Settings →
+**Deploy keys → Add deploy key**, без „Allow write access".
+
+Първото свързване иска потвърждение на host key-а — направи го веднъж, иначе
+`git clone` в скрипта ще увисне:
+
+```bash
+runuser -u fitlab -- ssh -T -o StrictHostKeyChecking=accept-new git@github.com
+```
+
+Очаква се „You've successfully authenticated, but GitHub does not provide shell
+access." — това е успех.
 
 > Ако предпочиташ да можеш да влизаш като `fitlab` по SSH, това се включва от
 > панела: **Users → fitlab → Edit → SSH Access → `bash`**. Тогава `su - fitlab`
