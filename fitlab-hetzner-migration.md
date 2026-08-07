@@ -635,8 +635,15 @@ chown root:root $D/nodejs.* && v-change-web-domain-proxy-tpl fitlab fitlabvarna.
 nginx — ако шаблонът има грешка, пада **и** другият сайт.
 
 ```bash
-nginx -t && systemctl reload nginx && curl -I https://kude.bg && curl -I https://fitlabvarna.com
+nginx -t && systemctl reload nginx && curl -kI --resolve kude.bg:443:178.104.200.13 https://kude.bg
 ```
+
+⚠️ **Провери kude.bg с `--resolve`, не направо.** kude.bg е зад **Cloudflare** —
+`curl -I https://kude.bg` стига до Cloudflare, който отговаря с бот
+предизвикателство (`HTTP/2 403`, `cf-mitigated: challenge`, `server: cloudflare`)
+и заявката никога не докосва твоя сървър. Тоест такава проверка не доказва нищо.
+С `--resolve` удряш origin-а директно и виждаш какво реално отговаря nginx —
+очаква се `200` или `301`, но със `server: nginx`.
 
 Ако `nginx -t` даде грешка, **не презареждай** — оправи шаблона, приложи го
 отново и пробвай пак. Докато nginx не е презаредил, kude.bg работи със старата
@@ -746,6 +753,43 @@ journalctl -u fitlab -n 20 --no-pager | grep -i forwarded
 
 Едва след като това дава 200, мини на §8 и премести DNS. Тогава превключи на
 Let's Encrypt и самоподписаният сертификат се сменя с истински.
+
+---
+
+## 7.3 ⚠️ Cloudflare — решение, което трябва да се вземе преди §8
+
+kude.bg е зад Cloudflare. Ако сложиш и `fitlabvarna.com` зад него (оранжевото
+облаче), има **две последици, специфични за картовите плащания**:
+
+**1. Върнатата заявка от банката може да бъде блокирана.** Fibank прави
+ცross-site **POST** към `/api/payments/ecomm/return` от сървър, не от браузър — без
+JavaScript, без cookies, с непознат User-Agent. Точно профилът, който Cloudflare
+Bot Fight Mode / WAF challenge-ва. Ако това се случи, плащането минава при банката,
+но нашата база никога не научава за него: клиентът плаща и не получава резервация.
+Мълчалив, труден за откриване отказ.
+
+Ако ползваш Cloudflare за този домейн, направи **WAF Skip правило**:
+
+- Cloudflare → домейнът → Security → **WAF → Custom rules → Create rule**
+- Израз: `(http.request.uri.path contains "/api/payments/ecomm/")`
+- Действие: **Skip** → отметни *All remaining custom rules*, *Bot Fight Mode*,
+  *Rate limiting*, *Managed rules*
+- Изключи и **Security → Settings → Bot Fight Mode** за този път, ако е включен.
+
+**2. Реалният IP на клиента идва в друг header.** През Cloudflare
+`X-Forwarded-For` съдържа веригата „клиент, Cloudflare", а истинският адрес е и в
+`CF-Connecting-IP`. Нашият `normalizeClientIp` взима **първия** IPv4 от
+`X-Forwarded-For`, което е точно клиентският адрес — така че работи и през
+Cloudflare. Провери го при първата картова резервация (§12): в лога не трябва да
+има `0.0.0.0`.
+
+**Най-простата алтернатива:** остави `fitlabvarna.com` **DNS-only** (сивото
+облаче). Губиш CDN и DDoS филтъра на Cloudflare, но премахваш цял клас мълчаливи
+откази точно във веригата, която движи пари. За студио с локална публика това е
+разумната сделка — поне докато картовият поток не е доказано стабилен.
+
+Каквото и да избереш, **не пипай настройките на kude.bg** — те са отделни за всеки
+домейн в Cloudflare.
 
 ---
 
