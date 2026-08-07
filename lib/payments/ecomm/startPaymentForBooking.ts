@@ -27,6 +27,61 @@ export function payPathForBooking(bookingId: string): string {
   return `/pay/${bookingId}`;
 }
 
+/** One archived attempt, as stored in `Payment.ecommHistory`. */
+type SupersededAttempt = {
+  transId: string | null;
+  result: string | null;
+  resultCode: string | null;
+  threeDSecure: string | null;
+  rrn: string | null;
+  approvalCode: string | null;
+  cardMask: string | null;
+  amount: number;
+  supersededAt: string;
+};
+
+/**
+ * The existing `ecomm*` fields, appended to the row's history.
+ *
+ * Returns the previous history untouched when there is nothing to archive — a
+ * row that never got a result (the client abandoned before the bank answered)
+ * carries no response worth keeping, and writing empty entries would bury the
+ * real ones.
+ */
+export function appendSupersededAttempt(payment: {
+  ecommTransId: string | null;
+  ecommResult: string | null;
+  ecommResultCode: string | null;
+  ecomm3dSecure: string | null;
+  ecommRrn: string | null;
+  ecommApprovalCode: string | null;
+  ecommCardMask: string | null;
+  amount: number;
+  ecommHistory: unknown;
+}): SupersededAttempt[] {
+  const previous = Array.isArray(payment.ecommHistory)
+    ? (payment.ecommHistory as SupersededAttempt[])
+    : [];
+
+  // No result means the bank never answered for that trans_id — nothing to keep.
+  if (!payment.ecommResult) return previous;
+
+  return [
+    ...previous,
+    {
+      transId: payment.ecommTransId,
+      result: payment.ecommResult,
+      resultCode: payment.ecommResultCode,
+      threeDSecure: payment.ecomm3dSecure,
+      rrn: payment.ecommRrn,
+      approvalCode: payment.ecommApprovalCode,
+      cardMask: payment.ecommCardMask,
+      amount: payment.amount,
+      supersededAt: new Date().toISOString(),
+    },
+  ];
+}
+
 export async function startEcommPaymentForBooking(args: {
   bookingId: string;
   /** Client's IPv4, from `normalizeClientIp(headers.get("x-forwarded-for"))`. */
@@ -75,7 +130,10 @@ export async function startEcommPaymentForBooking(args: {
   }
 
   // One Payment row per booking (Booking.paymentId is unique). A retry after a
-  // failed attempt overwrites the stale transaction id on the existing row.
+  // failed attempt takes over the existing row — but the superseded attempt's
+  // response is archived first, because the acquirer requires every response to
+  // be preserved for every card payment (manual §4.2) and this row is about to
+  // start describing a different transaction.
   if (booking.payment) {
     await prisma.payment.update({
       where: { id: booking.payment.id },
@@ -84,6 +142,7 @@ export async function startEcommPaymentForBooking(args: {
         currency: "EUR",
         status: PaymentStatus.pending,
         ecommTransId: registered.transId,
+        ecommHistory: appendSupersededAttempt(booking.payment),
         ecommResult: null,
         ecommResultCode: null,
         ecomm3dSecure: null,
