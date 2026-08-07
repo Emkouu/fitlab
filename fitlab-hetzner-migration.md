@@ -418,14 +418,17 @@ Next чете `.env` сам, а `prisma.config.ts` импортва `dotenv/conf
 
 Затова командата по-горе е просто `npm run build`, без sourcing.
 
-Бърза проверка, преди да пипаме nginx:
+Проверката, че приложението наистина се стартира, е **по-лесна през systemd** —
+мини директно на §6 и я направи там. Ръчният старт държи процеса на преден план и
+изисква втора сесия, а `journalctl` дава повече информация от него.
+
+⚠️ Ако все пак го правиш ръчно: `curl` се изпълнява **на сървъра**, във втора SSH
+сесия. `127.0.0.1` на твоя лаптоп сочи към лаптопа, не към сървъра — оттам
+неизбежно идва `Failed to connect to 127.0.0.1 port 3000`.
 
 ```bash
-runuser -u fitlab -- bash -lc 'cd /opt/fitlab/app && ./node_modules/.bin/next start -p 3000'
+runuser -u fitlab -- bash -lc 'cd /opt/fitlab/app && ./node_modules/.bin/next start -p 3000 >/tmp/smoke.log 2>&1 & sleep 8; curl -sS -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3000/schedule; pkill -f "next start -p 3000"'
 ```
-
-От друга сесия: `curl -I http://127.0.0.1:3000/schedule` → очаква се `200`.
-Спри с Ctrl+C.
 
 ---
 
@@ -471,10 +474,21 @@ WantedBy=multi-user.target
 ```
 
 ```bash
-systemctl daemon-reload && systemctl enable --now fitlab && systemctl status fitlab --no-pager
+systemctl daemon-reload && systemctl enable --now fitlab && sleep 5 && systemctl status fitlab --no-pager
 ```
 
-Логове: `journalctl -u fitlab -f`.
+Трябва да е `active (running)`. Проверка, че наистина отговаря — **на сървъра**:
+
+```bash
+curl -I http://127.0.0.1:3000/schedule
+```
+
+Очаква се `HTTP/1.1 200`. Това е вратата към §7: тук вече знаеш, че приложението,
+`.env` и връзката към Supabase работят.
+
+Ако се рестартира в цикъл: `journalctl -u fitlab -n 60 --no-pager`.
+
+Логове занапред: `journalctl -u fitlab -f`.
 
 ---
 
@@ -573,7 +587,16 @@ server {
 остава неизползван. Неговият vhost стои на вътрешния порт, HestiaCP го очаква да е
 там, но никой не стига до него. Не го изтривай.
 
-### 7.0 Включи Proxy Support и приложи шаблона
+### 7.0 Първо провери, че домейнът съществува в HestiaCP
+
+```bash
+v-list-web-domains fitlab
+```
+
+Ако `fitlabvarna.com` не е в списъка, върни се на §3 — командата в §7.0.1 иска
+домейнът да е добавен под потребителя `fitlab`.
+
+### 7.0.1 Включи Proxy Support и приложи шаблона
 
 В този режим nginx получава конфигурация за домейна **само** ако Proxy Support е
 включен. Без него Apache отговаря директно и шаблонът е без значение.
@@ -609,10 +632,46 @@ nginx -t && systemctl reload nginx && curl -I https://kude.bg && curl -I https:/
 Полезно за поглед какво реално е генерирал HestiaCP за нашия домейн:
 
 ```bash
-cat /home/fitlab/conf/web/fitlabvarna.com/nginx.ssl.conf
+ls /home/fitlab/conf/web/fitlabvarna.com/
 ```
 
-Ако файлът не съществува, Proxy Support не е включен (§7.0).
+Ако няма `nginx.conf`, Proxy Support не е включен (§7.0.1). `nginx.ssl.conf`
+се появява само след като SSL е включен — виж §7.2.
+
+### 7.2 Тествай проксито ПРЕДИ да местиш DNS
+
+Тук има подводен камък в реда на стъпките: `fitlabvarna.com` още сочи към Vercel,
+така че Let's Encrypt не може да издаде сертификат (валидацията ще стигне до
+Vercel, не до нас). А без сертификат `nginx.ssl.conf` не съществува и целият
+`location /` от §7 е неактивен — port 80 само пренасочва към HTTPS.
+
+Заобикалянето е чисто: включи **SSL Support без Let's Encrypt**. HestiaCP слага
+самоподписан сертификат, генерира `nginx.ssl.conf` и цялата верига става тестваема
+локално.
+
+HestiaCP → Web → `fitlabvarna.com` → Edit → ✅ **SSL Support**, ❌ Let's Encrypt →
+Save. После, на сървъра:
+
+```bash
+curl -kI --resolve fitlabvarna.com:443:127.0.0.1 https://fitlabvarna.com/schedule
+```
+
+`--resolve` кара curl да пита локалния nginx вместо DNS; `-k` приема
+самоподписания сертификат. Очаква се **`HTTP/2 200`** — това доказва цялата верига
+nginx → Node, преди какъвто и да е трафик да е преместен.
+
+Провери и че `X-Forwarded-For` стига до приложението (от него зависи
+`client_ip_addr` към банката):
+
+```bash
+journalctl -u fitlab -n 20 --no-pager | grep -i forwarded
+```
+
+Истинската проверка на този header е при първата картова резервация (§12) — тук
+поне се убеждаваш, че заявките минават през nginx, не директно.
+
+Едва след като това дава 200, мини на §8 и премести DNS. Тогава превключи на
+Let's Encrypt и самоподписаният сертификат се сменя с истински.
 
 ---
 
@@ -627,7 +686,9 @@ cat /home/fitlab/conf/web/fitlabvarna.com/nginx.ssl.conf
      съжителстват.
 3. Изчакай разпространението: `dig +short fitlabvarna.com`.
 4. HestiaCP → Web → `fitlabvarna.com` → **Edit** → ✅ SSL Support,
-   ✅ **Let's Encrypt**, ✅ Force HTTPS → Save.
+   ✅ **Let's Encrypt**, ✅ Force HTTPS → Save. (SSL Support вече е включен от
+   §7.2 със самоподписан сертификат — тук само добавяш Let's Encrypt, който го
+   заменя с истински. ACME пътят минава покрай Node благодарение на шаблона.)
 5. Провери: `curl -I https://fitlabvarna.com` → `200`, валиден сертификат.
 
 Обновяването на сертификата HestiaCP го прави сам.
