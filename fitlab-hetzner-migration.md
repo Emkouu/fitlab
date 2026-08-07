@@ -157,35 +157,43 @@ FitLab получава **свой HestiaCP потребител**, не се с
    - ✅ Alias `www.fitlabvarna.com`
    - Остави SSL за по-късно (нужно е DNS-ът да сочи насам).
 
-Това създава `/home/fitlab/web/fitlabvarna.com/`. Приложението ще живее в
-`/home/fitlab/web/fitlabvarna.com/nodeapp` — извън `public_html`, така че nginx
-никога не може да сервира сорса или `.env` като статичен файл.
+Това създава `/home/fitlab/web/fitlabvarna.com/` с `public_html` вътре. От тази
+папка ще се ползва **само** `public_html` — и то единствено за ACME challenge
+файла на Let's Encrypt (§7).
 
-### 3.1 Изключи `nodeapp` от бекъпите на HestiaCP
+**Кодът на приложението НЕ отива в `/home`, а в `/opt/fitlab/app`** — причината е
+в §3.1.
 
-Важно и лесно се пропуска: HestiaCP архивира целия `/home/fitlab`. В `nodeapp`
-има `node_modules` и `.next` — стотици мегабайти, които се възстановяват с
-`npm ci` и `npm run build`. Без изключение бекъпите на сървъра ще надуят диска и
-ще станат бавни за двата сайта.
+### 3.1 Защо кодът е в `/opt/fitlab`, а не в `/home/fitlab`
 
-HestiaCP → (като `fitlab`) **Backup → Backup Exclusions** → в секцията Web за
-`fitlabvarna.com` добави:
+Първоначално този документ слагаше приложението в
+`/home/fitlab/web/fitlabvarna.com/nodeapp` и после изключваше `node_modules` и
+`.next` от бекъпите на HestiaCP. По-простото решение е кодът просто да не е там,
+където HestiaCP гледа:
 
-```
-nodeapp/node_modules
-nodeapp/.next
-nodeapp/.git
-```
+| Проблем при `/home` | Решение с `/opt` |
+|---|---|
+| HestiaCP архивира целия `/home/fitlab` — `node_modules` + `.next` са ~2 GB на всеки бекъп, а се възстановяват с `npm ci` и `npm run build` | извън `/home` → просто не влиза в бекъпите |
+| `.env` попада в бекъп архивите, а вътре има service-role ключ на Supabase и паролата на банковия сертификат | тайните остават само на сървъра |
+| Синтаксисът за backup exclusions е различен по версии на HestiaCP | няма нужда от него |
+| Дисковата квота на потребителя се пълни от билд артефакти | квотата остава за реалното съдържание |
 
-Или от конзолата:
+Създай папката:
 
 ```bash
-v-add-user-backup-exclusions fitlab 'fitlabvarna.com:nodeapp/node_modules:nodeapp/.next:nodeapp/.git'
+mkdir -p /opt/fitlab && chown fitlab:fitlab /opt/fitlab && chmod 755 /opt/fitlab
 ```
 
-⚠️ Обратната страна: `.env` **остава** в бекъпа, а вътре има service-role ключ на
-Supabase и паролата на банковия сертификат. Дръж бекъпите там, където държиш и
-останалите тайни — не в публично достъпно място.
+Приложението ще е в `/opt/fitlab/app`, притежавано от същия потребител `fitlab`,
+така че systemd услугата и правата остават прости.
+
+> Ако все пак предпочиташ кодът да е под `/home` по конвенцията на HestiaCP,
+> изключенията се настройват от панела: **User → Backup → Backup Exclusions**.
+> Не ползвай CLI команда по памет — имената се различават между версиите. Ако
+> искаш да видиш какво поддържа твоята инсталация:
+> ```bash
+> ls /usr/local/hestia/bin | grep -i exclu
+> ```
 
 ---
 
@@ -205,14 +213,16 @@ PHP, Apache, nginx или MariaDB. Ако HestiaCP е инсталирал св�
 
 ## 5. Кодът на сървъра
 
-Като `root`:
+Папката `/opt/fitlab` вече е създадена и е на потребителя `fitlab` (§3.1).
+Клонирането става **като `fitlab`**, не като root — иначе файловете стават на root
+и systemd услугата няма да може да пише в `.next`.
 
 ```bash
 su - fitlab
 ```
 
 ```bash
-cd ~/web/fitlabvarna.com && git clone <твоето-git-remote> nodeapp && cd nodeapp && npm ci
+git clone <твоето-git-remote> /opt/fitlab/app && cd /opt/fitlab/app && npm ci
 ```
 
 Ако репото е частно, направи deploy key:
@@ -222,7 +232,7 @@ cd ~/web/fitlabvarna.com && git clone <твоето-git-remote> nodeapp && cd no
 ### 5.1 Environment файл
 
 ```bash
-nano ~/web/fitlabvarna.com/nodeapp/.env
+nano /opt/fitlab/app/.env
 ```
 
 ```ini
@@ -253,7 +263,7 @@ ECOMM_CERT_PASSWORD=<паролата от банката>
 Заключи файла — вътре има service-role ключ и паролата на банковия сертификат:
 
 ```bash
-chmod 600 ~/web/fitlabvarna.com/nodeapp/.env
+chmod 600 /opt/fitlab/app/.env
 ```
 
 Стойностите от Vercel се изнасят с `vercel env pull .env.production` локално, за да
@@ -266,7 +276,7 @@ chmod 600 ~/web/fitlabvarna.com/nodeapp/.env
 ### 5.2 Билд
 
 ```bash
-cd ~/web/fitlabvarna.com/nodeapp && set -a && . ./.env && set +a && npm run build
+cd /opt/fitlab/app && set -a && . ./.env && set +a && npm run build
 ```
 
 `npm run build` вика `prisma generate && next build`. `sharp` (за `next/image`)
@@ -275,7 +285,7 @@ cd ~/web/fitlabvarna.com/nodeapp && set -a && . ./.env && set +a && npm run buil
 Бърза проверка, преди да пипаме nginx:
 
 ```bash
-cd ~/web/fitlabvarna.com/nodeapp && set -a && . ./.env && set +a && npx next start -p 3000
+cd /opt/fitlab/app && set -a && . ./.env && set +a && npx next start -p 3000
 ```
 
 От друга сесия: `curl -I http://127.0.0.1:3000/schedule` → очаква се `200`.
@@ -301,17 +311,21 @@ Wants=network-online.target
 Type=simple
 User=fitlab
 Group=fitlab
-WorkingDirectory=/home/fitlab/web/fitlabvarna.com/nodeapp
-EnvironmentFile=/home/fitlab/web/fitlabvarna.com/nodeapp/.env
-ExecStart=/usr/bin/npx next start -p 3000
+WorkingDirectory=/opt/fitlab/app
+EnvironmentFile=/opt/fitlab/app/.env
+# Директно бинарито, не през npx: npx резолвва пакети и пише в npm кеша,
+# което е ненужна работа и ненужни права за една production услуга.
+ExecStart=/opt/fitlab/app/node_modules/.bin/next start -p 3000
 Restart=always
 RestartSec=3
 # Приложението пише само в .next/cache — всичко останало е излишно достъпно.
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
-ProtectHome=read-only
-ReadWritePaths=/home/fitlab/web/fitlabvarna.com/nodeapp/.next
+# Вече нищо нужно не живее в /home, откакто кодът е в /opt (§3.1) — значи
+# /home може да се скрие напълно, включително home папката на kude.bg.
+ProtectHome=yes
+ReadWritePaths=/opt/fitlab/app/.next
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=fitlab
@@ -390,7 +404,7 @@ server {
 
     # Статичните файлове на Next се отдават от nginx, не от Node.
     location /_next/static/ {
-        alias /home/%user%/web/%domain%/nodeapp/.next/static/;
+        alias /opt/fitlab/app/.next/static/;
         expires 1y;
         access_log off;
         add_header Cache-Control "public, immutable";
@@ -517,7 +531,7 @@ Description=FitLab class reminders sweep
 
 [Service]
 Type=oneshot
-EnvironmentFile=/home/fitlab/web/fitlabvarna.com/nodeapp/.env
+EnvironmentFile=/opt/fitlab/app/.env
 ExecStart=/bin/sh -c 'curl -fsS -m 60 -H "Authorization: Bearer $CRON_SECRET" https://fitlabvarna.com/api/cron/reminders'
 ```
 
@@ -568,7 +582,7 @@ nano /home/fitlab/deploy.sh
 # не оставя сайта долу.
 set -euo pipefail
 
-APP=/home/fitlab/web/fitlabvarna.com/nodeapp
+APP=/opt/fitlab/app
 cd "$APP"
 
 git fetch --all
@@ -601,20 +615,23 @@ CCX23 има ресурс да върти втора инстанция, а тя
 
 1. HestiaCP → Web → **Add Web Domain**: `test.fitlabvarna.com`, същият шаблон
    `nodejs`, включи Let's Encrypt.
-2. В шаблона `nodejs.stpl` портът е зашит на `3000`. Направи копие
-   `nodejs-staging.{tpl,stpl}` с `3001` на мястото на `3000` и го приложи само за
-   поддомейна (не забравяй Proxy Support и за него):
+2. В шаблона `nodejs.stpl` са зашити две неща — портът `3000` и пътят
+   `/opt/fitlab/app`. Направи копие `nodejs-staging.{tpl,stpl}` с `3001` и
+   `/opt/fitlab-staging/app` и го приложи само за поддомейна (не забравяй Proxy
+   Support и за него):
    ```bash
    v-change-web-domain-proxy-tpl fitlab test.fitlabvarna.com nodejs-staging yes
    ```
-3. Клонирай кода в `~/web/test.fitlabvarna.com/nodeapp`, направи собствен `.env` с:
+3. Клонирай кода в `/opt/fitlab-staging/app` (`mkdir -p` + `chown fitlab:fitlab`),
+   направи собствен `.env` с:
    - `PORT=3001`
    - `NEXT_PUBLIC_APP_URL=https://test.fitlabvarna.com`
    - `ECOMM_ENVIRONMENT=test`
    - ⚠️ **отделна Supabase база** (нов Supabase проект) — иначе тестовите
      резервации ще влизат в реалния график и клиентите ще ги виждат.
-4. Втори systemd unit `fitlab-staging.service`, идентичен на §6, но с другия
-   `WorkingDirectory`, `EnvironmentFile` и `SyslogIdentifier`.
+4. Втори systemd unit `fitlab-staging.service`, идентичен на §6, но с
+   `WorkingDirectory=/opt/fitlab-staging/app`, съответния `EnvironmentFile`,
+   `ReadWritePaths` и `SyslogIdentifier=fitlab-staging`.
 5. На банката дай **и двата** OK/Fail адреса, за да може да тества:
    - `https://test.fitlabvarna.com/api/payments/ecomm/return`
    - `https://test.fitlabvarna.com/api/payments/ecomm/fail`
@@ -682,7 +699,7 @@ free -m                                          # RAM
 `node_modules` и `.next` от бекъпите (§3.1) не е разкош, а част от настройката.
 
 ```bash
-du -sh /home/*/web/*/nodeapp /backup 2>/dev/null   # кой яде мястото
+du -sh /opt/fitlab* /home/*/web /backup 2>/dev/null   # кой яде мястото
 ```
 
 Логовете на nginx за домейна: `/var/log/nginx/domains/fitlabvarna.com.error.log`.
