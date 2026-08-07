@@ -26,10 +26,15 @@ const ACTIVE_STATUSES: BookingStatus[] = [
 /** Everything a schedule card needs — shared by the agenda query and the
  *  single-row deep-link lookup so both produce the same `ClassCardRow`. */
 const CLASS_CARD_INCLUDE = {
-  practice: { select: { name: true, description: true } },
+  practice: { select: { name: true, description: true, priceMinor: true } },
   trainers: { orderBy: { name: "asc" }, select: { name: true } },
   studio: {
-    select: { name: true, cancelWindowHours: true, cardPaymentsEnabled: true },
+    select: {
+      name: true,
+      cancelWindowHours: true,
+      cardPaymentsEnabled: true,
+      defaultClassPrice: true,
+    },
   },
   _count: {
     select: {

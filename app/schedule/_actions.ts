@@ -1,11 +1,17 @@
 "use server";
 
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/db";
 import { createBooking } from "@/lib/booking";
-import { createCheckoutForBooking } from "@/lib/payments/createCheckoutForBooking";
+import { startEcommPaymentForBooking } from "@/lib/payments/ecomm/startPaymentForBooking";
+import { normalizeClientIp } from "@/lib/payments/ecomm/protocol";
+import {
+  ECOMM_BOOKING_COOKIE,
+  ECOMM_BOOKING_COOKIE_OPTIONS,
+} from "@/lib/payments/ecomm/returnLeg";
+import { POLICIES_LAST_UPDATED } from "@/lib/legal/company";
 import { DEPOSIT_UNIT_MINOR } from "@/lib/deposit";
 import {
   isClassFeeMethod,
@@ -52,9 +58,16 @@ export async function getClassesForMonth(
     },
     orderBy: { startAt: "asc" },
     include: {
-      practice: { select: { name: true, description: true } },
+      practice: { select: { name: true, description: true, priceMinor: true } },
       trainers: { orderBy: { name: "asc" }, select: { name: true } },
-      studio: { select: { name: true, cancelWindowHours: true, cardPaymentsEnabled: true } },
+      studio: {
+        select: {
+          name: true,
+          cancelWindowHours: true,
+          cardPaymentsEnabled: true,
+          defaultClassPrice: true,
+        },
+      },
       _count: {
         select: {
           bookings: { where: { status: { in: ACTIVE_STATUSES } } },
@@ -79,8 +92,9 @@ export async function getClassesForMonth(
 /**
  * Result shape for the booking server action. Mirrors the engine's outcome
  * set + the auth-related failure modes the engine doesn't know about. On
- * card success it carries a `redirectTo` URL pointing at Stripe Checkout;
- * the client must navigate the browser there.
+ * card success it carries a `redirectTo` path pointing at our own /pay page,
+ * which POSTs the client onward to Fibank's card-entry page; the client must
+ * navigate the browser there.
  */
 export type BookClassActionResult =
   | { ok: true; bookingId: string; redirectTo?: string }
@@ -95,17 +109,22 @@ export type BookClassActionResult =
         | "duplicate"
         | "checkout_failed"
         | "insufficient_balance"
-        | "card_disabled";
+        | "card_disabled"
+        | "terms_not_accepted";
       message: string;
     };
 
 /**
  * Server action invoked by the BookingModal when the user taps „Потвърди".
- *  - source = "card"          → booking reserved (status `booked`), Stripe
- *                               Checkout session minted, redirectTo set.
- *                               Webhook (step 7) flips to `paid`.
+ *  - source = "card"          → booking reserved (status `booked`), an ECOMM
+ *                               transaction is registered with Fibank and
+ *                               redirectTo points at /pay/<id>, which POSTs the
+ *                               client to the bank's card page. The return leg
+ *                               (`/api/payments/ecomm/return`) flips to `paid`.
  *  - source = "onsite_deposit" → booking reserved as `pending_deposit`,
- *                               no Stripe call.
+ *                               no bank call.
+ *  - source = "balance"       → booking reserved as `booked`, backed by the
+ *                               standing deposit; nothing is charged.
  */
 export async function bookClassAction(input: {
   scheduledClassId: string;
@@ -114,7 +133,22 @@ export async function bookClassAction(input: {
    *  booking (staff confirm/correct it in Attendance) and mentioned in the
    *  admin new-booking notification. */
   method?: ClassFeeMethod;
+  /** The client ticked „Приемам Общите условия". Required by the acquirer
+   *  before a client may be redirected to the card-data page, so it gates
+   *  every source — not just `card` — and is recorded on the booking. */
+  acceptTerms?: boolean;
 }): Promise<BookClassActionResult> {
+  // 0. Terms consent. Checked before anything is written: the acquirer requires
+  //    explicit agreement with the Общи условия prior to the card-data page,
+  //    and we keep the proof on the Booking row.
+  if (input.acceptTerms !== true) {
+    return {
+      ok: false,
+      reason: "terms_not_accepted",
+      message: "Приеми Общите условия, за да продължиш.",
+    };
+  }
+
   // 1. Auth gate.
   const supabase = await createClient();
   const {
@@ -185,6 +219,8 @@ export async function bookClassAction(input: {
     // The class fee is paid on site whatever the source — keep the client's
     // intended method so staff see it in Attendance. Validated, never trusted.
     onsiteMethod: isClassFeeMethod(input.method) ? input.method : null,
+    // Which revision of the Общи условия was on screen when they ticked.
+    termsVersion: POLICIES_LAST_UPDATED,
   });
 
   if (!r.ok) {
@@ -194,36 +230,45 @@ export async function bookClassAction(input: {
   // NOTE: no deposit debit here. The deposit is paid once and stays on the
   // profile; it is only burned on a no-show or a late cancel (lib/deposit.ts).
 
-  // 4. Card path → mint a Stripe Checkout session.
+  // 4. Card path → register the transaction with Fibank ECOMM. The client is
+  //    then sent to our own /pay page, which POSTs them to the bank's
+  //    card-entry page (the bank requires a POST carrying `trans_id`).
   if (source === BookingSource.card) {
-    try {
-      const hdrs = await headers();
-      const proto = hdrs.get("x-forwarded-proto") ?? "http";
-      const host = hdrs.get("host") ?? "localhost:3000";
-      const origin = `${proto}://${host}`;
-      const checkout = await createCheckoutForBooking({
-        bookingId: r.booking.id,
-        origin,
-      });
-      // Bust the schedule cache so the capacity pill ticks down even if the
-      // user abandons checkout (spot is still held per SPEC §5.3).
-      revalidatePath("/schedule");
-      return { ok: true, bookingId: r.booking.id, redirectTo: checkout.url };
-    } catch (e) {
-      console.error("[bookClassAction] checkout creation failed", e);
+    const hdrs = await headers();
+    const clientIp = normalizeClientIp(
+      hdrs.get("x-forwarded-for") ?? hdrs.get("x-real-ip"),
+    );
+
+    const started = await startEcommPaymentForBooking({
+      bookingId: r.booking.id,
+      clientIp,
+    });
+
+    if (!started.ok) {
       // Booking is already in `booked`; surface the error so the user can
-      // retry. A clean retry will hit the idempotency path in
-      // createCheckoutForBooking and reuse the open session if one exists.
+      // retry. A retry re-registers a fresh transaction — ECOMM will not
+      // accept a second attempt on a spent identifier.
+      console.error("[bookClassAction] ECOMM registration failed", started.error);
       return {
         ok: false,
         reason: "checkout_failed",
         message: "Неуспешно стартиране на плащането. Опитай отново.",
       };
     }
+
+    // Remember which booking is mid-payment so the bank's cross-site POST back
+    // to returnOkUrl can be tied to it without trusting the request body.
+    const jar = await cookies();
+    jar.set(ECOMM_BOOKING_COOKIE, r.booking.id, ECOMM_BOOKING_COOKIE_OPTIONS);
+
+    // Bust the schedule cache so the capacity pill ticks down even if the
+    // user abandons payment (spot is still held per SPEC §5.3).
+    revalidatePath("/schedule");
+    return { ok: true, bookingId: r.booking.id, redirectTo: started.payPath };
   }
 
-  // 5. Balance / on-site path — send confirmation email now (card path
-  //    waits for the Stripe webhook to flip to `paid` before notifying).
+  // 5. Balance / on-site path — send confirmation email now (the card path
+  //    waits for the bank's result to flip to `paid` before notifying).
   await sendBookingConfirmationEmail(r.booking.id);
   // Ping the admins about the new booking (in-app bell + email). Fires for
   // both deposit (balance) and on-site bookings — the two client paths that

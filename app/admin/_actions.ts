@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
-import { stripe } from "@/lib/stripe";
+import { refundCardPayment } from "@/lib/payments/refundCardPayment";
 import {
   BookingSource,
   BookingStatus,
@@ -32,6 +32,8 @@ import {
   type UpdateClientInput,
   addClientSchema,
   type AddClientInput,
+  refundDepositSchema,
+  type RefundDepositInput,
 } from "@/lib/validation/clientForm";
 import { getStaffUser } from "@/lib/auth/getStaffUser";
 import {
@@ -75,7 +77,7 @@ export type CancelClassResult =
  * 2. Mark ScheduledClass.cancelledAt = now
  * 3. Find all active bookings (booked, pending_deposit, paid, attended)
  * 4. For each booking:
- *    - Card + paid → initiate Stripe refund
+ *    - Card + paid → refund back to the same card (Fibank §I.16)
  *    - Balance / on-site → no-op (the deposit was never debited, and a
  *      studio-side cancel never burns it)
  * 5. Set all bookings to status = 'cancelled'
@@ -95,7 +97,7 @@ export async function cancelClassAction(
       message: "Нямаш достъп до тази функция.",
     };
   }
-  // Destructive + moves real money (mass Stripe refunds) → super_admin only.
+  // Destructive + moves real money (mass card refunds) → super_admin only.
   if (admin.role !== Role.super_admin) {
     return {
       ok: false,
@@ -106,10 +108,10 @@ export async function cancelClassAction(
 
   try {
     // ─── DB transaction: cancel class, restore balances, cancel bookings ───
-    // Stripe calls are deliberately kept OUT of this transaction — network
-    // I/O inside a Prisma $transaction holds a DB connection for the entire
-    // duration of the HTTP round-trip(s) to Stripe and can deadlock under
-    // load. We commit the local truth first, then settle with Stripe.
+    // Bank calls are deliberately kept OUT of this transaction — network I/O
+    // inside a Prisma $transaction holds a DB connection for the entire
+    // duration of the HTTP round-trip(s) to the acquirer and can deadlock
+    // under load. We commit the local truth first, then settle with the bank.
     const { activeBookings, cardRefundCandidates, balanceRestoredIds } =
       await prisma.$transaction(async (tx) => {
         const now = new Date();
@@ -127,7 +129,7 @@ export async function cancelClassAction(
             status: { in: ACTIVE_BOOKING_STATUSES },
           },
           include: {
-            payment: { select: { id: true, stripePaymentIntentId: true } },
+            payment: { select: { id: true, ecommTransId: true } },
           },
         });
 
@@ -149,42 +151,34 @@ export async function cancelClassAction(
           },
         });
 
-        // 5. Collect card+paid bookings that need a Stripe refund after commit.
+        // 5. Collect card+paid bookings that need a card refund after commit.
         const cardRefundCandidates = activeBookings
           .filter(
-            (b) =>
-              b.source === "card" &&
-              b.status === BookingStatus.paid &&
-              b.payment?.stripePaymentIntentId &&
-              b.paymentId,
+            (b) => b.source === "card" && b.status === BookingStatus.paid && b.paymentId,
           )
-          .map((b) => ({
-            bookingId: b.id,
-            paymentId: b.paymentId!,
-            paymentIntentId: b.payment!.stripePaymentIntentId!,
-          }));
+          .map((b) => ({ bookingId: b.id, paymentId: b.paymentId! }));
 
         return { activeBookings, cardRefundCandidates, balanceRestoredIds };
       });
 
-    // ─── Post-commit: settle Stripe refunds outside the DB transaction ──
+    // ─── Post-commit: settle card refunds outside the DB transaction ────
     // The bookings are already cancelled. A failed refund does NOT roll the
     // DB back; we log and surface a partial-success count so the admin can
-    // reconcile manually from Stripe's dashboard.
+    // reconcile manually. Money always goes back to the card it came from.
     const refundedCardBookingIds: string[] = [];
     for (const candidate of cardRefundCandidates) {
       try {
-        await stripe.refunds.create({
-          payment_intent: candidate.paymentIntentId,
-        });
-        await prisma.payment.update({
-          where: { id: candidate.paymentId },
-          data: { status: PaymentStatus.refunded },
-        });
-        refundedCardBookingIds.push(candidate.bookingId);
+        const refund = await refundCardPayment({ paymentId: candidate.paymentId });
+        if (refund.ok) {
+          refundedCardBookingIds.push(candidate.bookingId);
+        } else {
+          console.error(
+            `[cancelClass] card refund failed for booking ${candidate.bookingId} (payment=${candidate.paymentId}, reason=${refund.reason}): ${refund.error}. The booking is already cancelled; the refund must be reconciled manually.`,
+          );
+        }
       } catch (error) {
         console.error(
-          `[cancelClass] Stripe refund failed for booking ${candidate.bookingId} (paymentIntent=${candidate.paymentIntentId}). The booking is already cancelled; refund must be reconciled manually.`,
+          `[cancelClass] card refund threw for booking ${candidate.bookingId} (payment=${candidate.paymentId}).`,
           error,
         );
         // Continue: don't block other refunds.
@@ -1195,14 +1189,17 @@ export async function upsertPracticeAction(
     }
 
     const description = data.description?.trim() ? data.description.trim() : null;
+    // "" → NULL → the class costs the studio's default price (lib/pricing.ts).
+    const priceMinor =
+      data.priceEur === undefined ? null : Math.round(parseFloat(data.priceEur) * 100);
 
     const practice = isCreate
       ? await prisma.practice.create({
-          data: { name: data.name, slug, description },
+          data: { name: data.name, slug, description, priceMinor },
         })
       : await prisma.practice.update({
           where: { id: data.id! },
-          data: { name: data.name, slug, description },
+          data: { name: data.name, slug, description, priceMinor },
         });
 
     console.log(
@@ -1684,6 +1681,7 @@ export async function updateStudioSettingsAction(
   }
 
   const defaultDeposit = Math.round(parseFloat(data.defaultDepositEur) * 100);
+  const defaultClassPrice = Math.round(parseFloat(data.defaultClassPriceEur) * 100);
 
   try {
     await prisma.studio.update({
@@ -1696,6 +1694,7 @@ export async function updateStudioSettingsAction(
         instagramUrl: data.instagramUrl ?? null,
         cancelWindowHours: data.cancelWindowHours,
         defaultDeposit,
+        defaultClassPrice,
         cardPaymentsEnabled: data.cardPaymentsEnabled,
       },
     });
@@ -1712,4 +1711,113 @@ export async function updateStudioSettingsAction(
   revalidatePath("/", "layout");
 
   return { ok: true, message: "Настройките са запазени." };
+}
+
+/* ─────────────────── Refund an unused deposit ─────────────────── */
+
+export type RefundDepositResult =
+  | { ok: true; message: string }
+  | { ok: false; message: string };
+
+/**
+ * Return a client's unused deposit.
+ *
+ * This is the answer to the acquirer's question about a deposit that stays on
+ * the profile: the client is not locked in — if they don't want to spend it on
+ * another class they ask for it back, and the Общи условия promise it within 14
+ * days by the same route it arrived.
+ *
+ * Money that came in by card can only go back by card (Fibank instruction
+ * §I.16), so the `card` branch issues an ECOMM refund against the original
+ * transaction and never touches any other payout channel. Cash deposits are
+ * handed back at the desk; there the action only clears the recorded balance.
+ *
+ * Moves real money → super_admin only. The balance decrement is clamped at 0 by
+ * a conditional `updateMany`, so a double submit can't drive it negative.
+ */
+export async function refundDepositAction(
+  input: RefundDepositInput,
+): Promise<RefundDepositResult> {
+  const admin = await getAdminUser();
+  if (!admin) {
+    return { ok: false, message: "Нямаш достъп до тази функция." };
+  }
+  if (admin.role !== Role.super_admin) {
+    return { ok: false, message: "Само super admin може да възстановява депозити." };
+  }
+
+  const parsed = refundDepositSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, message: "Невалидни данни." };
+  }
+  const { userId, method, paymentId } = parsed.data;
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, depositBalance: true },
+  });
+  if (!user) {
+    return { ok: false, message: "Клиентът не е намерен." };
+  }
+  if (user.depositBalance < DEPOSIT_UNIT_MINOR) {
+    return { ok: false, message: "Клиентът няма депозит по профила." };
+  }
+
+  if (method === "card") {
+    if (!paymentId) {
+      return { ok: false, message: "Избери транзакцията, по която да се върне сумата." };
+    }
+    // The transaction must belong to this client — never refund across profiles.
+    const payment = await prisma.payment.findFirst({
+      where: { id: paymentId, booking: { userId } },
+      select: { id: true, amount: true },
+    });
+    if (!payment) {
+      return { ok: false, message: "Транзакцията не е намерена за този клиент." };
+    }
+
+    // Network I/O stays outside the transaction (CLAUDE.md admin policy).
+    const refund = await refundCardPayment({
+      paymentId: payment.id,
+      amountMinor: Math.min(DEPOSIT_UNIT_MINOR, payment.amount),
+    });
+    if (!refund.ok) {
+      console.error(
+        `[admin-audit] refundDeposit FAILED by=${admin.id} user=${userId} payment=${payment.id} reason=${refund.reason}: ${refund.error}`,
+      );
+      return {
+        ok: false,
+        message:
+          refund.reason === "unsupported"
+            ? "Тази транзакция не може да се възстанови автоматично — обработи я през банката."
+            : "Банката отказа възстановяването. Провери транзакцията и опитай отново.",
+      };
+    }
+  }
+
+  // Clear one deposit unit from the profile. Conditional so it can never go
+  // negative, and so a replayed submit is a no-op rather than a second deduction.
+  const cleared = await prisma.user.updateMany({
+    where: { id: userId, depositBalance: { gte: DEPOSIT_UNIT_MINOR } },
+    data: { depositBalance: { decrement: DEPOSIT_UNIT_MINOR } },
+  });
+  if (cleared.count === 0) {
+    return { ok: false, message: "Депозитът вече е възстановен." };
+  }
+
+  console.log(
+    `[admin-audit] refundDeposit by=${admin.id} user=${userId} method=${method} payment=${paymentId ?? "-"} amount=${DEPOSIT_UNIT_MINOR}`,
+  );
+
+  revalidatePath(`/admin/clients/${userId}`);
+  revalidatePath("/admin/clients");
+  revalidatePath("/account");
+
+  return {
+    ok: true,
+    message:
+      method === "card"
+        ? "Депозитът е върнат по същата карта и е премахнат от профила."
+        : "Депозитът е отбелязан като върнат в брой и е премахнат от профила.",
+  };
 }

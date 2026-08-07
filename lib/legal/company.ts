@@ -26,7 +26,20 @@ export const COMPANY = {
   representative: "Стивиян Иванов Иванов",
   /** Contact for GDPR requests, complaints and everything legal. */
   email: "info@fitlabvarna.com",
+  /** Public web address — required on the electronic receipt (Fibank §I.15). */
+  site: "fitlabvarna.com",
 } as const;
+
+/**
+ * Canonical origin of the site, for links that leave the app (receipts,
+ * emails). Falls back to the production host so a receipt is never printed with
+ * "localhost" on it.
+ */
+export function siteOrigin(): string {
+  const fromEnv = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
+  if (fromEnv && !fromEnv.includes("localhost")) return fromEnv;
+  return `https://${COMPANY.site}`;
+}
 
 /**
  * Acquiring bank behind the online card deposits. Card data is entered on the
@@ -83,4 +96,4 @@ export const CPC = {
 } as const;
 
 /** Shown as „Последна актуализация" on the policies page. Bump on every edit. */
-export const POLICIES_LAST_UPDATED = "06.08.2026 г.";
+export const POLICIES_LAST_UPDATED = "07.08.2026 г.";

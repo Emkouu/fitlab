@@ -32,6 +32,13 @@ export const studioSettingsSchema = z.object({
       /^\d+(\.\d{1,2})?$/,
       "Депозитът трябва да е валидна EUR сума (напр. 20 или 20.00)",
     ),
+  /// Final price of one class, shown publicly. Practices may override it.
+  defaultClassPriceEur: z
+    .string()
+    .regex(
+      /^\d+(\.\d{1,2})?$/,
+      "Цената трябва да е валидна EUR сума (напр. 10 или 10.00)",
+    ),
   cardPaymentsEnabled: z.boolean(),
 });
 

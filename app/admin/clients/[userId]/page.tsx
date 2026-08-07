@@ -3,9 +3,12 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { getAdminUser } from "@/lib/auth/getAdminUser";
-import { BookingStatus } from "@/lib/generated/prisma/enums";
+import { BookingStatus, PaymentStatus } from "@/lib/generated/prisma/enums";
 import { Heartbeat } from "@/app/_components/Heartbeat";
 import { ClientDetail } from "../_components/ClientDetail";
+import { DepositRefundPanel } from "../_components/DepositRefundPanel";
+import { DEPOSIT_UNIT_MINOR } from "@/lib/deposit";
+import { formatSofiaDateTime } from "@/lib/format";
 import { AdminBreadcrumb } from "../../_components/AdminBreadcrumb";
 
 export const dynamic = "force-dynamic";
@@ -27,6 +30,7 @@ export default async function AdminClientDetailPage({
     include: {
       bookings: {
         include: {
+          payment: true,
           scheduledClass: {
             include: {
               practice: { select: { name: true } },
@@ -65,6 +69,22 @@ export default async function AdminClientDetailPage({
     }
     return sum;
   }, 0);
+
+  // Card transactions we could send money back through: paid, not yet refunded,
+  // and carrying an ECOMM identifier (the only thing the bank can reverse).
+  const refundablePayments = user.bookings
+    .map((b) => b.payment)
+    .filter(
+      (p): p is NonNullable<typeof p> =>
+        p !== null && p.status === PaymentStatus.paid && p.ecommTransId !== null,
+    )
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    .map((p) => ({
+      id: p.id,
+      amount: p.amount,
+      cardMask: p.ecommCardMask,
+      dateText: formatSofiaDateTime(p.createdAt),
+    }));
 
   return (
     <main className="mx-auto w-full max-w-[440px] px-5 pb-12 pt-6 font-sans text-[color:var(--brand-ink)]">
@@ -115,6 +135,14 @@ export default async function AdminClientDetailPage({
           studioName: b.scheduledClass.studio.name,
           trainers: b.scheduledClass.trainers.map((t) => t.name),
         }))}
+      />
+
+      <DepositRefundPanel
+        userId={user.id}
+        depositBalance={user.depositBalance}
+        depositUnit={DEPOSIT_UNIT_MINOR}
+        canRefund={admin.role === "super_admin"}
+        refundablePayments={refundablePayments}
       />
     </main>
   );

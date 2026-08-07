@@ -14,7 +14,13 @@ import { upsertPracticeAction } from "@/app/admin/_actions";
 
 export type PracticeFormProps = {
   mode: "create" | "edit";
-  initialData?: { id: string; name: string; slug: string; description: string | null };
+  initialData?: {
+    id: string;
+    name: string;
+    slug: string;
+    description: string | null;
+    priceMinor: number | null;
+  };
 };
 
 export function PracticeForm({ mode, initialData }: PracticeFormProps) {
@@ -37,8 +43,12 @@ export function PracticeForm({ mode, initialData }: PracticeFormProps) {
             name: initialData.name,
             slug: initialData.slug,
             description: initialData.description ?? "",
+            priceEur:
+              initialData.priceMinor === null
+                ? ""
+                : (initialData.priceMinor / 100).toFixed(2),
           }
-        : { name: "", slug: "", description: "" },
+        : { name: "", slug: "", description: "", priceEur: "" },
     mode: "onChange",
   });
 
@@ -154,6 +164,34 @@ export function PracticeForm({ mode, initialData }: PracticeFormProps) {
         />
         {errors.description && (
           <p className="mt-1 text-xs text-red-600">{errors.description.message}</p>
+        )}
+      </div>
+
+      <div>
+        <label className="block text-sm font-semibold text-[color:var(--brand-ink)]">
+          Цена за посещение (EUR)
+        </label>
+        <p className="mt-1 text-xs text-[color:var(--brand-purple)]/60">
+          Опционално. Остави празно, за да се ползва цената по подразбиране от
+          Настройки. Крайна цена — показва се публично.
+        </p>
+        <Controller
+          name="priceEur"
+          control={control}
+          render={({ field }) => (
+            <input
+              {...field}
+              value={field.value ?? ""}
+              type="text"
+              inputMode="decimal"
+              placeholder="10.00"
+              className="mt-2 w-full rounded-lg border border-[color:var(--brand-purple)]/20 px-3 py-2.5 text-sm text-[color:var(--brand-ink)] placeholder-[color:var(--brand-purple)]/40 transition-all focus:border-[color:var(--brand-magenta)] focus:outline-none focus:ring-1 focus:ring-[color:var(--brand-magenta)]/30"
+              disabled={isPending}
+            />
+          )}
+        />
+        {errors.priceEur && (
+          <p className="mt-1 text-xs text-red-600">{errors.priceEur.message}</p>
         )}
       </div>
 

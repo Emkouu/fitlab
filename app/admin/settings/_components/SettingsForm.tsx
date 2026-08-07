@@ -231,6 +231,37 @@ export function SettingsForm({ initialData, canEdit }: SettingsFormProps) {
         </div>
 
         <div>
+          <label className={labelClass}>
+            Цена на тренировка (EUR)
+            <span className="text-[color:var(--brand-magenta)]">*</span>
+          </label>
+          <p className={helperClass}>
+            Крайна цена за едно посещение — показва се публично в графика, в
+            резервационната форма и в разписката. Отделни практики могат да имат
+            своя цена (Админ → Практики).
+          </p>
+          <Controller
+            name="defaultClassPriceEur"
+            control={control}
+            render={({ field }) => (
+              <input
+                {...field}
+                type="text"
+                inputMode="decimal"
+                placeholder="10.00"
+                className={inputClass}
+                disabled={isSubmitting}
+              />
+            )}
+          />
+          {errors.defaultClassPriceEur && (
+            <p className="mt-1 text-xs text-red-600">
+              {errors.defaultClassPriceEur.message}
+            </p>
+          )}
+        </div>
+
+        <div>
           <Controller
             name="cardPaymentsEnabled"
             control={control}

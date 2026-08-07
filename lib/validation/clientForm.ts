@@ -55,3 +55,23 @@ export const addClientSchema = z
   });
 
 export type AddClientInput = z.infer<typeof addClientSchema>;
+
+/**
+ * Refund a client's unused deposit — the case the acquirer asked us to spell
+ * out: the client no longer wants the deposit sitting on their profile and asks
+ * for the money back.
+ *
+ * `method` records how the money physically leaves:
+ *   `card` — a card operation back to the same card (the only permitted route
+ *            for money that arrived by card, Fibank instruction §I.16).
+ *   `cash` — deposits left at the desk in cash are returned in cash there;
+ *            nothing to send to the bank, we only clear the balance.
+ */
+export const refundDepositSchema = z.object({
+  userId: z.string().min(1),
+  method: z.enum(["card", "cash"]),
+  /** Required for `card`: which paid card transaction to reverse. */
+  paymentId: z.string().min(1).optional(),
+});
+
+export type RefundDepositInput = z.infer<typeof refundDepositSchema>;

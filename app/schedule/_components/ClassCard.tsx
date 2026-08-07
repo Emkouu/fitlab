@@ -1,5 +1,6 @@
 import { BookButton } from "./BookButton";
-import { formatSofiaTime } from "@/lib/format";
+import { formatEurMinor, formatSofiaTime } from "@/lib/format";
+import { classPriceMinor } from "@/lib/pricing";
 
 /**
  * Shared class card used by both the agenda list and the week column view.
@@ -15,9 +16,14 @@ export type ClassCardRow = {
   depositAmount: number;
   cancelledAt: Date | string | null;
   practiceId: string;
-  practice: { name: string; description: string | null };
+  practice: { name: string; description: string | null; priceMinor: number | null };
   trainers: { name: string }[];
-  studio: { name: string; cancelWindowHours: number; cardPaymentsEnabled: boolean };
+  studio: {
+    name: string;
+    cancelWindowHours: number;
+    cardPaymentsEnabled: boolean;
+    defaultClassPrice: number;
+  };
   _count: { bookings: number };
 };
 
@@ -98,6 +104,11 @@ export function ClassCard({
             </div>
             <div className="mt-1.5 font-mono text-[11px] uppercase tracking-wider text-[color:var(--brand-purple)]/55">
               {row.durationMinutes} мин
+            </div>
+            {/* Final price of the visit — the acquirer requires the end price of
+                the service to be stated where the service is offered. */}
+            <div className="mt-1 font-display text-[11px] font-bold text-[color:var(--brand-purple)]/70">
+              {formatEurMinor(classPriceMinor(row.practice, row.studio))}
             </div>
           </div>
 

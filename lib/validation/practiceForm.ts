@@ -16,6 +16,16 @@ export const practiceFormSchema = z.object({
     .max(1000, "Описанието трябва да е до 1000 символа")
     .optional()
     .nullable(),
+  /// Optional per-practice price override in EUR ("" → use the studio default).
+  priceEur: z
+    .string()
+    .trim()
+    .regex(
+      /^\d+(\.\d{1,2})?$/,
+      "Цената трябва да е валидна EUR сума (напр. 10 или 10.00)",
+    )
+    .optional()
+    .or(z.literal("").transform(() => undefined)),
 });
 
 export type PracticeFormInput = z.infer<typeof practiceFormSchema>;

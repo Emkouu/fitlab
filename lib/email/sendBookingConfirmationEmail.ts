@@ -7,6 +7,9 @@ import {
   formatSofiaDateTime,
   formatEurMinor,
 } from "@/lib/format";
+import { DEPOSIT_UNIT_MINOR } from "@/lib/deposit";
+import { classPriceMinor } from "@/lib/pricing";
+import { siteOrigin } from "@/lib/legal/company";
 
 const FROM_ADDRESS =
   process.env.RESEND_FROM ?? "FitLab Varna <onboarding@resend.dev>";
@@ -44,6 +47,7 @@ export async function sendBookingConfirmationEmail(
     where: { id: bookingId },
     include: {
       user: true,
+      payment: true,
       scheduledClass: {
         include: {
           practice: true,
@@ -78,6 +82,16 @@ export async function sendBookingConfirmationEmail(
     (process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ?? "http://localhost:3000") +
     "/account";
 
+  // The receipt must state the amount that actually moved. For a card booking
+  // that's the registered Payment; otherwise it's one deposit unit — the €10 the
+  // client is quoted everywhere, never the per-class admin field.
+  const transactionAmount = booking.payment?.amount ?? DEPOSIT_UNIT_MINOR;
+  // …and the date the money moved, not the date the row was created.
+  const transactionDate =
+    booking.payment && booking.payment.status === "paid"
+      ? booking.payment.updatedAt
+      : booking.createdAt;
+
   const reactNode = BookingConfirmation({
     greetingName: booking.user.fullName,
     practiceName: cls.practice.name,
@@ -88,7 +102,7 @@ export async function sendBookingConfirmationEmail(
     studioName: cls.studio.name,
     studioAddress: STUDIO_ADDRESS,
     studioPhone: cls.studio.phone ?? STUDIO_PHONE,
-    depositText: formatEurMinor(cls.depositAmount),
+    depositText: formatEurMinor(transactionAmount),
     depositStatusText: depositStatusText(booking.source, booking.status),
     cancelWindowHours: cls.studio.cancelWindowHours,
     accountUrl,
@@ -96,7 +110,14 @@ export async function sendBookingConfirmationEmail(
     footerSite: process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
     bookingReference: booking.id,
     clientName: booking.user.fullName ?? email,
-    transactionDateText: formatSofiaDateTime(booking.createdAt),
+    transactionDateText: formatSofiaDateTime(transactionDate),
+    // Electronic-receipt extras required by the acquirer (§I.15): the site's own
+    // web address, the final price of the service, and a link to the printable
+    // copy of this receipt.
+    siteUrl: siteOrigin(),
+    classPriceText: formatEurMinor(classPriceMinor(cls.practice, cls.studio)),
+    receiptUrl: `${siteOrigin()}/receipt/${booking.id}`,
+    cardMask: booking.payment?.ecommCardMask ?? null,
   });
 
   try {

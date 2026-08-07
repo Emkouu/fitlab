@@ -34,6 +34,14 @@ export type BookingConfirmationProps = {
   bookingReference: string;
   clientName: string;
   transactionDateText: string;
+  /** The site's own web address — a required receipt field. */
+  siteUrl: string;
+  /** Final price of the class itself, settled on site (pre-formatted). */
+  classPriceText: string;
+  /** Printable copy of this receipt. */
+  receiptUrl: string;
+  /** Masked card number, when the deposit was paid by card. */
+  cardMask?: string | null;
 };
 
 const BRAND = "#0F172A";
@@ -62,6 +70,10 @@ export function BookingConfirmation(props: BookingConfirmationProps) {
     bookingReference,
     clientName,
     transactionDateText,
+    siteUrl,
+    classPriceText,
+    receiptUrl,
+    cardMask,
   } = props;
 
   const greeting = `Здравей, ${greetingName ?? "приятелю"}!`;
@@ -135,14 +147,28 @@ export function BookingConfirmation(props: BookingConfirmationProps) {
               <ReceiptRow label="Клиент" value={clientName} />
               <ReceiptRow label="Дата на транзакция" value={transactionDateText} />
               <ReceiptRow label="Услуга" value={`${practiceName} — ${dateText}, ${timeText}`} />
-              <ReceiptRow label="Депозит" value={`${depositText} — ${depositStatusText}`} />
+              <ReceiptRow
+                label="Стойност на транзакцията"
+                value={`${depositText} (EUR) — депозит, ${depositStatusText}`}
+              />
+              {cardMask && <ReceiptRow label="Карта" value={cardMask} mono />}
+              <ReceiptRow
+                label="Цена на тренировката"
+                value={`${classPriceText} — заплаща се на място`}
+              />
               <ReceiptRow
                 label="Търговец"
                 value={`${COMPANY.legalName}, ЕИК ${COMPANY.eik}`}
               />
-              <ReceiptRow label="Обект" value={`${studioName}, ${studioAddress}`} />
+              <ReceiptRow label="Интернет адрес" value={siteUrl.replace(/^https?:\/\//, "")} />
+              <ReceiptRow label="Място на изпълнение" value={`${studioName}, ${studioAddress}`} />
               <Text style={{ fontSize: 11, color: MUTED, margin: "8px 0 0" }}>
-                Запази този имейл — той е твоята разписка за направената поръчка.
+                Запази или отпечатай тази разписка — тя е доказателството ти за
+                направената поръчка.{" "}
+                <Link href={receiptUrl} style={{ color: MAGENTA }}>
+                  Версия за печат
+                </Link>
+                .
               </Text>
             </Section>
 

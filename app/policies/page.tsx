@@ -5,6 +5,7 @@ import { Breadcrumb } from "@/app/_components/Breadcrumb";
 import { PaymentLogos } from "@/app/_components/PaymentLogos";
 import { formatEurMinor } from "@/lib/format";
 import { DEPOSIT_UNIT_MINOR } from "@/lib/deposit";
+import { classPriceMinor } from "@/lib/pricing";
 import {
   ACQUIRER,
   COMPANY,
@@ -32,6 +33,7 @@ const card =
 
 const ANCHORS = [
   { href: "#controller", label: "Търговец" },
+  { href: "#prices", label: "Цени" },
   { href: "#privacy", label: "Поверителност" },
   { href: "#payments", label: "Плащания" },
   { href: "#terms", label: "Общи условия" },
@@ -39,16 +41,23 @@ const ANCHORS = [
 ];
 
 export default async function PoliciesPage() {
-  const studio = await prisma.studio.findUnique({
-    where: { slug: "fitlab-varna" },
-    select: {
-      name: true,
-      address: true,
-      phone: true,
-      cancelWindowHours: true,
-      cardPaymentsEnabled: true,
-    },
-  });
+  const [studio, practices] = await Promise.all([
+    prisma.studio.findUnique({
+      where: { slug: "fitlab-varna" },
+      select: {
+        name: true,
+        address: true,
+        phone: true,
+        cancelWindowHours: true,
+        cardPaymentsEnabled: true,
+        defaultClassPrice: true,
+      },
+    }),
+    prisma.practice.findMany({
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, priceMinor: true },
+    }),
+  ]);
 
   const name = studio?.name ?? COMPANY.brand;
   const address = studio?.address ?? "Варна";
@@ -56,6 +65,12 @@ export default async function PoliciesPage() {
   const cancelHours = studio?.cancelWindowHours ?? 4;
   const cardEnabled = studio?.cardPaymentsEnabled ?? true;
   const deposit = formatEurMinor(DEPOSIT_UNIT_MINOR);
+  const standardPrice = formatEurMinor(classPriceMinor(null, studio));
+  // Only practices that deviate from the studio price are worth listing.
+  const pricedExceptions = practices.filter(
+    (pr) =>
+      pr.priceMinor !== null && pr.priceMinor !== (studio?.defaultClassPrice ?? null),
+  );
 
   return (
     <main className="mx-auto w-full max-w-[440px] px-5 pb-16 pt-6 font-sans text-[color:var(--brand-ink)] md:max-w-2xl">
@@ -122,6 +137,86 @@ export default async function PoliciesPage() {
             {COMPANY.email}
           </a>
           .
+        </p>
+      </section>
+
+      {/* ─── Цени и как става покупката ────────────────────────────── */}
+      <section id="prices" className={card}>
+        <h2 className={sectionTitle}>Цени и как се резервира</h2>
+
+        <h3 className={subTitle}>Цени</h3>
+        <dl className="mt-3 space-y-2 rounded-2xl bg-[color:var(--brand-pink-soft)]/50 p-4">
+          <IdRow label="Групова тренировка (едно посещение)" value={standardPrice} />
+          {pricedExceptions.map((pr) => (
+            <IdRow
+              key={pr.id}
+              label={pr.name}
+              value={formatEurMinor(pr.priceMinor as number)}
+            />
+          ))}
+          <IdRow label="Депозит (еднократно, за да резервираш онлайн)" value={deposit} />
+        </dl>
+        <p className={p}>
+          Всички цени са в <strong>евро (EUR)</strong> и са{" "}
+          <strong>крайни</strong> — включват всички данъци и такси, няма скрити
+          добавки. Цената на съответната тренировка е видима в графика, в
+          резервационната форма и в електронната разписка. Специалните събития
+          могат да имат отделна цена, обявена в описанието на събитието.
+        </p>
+        <p className={p}>
+          <strong>Цената на тренировката се заплаща на място</strong> в студиото
+          — с абонаментна карта, в брой или чрез Multisport. Онлайн през сайта се
+          заплаща единствено <strong>еднократният депозит</strong>, който дава
+          възможност да запазваш място.
+        </p>
+
+        <h3 className={subTitle}>Как става онлайн резервацията — стъпка по стъпка</h3>
+        <ol className="mt-2 list-decimal space-y-1.5 pl-5">
+          <li className={li}>
+            Избираш клас от графика и натискаш „Избор“. Виждаш дата, час,
+            продължителност, треньор, свободни места и цената на тренировката.
+          </li>
+          <li className={li}>
+            Влизаш в профила си с имейл и <strong>еднократен код</strong> — без
+            парола.
+          </li>
+          <li className={li}>
+            В резервационната форма се показват условията за ползване, усвояване и
+            възстановяване на депозита и{" "}
+            <strong>отбелязваш съгласието си с тези Общи условия</strong>. Без
+            отметка бутонът „Потвърди“ остава неактивен.
+          </li>
+          <li className={li}>
+            Ако вече имаш депозит по профила — избираш как ще платиш тренировката
+            на място и потвърждаваш. <strong>Готово, мястото е запазено.</strong>
+          </li>
+          <li className={li}>
+            Ако още нямаш депозит — избираш „Плати депозит с карта“. Показва се
+            екран с точната сума и името на търговеца, след което си пренасочен/а
+            към защитената платежна страница на {ACQUIRER.name}, където въвеждаш
+            данните на картата.
+          </li>
+          <li className={li}>
+            След успешна транзакция се връщаш в сайта, където се генерира{" "}
+            <strong>електронна разписка</strong> с опция за печат. Копие от нея
+            получаваш и на имейл. <strong>Запази или отпечатай разписката.</strong>
+          </li>
+        </ol>
+        <p className={p}>
+          <strong>Една резервация = една поръчка.</strong> В момента не се
+          поддържа запазване на няколко класа в една поръчка — всеки клас се
+          резервира отделно. Депозитът обаче се плаща само веднъж и важи за
+          всички следващи резервации.
+        </p>
+
+        <h3 className={subTitle}>Кой може да ползва услугата</h3>
+        <p className={p}>
+          Услугата е предназначена за <strong>лица над 18 години</strong>.
+          Профил за лице между 16 и 18 години се създава и управлява от родител
+          или настойник, който дава съгласие и носи отговорност за резервациите и
+          за плащанията с карта. Не обслужваме лица под 16 години.{" "}
+          Плащане с карта се приема само от <strong>картодържателя</strong> или с
+          негово изрично съгласие.
         </p>
       </section>
 
@@ -420,27 +515,98 @@ export default async function PoliciesPage() {
           </li>
         </ul>
 
-        <h3 className={subTitle}>Възстановяване на депозит</h3>
-        <ul className="mt-2 list-disc space-y-1 pl-5">
+        <h3 className={subTitle}>Условия за ползване на депозита</h3>
+        <ul className="mt-2 list-disc space-y-1.5 pl-5">
+          <li className={li}>
+            Депозитът е <strong>безсрочен</strong> — стои по профила ти без краен
+            срок и важи за неограничен брой следващи резервации. Не изтича и не
+            се обезсилва от липса на активност.
+          </li>
+          <li className={li}>
+            Записването за клас <strong>не изразходва</strong> депозита;
+            присъствието — също. Той е гаранция, не предплатена сума.
+          </li>
+          <li className={li}>
+            Депозитът <strong>не се приспада</strong> от цената на тренировката —
+            тя се заплаща отделно, на място.
+          </li>
+          <li className={li}>
+            Депозитът е <strong>личен</strong> — не се прехвърля на друг профил и
+            не се преотстъпва на друго лице.
+          </li>
+          <li className={li}>
+            <strong>Усвоява се</strong> при неявяване или при отписване по-късно
+            от {cancelHours} часа преди началото на класа. За нови резервации се
+            дължи нов депозит.
+          </li>
+        </ul>
+
+        <h3 className={subTitle}>Възстановяване на депозита</h3>
+        <ul className="mt-2 list-disc space-y-1.5 pl-5">
           <li className={li}>
             При отписване по-рано от <strong>{cancelHours} часа</strong> преди
             началото на класа депозитът се запазва по{" "}
             <strong>профила ти</strong>, готов за следваща резервация.
           </li>
           <li className={li}>
-            Ако предпочиташ възстановяване{" "}
-            <strong>обратно по картата, с която си платил/а</strong>, пиши ни на{" "}
-            {COMPANY.email} — превеждаме сумата по същата карта в срок до{" "}
-            <strong>14 дни</strong> от искането. Възстановяване по друг начин на
-            плащане не е възможно.
+            <strong>
+              Не си длъжен/на да го ползваш за друг клас.
+            </strong>{" "}
+            Ако не желаеш повече да ползваш депозита, пиши ни на{" "}
+            <a
+              href={`mailto:${COMPANY.email}`}
+              className="font-semibold text-[color:var(--brand-magenta)] hover:underline"
+            >
+              {COMPANY.email}
+            </a>
+            {phone ? ` или се обади на ${phone}` : ""} и го възстановяваме в срок
+            до <strong>14 дни</strong> от получаване на искането, без да дължиш
+            обяснение.
           </li>
           <li className={li}>
-            Депозити, оставени на място, не се движат по карта или баланс —
-            уреждат се в студиото.
+            <strong>
+              Когато депозитът е платен с банкова карта, сумата се възстановява
+              изключително чрез картова операция по същата карта
+            </strong>
+            , с която е извършено плащането. Възстановяване по друга карта, по
+            банкова сметка или в брой не е възможно.
           </li>
           <li className={li}>
-            При отписване по-късно от {cancelHours} часа преди класа или при
-            неявяване депозитът се усвоява.
+            Депозити, оставени <strong>в брой</strong> в студиото, се
+            възстановяват в брой на място, срещу подпис.
+          </li>
+          <li className={li}>
+            Вече усвоен депозит (при неявяване или късно отписване) не подлежи на
+            възстановяване.
+          </li>
+        </ul>
+
+        <h3 className={subTitle}>Възстановяване на други заплатени суми</h3>
+        <ul className="mt-2 list-disc space-y-1.5 pl-5">
+          <li className={li}>
+            <strong>Ако ние отменим клас</strong> — депозитът ти остава
+            непокътнат по профила, а ако предпочиташ, възстановяваме платената с
+            карта сума по същата карта в срок до <strong>14 дни</strong>.
+          </li>
+          <li className={li}>
+            <strong>Дублирано или грешно плащане</strong> — възстановява се
+            цялата сума по същата карта, в срок до <strong>5 работни дни</strong>{" "}
+            от установяването или от твоето уведомление.
+          </li>
+          <li className={li}>
+            <strong>Неуспешна или прекъсната транзакция</strong> — ако банката е
+            блокирала сума, без плащането да е завършило, блокировката се
+            освобождава автоматично от издателя на картата; при нужда пиши ни и
+            съдействаме.
+          </li>
+          <li className={li}>
+            Срокът, в който сумата реално се появява по картовата ти сметка,
+            зависи от банката-издател и обичайно е между 1 и 10 работни дни след
+            като операцията е изпратена от нас.
+          </li>
+          <li className={li}>
+            Възстановяване не се дължи при усвоен депозит и за вече проведена
+            тренировка, на която си присъствал/а.
           </li>
         </ul>
       </section>
@@ -451,25 +617,56 @@ export default async function PoliciesPage() {
         <p className={p}>
           Тези условия уреждат отношенията между {COMPANY.legalName}, ЕИК{" "}
           {COMPANY.eik} („ние“, търговецът), и всеки, който ползва приложението
-          за резервации на {name} („ти“, клиентът). С потвърждаване на резервация
-          приемаш условията в актуалната им редакция.
+          за резервации на {name} („ти“, клиентът). С отбелязване на съгласие в
+          резервационната форма и потвърждаване на резервация приемаш условията в
+          актуалната им редакция.
         </p>
 
-        <h3 className={subTitle}>Услугата</h3>
+        <h3 className={subTitle}>1. Данни за търговеца</h3>
+        <dl className="mt-3 space-y-2 rounded-2xl bg-[color:var(--brand-pink-soft)]/50 p-4">
+          <IdRow label="Наименование" value={COMPANY.legalName} />
+          <IdRow label="Търговско наименование" value={COMPANY.brand} />
+          <IdRow label="ЕИК" value={COMPANY.eik} />
+          <IdRow label="Седалище и адрес на управление" value={COMPANY.seat} />
+          <IdRow label="Адрес за кореспонденция" value={address} />
+          <IdRow label="Управител" value={COMPANY.representative} />
+          {phone && <IdRow label="Телефон за контакт" value={phone} />}
+          <IdRow label="Имейл за кореспонденция" value={COMPANY.email} />
+          <IdRow label="Интернет адрес" value={COMPANY.site} />
+        </dl>
+        <p className={p}>
+          Надзорни органи: {CPC.name} — за потребителски спорове; {DPA.name} — за
+          защита на личните данни.
+        </p>
+
+        <h3 className={subTitle}>2. Услугата и цената</h3>
         <p className={p}>
           Чрез приложението резервираш място за групови тренировки в {name},{" "}
           {address}. Класовете имат ограничен капацитет; свободните места се
-          показват в реално време. За да резервираш, е нужен еднократен депозит
-          от {deposit} по профила ти; таксата за тренировката се заплаща на
-          място.
+          показват в реално време.
+        </p>
+        <p className={p}>
+          Цената за едно посещение е <strong>{standardPrice}</strong> — крайна
+          цена в евро, с включени всички данъци — и{" "}
+          <strong>се заплаща на място</strong> в студиото. Отделни практики и
+          специални събития могат да имат различна цена, която е обявена в
+          графика и в описанието на събитието (виж раздел „Цени“). За да можеш да
+          резервираш онлайн, е нужен <strong>еднократен депозит от {deposit}</strong>{" "}
+          по профила ти.
         </p>
 
-        <h3 className={subTitle}>Как се резервира</h3>
+        <h3 className={subTitle}>3. Как се резервира</h3>
         <ul className="mt-2 list-disc space-y-1 pl-5">
           <li className={li}>
             Влизаш с имейл и еднократен код (без парола), избираш клас и как ще
             заплатиш тренировката на място (абонаментна карта, в брой или
             Multisport).
+          </li>
+          <li className={li}>
+            Преди да потвърдиш — и <strong>преди</strong> да бъдеш пренасочен/а
+            към страницата за въвеждане на картови данни — отбелязваш изрично
+            съгласие с тези Общи условия. Датата и редакцията на приетите условия
+            се записват към резервацията.
           </li>
           <li className={li}>
             <strong>С карта</strong> — плащаш депозита онлайн през виртуалния ПОС
@@ -490,24 +687,80 @@ export default async function PoliciesPage() {
           показва подвижен прозорец от 7 дни напред.
         </p>
 
-        <h3 className={subTitle}>Отказ и възстановяване</h3>
+        <h3 className={subTitle}>4. Отказ от резервация — срокове, условия и начини</h3>
+        <p className={p}>
+          <strong>Срок:</strong> можеш да се отпишеш свободно до{" "}
+          <strong>{cancelHours} часа</strong> преди началото на класа.
+        </p>
+        <p className={p}>
+          <strong>Начини за отказ</strong> — по всеки от тях, като важи моментът
+          на получаване:
+        </p>
         <ul className="mt-2 list-disc space-y-1 pl-5">
           <li className={li}>
-            Можеш да се отпишеш до <strong>{cancelHours} часа</strong> преди
-            началото на класа — депозитът се запазва (виж „Плащания и
-            депозити“).
+            в приложението — „Профил“ → резервацията → „Отпиши се“ (най-бързо и
+            се отразява веднага);
           </li>
           <li className={li}>
-            При отписване по-късно от {cancelHours} часа преди класа или при
-            неявяване депозитът се усвоява.
+            с имейл до{" "}
+            <a
+              href={`mailto:${COMPANY.email}`}
+              className="font-semibold text-[color:var(--brand-magenta)] hover:underline"
+            >
+              {COMPANY.email}
+            </a>
+            ;
+          </li>
+          {phone && <li className={li}>по телефон на {phone};</li>}
+          <li className={li}>на място в студиото.</li>
+        </ul>
+        <p className={p}>
+          <strong>Последствия:</strong>
+        </p>
+        <ul className="mt-2 list-disc space-y-1.5 pl-5">
+          <li className={li}>
+            Отказ <strong>по-рано</strong> от {cancelHours} часа преди класа —
+            мястото се освобождава и <strong>депозитът остава по профила ти</strong>{" "}
+            (условията за неговото ползване и възстановяване са в раздел
+            „Плащания и депозити“). Ако не желаеш да го ползваш повече, можеш да
+            поискаш възстановяване на сумата.
           </li>
           <li className={li}>
-            Ако ние отменим клас, депозитът ти остава непокътнат по профила (или
-            се възстановява по картата, по твой избор).
+            Отказ <strong>по-късно</strong> от {cancelHours} часа преди класа —
+            резервацията се отменя и <strong>депозитът се усвоява</strong>, тъй
+            като мястото вече не може да бъде предложено на друг.
+          </li>
+          <li className={li}>
+            <strong>Неявяване</strong> без отказ — депозитът се усвоява.
+          </li>
+          <li className={li}>
+            Ако <strong>ние</strong> отменим клас — независимо от срока депозитът
+            ти остава непокътнат по профила или, по твой избор, ти се възстановява
+            по същата карта в срок до 14 дни.
           </li>
         </ul>
 
-        <h3 className={subTitle}>Право на отказ от договора</h3>
+        <h3 className={subTitle}>5. Възстановяване на заплатени суми</h3>
+        <p className={p}>
+          Срокът за възстановяване е до <strong>14 дни</strong> от получаване на
+          искането (до 5 работни дни при дублирано или грешно плащане).{" "}
+          <strong>
+            При необходимост от възстановяване на сума, платена с карта от страна
+            на потребителя, съответната сума се възстановява чрез картова операция
+            по същата карта, с която е извършено плащането.
+          </strong>{" "}
+          Възстановяване по друг начин на плащане, по друга карта или по банкова
+          сметка не е възможно. Пълните основания и срокове са описани в раздел{" "}
+          <a
+            href="#payments"
+            className="font-semibold text-[color:var(--brand-magenta)] hover:underline"
+          >
+            „Плащания и депозити“
+          </a>
+          .
+        </p>
+
+        <h3 className={subTitle}>6. Право на отказ от договора</h3>
         <p className={p}>
           Съгласно чл. 57, т. 12 от Закона за защита на потребителите (чл. 16,
           б. „л“ от Директива 2011/83/ЕС) законовото право на отказ в 14-дневен
@@ -517,7 +770,7 @@ export default async function PoliciesPage() {
           по-благоприятни правила за отмяна по-горе.
         </p>
 
-        <h3 className={subTitle}>Твоите задължения</h3>
+        <h3 className={subTitle}>7. Твоите задължения</h3>
         <ul className="mt-2 list-disc space-y-1 pl-5">
           <li className={li}>
             Да предоставяш вярни данни и да не ползваш чужд профил.
@@ -531,7 +784,7 @@ export default async function PoliciesPage() {
           </li>
         </ul>
 
-        <h3 className={subTitle}>Отговорност</h3>
+        <h3 className={subTitle}>8. Отговорност</h3>
         <p className={p}>
           Отговаряме за услугата съгласно българското законодателство. Не носим
           отговорност за вреди от неспазване на указанията на треньора или от
@@ -539,7 +792,7 @@ export default async function PoliciesPage() {
           приложението поради поддръжка или причини извън нашия контрол.
         </p>
 
-        <h3 className={subTitle}>Рекламации и спорове</h3>
+        <h3 className={subTitle}>9. Рекламации и спорове</h3>
         <p className={p}>
           При проблем с резервация или плащане ни потърси на{" "}
           <a
@@ -555,7 +808,7 @@ export default async function PoliciesPage() {
           ec.europa.eu/odr.
         </p>
 
-        <h3 className={subTitle}>Приложимо право и промени</h3>
+        <h3 className={subTitle}>10. Приложимо право и промени</h3>
         <p className={p}>
           Прилага се българското право. Може да актуализираме тези условия;
           промените важат за резервации, направени след публикуването им на тази

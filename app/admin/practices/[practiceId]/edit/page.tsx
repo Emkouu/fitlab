@@ -69,6 +69,7 @@ export default async function AdminPracticesEditPage({ params }: EditPageProps) 
           name: practice.name,
           slug: practice.slug,
           description: practice.description,
+          priceMinor: practice.priceMinor,
         }}
       />
     </main>

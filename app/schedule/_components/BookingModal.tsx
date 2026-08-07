@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { formatEurMinor, formatSofiaDay, formatSofiaTime } from "@/lib/format";
 import { DEPOSIT_UNIT_MINOR, depositCount } from "@/lib/deposit";
+import { classPriceMinor } from "@/lib/pricing";
 import {
   CLASS_FEE_METHODS,
   CLASS_FEE_METHOD_LABEL,
@@ -31,7 +33,16 @@ type Phase =
  *
  * The class fee itself is NOT collected here — the client says how they intend
  * to pay (абонаментна карта / в брой / Multisport) and staff confirm it on
- * site in Attendance.
+ * site in Attendance. Its **price is shown** regardless: the acquirer requires
+ * the final price of the service to be visible at every step that leads to a
+ * transaction (Fibank instruction §I.8).
+ *
+ * Two things here are acquirer requirements, not product choices:
+ *   * the deposit's terms of use and refund conditions are stated in the form
+ *     itself, not only in the Общи условия;
+ *   * „Приемам Общите условия" is a mandatory, unticked checkbox — Потвърди
+ *     stays disabled until it is ticked, so nobody reaches the bank's
+ *     card-data page without having agreed. The server re-checks.
  *
  * Renders as a native <dialog> so we inherit focus trap, ESC-to-close,
  * ::backdrop, and inert background for free.
@@ -52,10 +63,15 @@ export function BookingModal({
   // How the client intends to pay the class fee on site. "" until chosen —
   // Потвърди stays disabled so staff always get an answer.
   const [method, setMethod] = useState<ClassFeeMethod | "">("");
+  // Mandatory consent with the Общи условия. Never pre-ticked.
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [, startTransition] = useTransition();
 
   const deposits = depositCount(userBalance);
   const hasDeposit = deposits >= 1;
+  // A client without a deposit can pay it online, when the studio has card
+  // payments switched on — otherwise the only route is paying it at the studio.
+  const canPayDepositByCard = !hasDeposit && (row?.studio.cardPaymentsEnabled ?? false);
 
   // Open / close the dialog imperatively in response to the row prop.
   useEffect(() => {
@@ -63,6 +79,7 @@ export function BookingModal({
     if (!d) return;
     if (row && !d.open) {
       setMethod("");
+      setTermsAccepted(false);
       setPhase({ kind: "form" });
       d.showModal();
     } else if (!row && d.open) {
@@ -91,19 +108,27 @@ export function BookingModal({
     }
   }
 
-  async function handleConfirm() {
+  async function handleConfirm(source: "balance" | "card") {
     if (!row) return;
     setPhase({ kind: "submitting" });
     startTransition(async () => {
       // source "balance" == backed by the standing deposit on the profile.
       // The deposit is NOT debited; the chosen method is how the class fee
-      // will be settled on site.
+      // will be settled on site. source "card" pays the one-off deposit now,
+      // through Fibank's virtual POS.
       const result = await bookClassAction({
         scheduledClassId: row.id,
-        source: "balance",
+        source,
         method: method === "" ? undefined : method,
+        acceptTerms: termsAccepted,
       });
       if (result.ok) {
+        if (result.redirectTo) {
+          // Card path — hand the browser to the /pay hop, which POSTs onward to
+          // the bank. Don't flash a success state for money that hasn't moved.
+          router.push(result.redirectTo);
+          return;
+        }
         setPhase({ kind: "success" });
         router.refresh();
         setTimeout(() => {
@@ -174,12 +199,29 @@ export function BookingModal({
                   </motion.div>
                 )}
 
+                {/* Price of the service itself. Shown to everyone, always —
+                    the acquirer requires the end price to be visible at every
+                    step that leads to a transaction. */}
+                <Section
+                  title="Цена на тренировката"
+                  trailing={
+                    <span className="font-display text-sm font-bold text-[color:var(--brand-magenta)]">
+                      {formatEurMinor(classPriceMinor(row.practice, row.studio))}
+                    </span>
+                  }
+                >
+                  <p className="text-[13px] leading-relaxed text-[color:var(--brand-purple)]/80">
+                    Крайна цена за едно посещение, с включени всички данъци.
+                    Заплаща се на място в студиото.
+                  </p>
+                </Section>
+
                 {/* Deposit section — only for clients who don't have one yet.
                     A client with a paid deposit has nothing to read here; they
                     get the class-fee picker instead. */}
                 {!hasDeposit && (
                   <Section
-                    title="Депозит"
+                    title="Депозит (еднократно)"
                     trailing={
                       <span className="font-display text-sm font-bold text-[color:var(--brand-magenta)]">
                         {formatEurMinor(DEPOSIT_UNIT_MINOR)}
@@ -188,18 +230,27 @@ export function BookingModal({
                   >
                     <p className="text-[13px] leading-relaxed text-[color:var(--brand-purple)]/80">
                       Депозитът в размер на {formatEurMinor(DEPOSIT_UNIT_MINOR)}{" "}
-                      се заплаща еднократно. Той ви дава възможност да запазите
-                      място за тренировка. При неявяване и неотписване на
-                      запазеното място в посочения интервал, депозитът се
-                      усвоява.
+                      се заплаща <strong>еднократно</strong> и е отделен от
+                      цената на тренировката. Той ти дава възможност да запазваш
+                      място онлайн.
                     </p>
+                    <DepositTerms cancelWindowHours={row.studio.cancelWindowHours} />
 
-                    <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3.5 py-3">
-                      <p className="text-[12px] leading-relaxed text-amber-800">
-                        Нямаш платен депозит. Плати депозит в студиото, за да
-                        можеш да запазиш място.
-                      </p>
-                    </div>
+                    {canPayDepositByCard ? (
+                      <div className="mt-3 rounded-2xl border border-[color:var(--brand-pink)]/70 bg-[color:var(--brand-pink-soft)]/40 px-3.5 py-3">
+                        <p className="text-[12px] leading-relaxed text-[color:var(--brand-purple)]/80">
+                          Можеш да платиш депозита сега с банкова карта, или да
+                          го оставиш в студиото преди първата си тренировка.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3.5 py-3">
+                        <p className="text-[12px] leading-relaxed text-amber-800">
+                          Нямаш платен депозит. Плати депозит в студиото, за да
+                          можеш да запазиш място.
+                        </p>
+                      </div>
+                    )}
                   </Section>
                 )}
 
@@ -231,13 +282,13 @@ export function BookingModal({
                       ))}
                     </select>
                     <p className="mt-2 text-[12px] leading-relaxed text-[color:var(--brand-purple)]/65">
-                      Таксата се заплаща на място. Депозитът ти остава по
+                      Цената се заплаща на място. Депозитът ти остава по
                       профила.
                     </p>
                   </Section>
                 )}
 
-                <Section title="Отказ">
+                <Section title="Отказ от резервация и депозит">
                   <ul className="space-y-1 text-[12px] leading-relaxed text-[color:var(--brand-purple)]/75">
                     <li>
                       Можеш да се отпишеш{" "}
@@ -249,6 +300,51 @@ export function BookingModal({
                     <li>След това депозитът се усвоява.</li>
                     <li>Неявяване — депозитът се усвоява.</li>
                   </ul>
+                  {hasDeposit && (
+                    <DepositTerms cancelWindowHours={row.studio.cancelWindowHours} />
+                  )}
+                </Section>
+
+                {/* Mandatory consent. Must be given before the client can be
+                    sent to the card-data page (acquirer requirement), so it
+                    gates Потвърди on every path. */}
+                <Section title="Общи условия">
+                  <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-[color:var(--brand-pink)]/70 bg-white px-3.5 py-3 transition-colors hover:bg-[color:var(--brand-pink-soft)]/40">
+                    <input
+                      type="checkbox"
+                      checked={termsAccepted}
+                      onChange={(e) => setTermsAccepted(e.target.checked)}
+                      disabled={phase.kind === "submitting" || full}
+                      required
+                      aria-describedby="booking-terms-hint"
+                      className="mt-0.5 h-[18px] w-[18px] shrink-0 accent-[color:var(--brand-magenta)]"
+                    />
+                    <span
+                      id="booking-terms-hint"
+                      className="text-[12px] leading-relaxed text-[color:var(--brand-purple)]/85"
+                    >
+                      Прочетох и приемам{" "}
+                      <Link
+                        href="/policies#terms"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-semibold text-[color:var(--brand-magenta)] underline"
+                      >
+                        Общите условия
+                      </Link>{" "}
+                      и{" "}
+                      <Link
+                        href="/policies#privacy"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-semibold text-[color:var(--brand-magenta)] underline"
+                      >
+                        Политиката за поверителност
+                      </Link>
+                      , включително условията за отказ, ползване и възстановяване
+                      на депозита.
+                    </span>
+                  </label>
                 </Section>
 
                 {phase.kind === "error" && (
@@ -268,30 +364,69 @@ export function BookingModal({
           {/* Footer CTA */}
           {phase.kind !== "success" && (
             <div className="space-y-2.5 border-t border-[color:var(--brand-pink)]/40 bg-white px-5 py-4">
-              <button
-                type="button"
-                onClick={handleConfirm}
-                disabled={
-                  phase.kind === "submitting" ||
-                  full ||
-                  !hasDeposit ||
-                  method === ""
-                }
-                className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[color:var(--brand-magenta)] px-5 py-3.5 font-display text-sm font-bold uppercase tracking-wider text-white transition-colors hover:bg-[color:var(--brand-purple)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--brand-magenta)] focus-visible:ring-offset-2 disabled:opacity-60"
-              >
-                {phase.kind === "submitting" ? (
-                  <>
-                    <Spinner size={18} />
-                    <span>Запазване</span>
-                  </>
-                ) : phase.kind === "error" ? (
-                  <>Опитай отново</>
-                ) : (
-                  <>
-                    Потвърди <Arrow />
-                  </>
-                )}
-              </button>
+              {/* Client with a standing deposit: confirm and go. */}
+              {hasDeposit && (
+                <button
+                  type="button"
+                  onClick={() => handleConfirm("balance")}
+                  disabled={
+                    phase.kind === "submitting" || full || method === "" || !termsAccepted
+                  }
+                  className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[color:var(--brand-magenta)] px-5 py-3.5 font-display text-sm font-bold uppercase tracking-wider text-white transition-colors hover:bg-[color:var(--brand-purple)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--brand-magenta)] focus-visible:ring-offset-2 disabled:opacity-60"
+                >
+                  {phase.kind === "submitting" ? (
+                    <>
+                      <Spinner size={18} />
+                      <span>Запазване</span>
+                    </>
+                  ) : phase.kind === "error" ? (
+                    <>Опитай отново</>
+                  ) : (
+                    <>
+                      Потвърди <Arrow />
+                    </>
+                  )}
+                </button>
+              )}
+
+              {/* No deposit yet, card payments on: pay the one-off deposit now.
+                  The label names the amount, and consent is already required —
+                  the next screen is the bank's card form. */}
+              {canPayDepositByCard && (
+                <button
+                  type="button"
+                  onClick={() => handleConfirm("card")}
+                  disabled={phase.kind === "submitting" || full || !termsAccepted}
+                  className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[color:var(--brand-magenta)] px-5 py-3.5 font-display text-sm font-bold uppercase tracking-wider text-white transition-colors hover:bg-[color:var(--brand-purple)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--brand-magenta)] focus-visible:ring-offset-2 disabled:opacity-60"
+                >
+                  {phase.kind === "submitting" ? (
+                    <>
+                      <Spinner size={18} />
+                      <span>Пренасочване</span>
+                    </>
+                  ) : phase.kind === "error" ? (
+                    <>Опитай отново</>
+                  ) : (
+                    <>
+                      Плати депозит {formatEurMinor(DEPOSIT_UNIT_MINOR)} с карта{" "}
+                      <Arrow />
+                    </>
+                  )}
+                </button>
+              )}
+
+              {/* Neither path available — nothing to press, so say why. */}
+              {!hasDeposit && !canPayDepositByCard && (
+                <p className="text-center text-[12px] leading-relaxed text-[color:var(--brand-purple)]/70">
+                  За да запазиш място, плати еднократния депозит в студиото.
+                </p>
+              )}
+
+              {!termsAccepted && (hasDeposit || canPayDepositByCard) && (
+                <p className="text-center text-[11px] text-[color:var(--brand-purple)]/60">
+                  Отбележи съгласието с Общите условия, за да продължиш.
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -326,6 +461,42 @@ function ClassSummary({ row }: { row: ClassCardRow }) {
         {row.studio.name}
       </p>
     </div>
+  );
+}
+
+/**
+ * The deposit's terms of use and refund conditions, in the booking form itself.
+ *
+ * The acquirer asked specifically for this: the form says „депозитът остава по
+ * профила" and that sentence alone doesn't tell the client how long it stays,
+ * what it can be used for, or whether they can have the money back if they
+ * don't want another class. All three answers live here, and the same wording
+ * is expanded in the Общи условия.
+ */
+function DepositTerms({ cancelWindowHours }: { cancelWindowHours: number }) {
+  return (
+    <ul className="mt-3 space-y-1.5 rounded-2xl bg-[color:var(--brand-pink-soft)]/50 px-3.5 py-3 text-[12px] leading-relaxed text-[color:var(--brand-purple)]/80">
+      <li>
+        <strong>Ползване:</strong> депозитът е <strong>безсрочен</strong> — стои
+        по профила ти и важи за неограничен брой следващи резервации. Записването
+        не го изразходва.
+      </li>
+      <li>
+        <strong>Не се приспада</strong> от цената на тренировката — тя се плаща
+        отделно, на място.
+      </li>
+      <li>
+        <strong>Усвоява се</strong> при неявяване или при отписване по-късно от{" "}
+        {cancelWindowHours} часа преди класа. За нова резервация се дължи нов
+        депозит.
+      </li>
+      <li>
+        <strong>Възстановяване:</strong> ако не искаш да го ползваш повече, пиши
+        ни и възстановяваме сумата в срок до <strong>14 дни</strong> — платените
+        с карта депозити се връщат{" "}
+        <strong>по същата карта</strong>, платените в брой — в брой в студиото.
+      </li>
+    </ul>
   );
 }
 

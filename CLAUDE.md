@@ -13,7 +13,7 @@ Mobile-first booking app for a premium yoga/fitness studio. API-first so a futur
 - **TanStack Query** for server state; **Zustand** only for trivial UI state — never duplicate server data.
 - **Prisma + PostgreSQL**.
 - **Supabase Auth** — phone/SMS OTP primary, email magic link fallback. JWT sessions. Requires an SMS gateway (Twilio/MessageBird) — per-message cost.
-- **Stripe** — Checkout for card deposit; webhook confirms `paid`.
+- **Fibank ECOMM (виртуален ПОС)** — the card provider for the one-off deposit. See „Card payments" below. Stripe is legacy/unused.
 - **Supabase Storage** — trainer photos.
 - **Deploy:** Vercel (web) + Supabase (DB/auth/storage).
 
@@ -80,8 +80,28 @@ After step 10, MVP done. Only then consider Phase 2.
 
 - The trader and GDPR controller is **ФИЗИОЛАЙФ 22 ЕООД (ЕИК 207009324)**; „FitLab Varna" is only a trade name. All of it lives in `lib/legal/company.ts` (`COMPANY`, `ACQUIRER`, `PROCESSORS`, `DPA`, `CPC`, `POLICIES_LAST_UPDATED`) — never hardcode the company anywhere else. Bump `POLICIES_LAST_UPDATED` on every policy edit.
 - `/policies` renders five anchored sections: Търговец, Поверителност (GDPR Art. 13 disclosure set), Плащания и депозити (virtual POS), Общи условия, Бисквитки. Studio-specific numbers (address, phone, `cancelWindowHours`) come from the DB; the deposit amount from `DEPOSIT_UNIT_MINOR`.
-- Online card deposits are documented as going through the **виртуален ПОС на Първа инвестиционна банка АД (Fibank)** — card data never touches our servers. ⚠️ The code still mints **Stripe** Checkout (test-key-only guard in `lib/stripe.ts`); either wire the Fibank virtual POS or add Stripe to `PROCESSORS` before real card payments go live.
+- Online card deposits go through the **виртуален ПОС на Първа инвестиционна банка АД (Fibank)** — card data never touches our servers.
 - Trader identity must stay permanently accessible: landing-page footer line + electronic receipt („Търговец" row in `emails/BookingConfirmation.tsx`).
+- `/policies` sections were rewritten for the acquirer's 07.08.2026 letter — see `fitlab-fibank-integration.md` for the requirement→location map. Anything the bank is told must stay true in the code.
+
+## Class price
+
+`Studio.defaultClassPrice` (€10) with an optional `Practice.priceMinor` override, resolved **only** through `classPriceMinor()` in `lib/pricing.ts`. Never read either column directly. The acquirer requires the final price of the service to be visible at every step that leads to a transaction, so it appears on the schedule card, in the booking modal, on `/pay`, on the receipt and in `/policies#prices`. Editable in Админ → Настройки and Админ → Практики.
+
+## Card payments — Fibank ECOMM
+
+- Client: `lib/payments/ecomm/` — `protocol.ts` (pure, tested: response parsing, EUR=978, amount formatting, BG→latin transliteration of `description`, IPv4 normalisation), `client.ts` (mutual-TLS POST via `node:https` + the four commands), `config.ts` (endpoints + PKCS#12 keystore from env; never throws at import).
+- Flow: `bookClassAction(source: "card")` → `startEcommPaymentForBooking` registers `command=v` and stores `Payment.ecommTransId` → the client is sent to `/pay/<bookingId>`, which **POSTs** `trans_id` to ClientHandler (a POST is mandatory) → the bank returns the client to `/api/payments/ecomm/return` or `/fail` → `settleEcommPaymentForBooking` asks `command=c` and writes the result.
+- **`RESULT` is the only field that decides success** (manual §4.2); `RESULT_CODE` and `3DSECURE` are informational. Every returned field is preserved on `Payment.ecomm*`.
+- The return URLs are registered with the bank verbatim and **must never carry query parameters**. The booking is identified by the `ecomm_booking` cookie (`SameSite=None; Secure`, since the bank POSTs cross-site) with the `booking_id` form field as fallback.
+- The card charge is **`DEPOSIT_UNIT_MINOR`** (€10), never `ScheduledClass.depositAmount` — that column is an admin field the client is never shown.
+- Refunds go back **only** to the same card (`lib/payments/refundCardPayment.ts`, `command=k`). Legacy Stripe payments have no `ecommTransId` and are reported as `unsupported` rather than silently marked refunded.
+- Env: `ECOMM_ENVIRONMENT`, `ECOMM_CERT_PFX_BASE64`, `ECOMM_CERT_PASSWORD`, optional `ECOMM_MERCHANT_URL` / `ECOMM_CLIENT_URL`.
+- ⚠️ Vercel has no static outbound IP; if the bank requires an IP whitelist the calls need a fixed-IP proxy. Open decision — see `fitlab-fibank-integration.md` §B1.
+
+## Terms consent
+
+`bookClassAction` refuses any booking without `acceptTerms === true` (all sources, not just `card`) and stamps `Booking.termsAcceptedAt` + `termsVersion` (= `POLICIES_LAST_UPDATED`) inside the engine's transaction. The checkbox in the booking modal is never pre-ticked, and it gates the button that leads to the bank's card-data page.
 
 ## Public schedule visibility window
 

@@ -1,0 +1,13 @@
+ECOMM Test System:
+
+1. ECOMM address for API calls:  https://mdpay-test.fibank.bg:10443/ecomm_v2/MerchantHandler
+
+2. ECOMM address for customer redirection to payment page:  https://mdpay-test.fibank.bg/ecomm_v2/ClientHandler
+
+
+
+ECOMM Production System:
+
+1. ECOMM address for API calls:  https://mdpay.fibank.bg:10443/ecomm_v2/MerchantHandler
+
+2. ECOMM address for customer redirection to payment page:  https://mdpay.fibank.bg/ecomm_v2/ClientHandler

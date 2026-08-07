@@ -71,6 +71,11 @@ model Studio {
   instagramUrl       String?
   /// Default deposit (minor units / EUR cents) pre-filled on the new-class form.
   defaultDeposit     Int    @default(2000)
+  /// Final price of one group class (minor units / EUR cents), settled on site.
+  /// Shown on the schedule and in the booking modal — the acquirer requires the
+  /// end price of the service to be visible (Fibank instruction §I.8/§I.9).
+  /// A Practice may override it via `Practice.priceMinor`.
+  defaultClassPrice  Int    @default(1000)
   /// Admin kill-switch for the card deposit path. When false the booking UI
   /// hides „Плати с карта" and the server rejects source=card bookings.
   cardPaymentsEnabled Boolean @default(true)
@@ -86,6 +91,10 @@ model Practice {
   /// Optional description — what this practice is, what to expect.
   /// Shown in the class info modal on the public schedule.
   description String?
+  /// Per-practice price override (minor units / EUR cents). NULL → the class
+  /// costs `Studio.defaultClassPrice`. Read through `lib/pricing.ts`, never
+  /// directly, so the fallback stays in one place.
+  priceMinor  Int?
 
   classes  ScheduledClass[]
   trainers Trainer[] @relation("TrainerSpecialties")
@@ -174,6 +183,14 @@ model Booking {
   /// payment and attendance are independent axes.
   depositSettledAt DateTime?
 
+  /// Proof that the client ticked „Приемам Общите условия" before the booking
+  /// was created — the acquirer requires explicit consent before the client is
+  /// ever redirected to the card-data page. NULL only for legacy rows.
+  termsAcceptedAt  DateTime?
+  /// Which revision of the terms was accepted (`POLICIES_LAST_UPDATED`), so a
+  /// later edit of the terms can't silently rewrite what the client agreed to.
+  termsVersion     String?
+
   /// Prevents double-booking the same class by the same user (SPEC §5.2).
   /// Only applies to active (non-cancelled) bookings, allowing re-booking after cancellation.
   @@unique([userId, scheduledClassId], map: "unique_active_booking", where: raw("status != 'cancelled'"))
@@ -189,6 +206,35 @@ model Payment {
 
   stripePaymentIntentId String?       @unique
   stripeCheckoutId      String?       @unique
+
+  // ── Fibank ECOMM (виртуален ПОС) ────────────────────────────────────────
+  // The live card provider. Card data is entered on the bank's own page; we
+  // only ever hold the transaction identifier and the result fields the bank
+  // hands back. The acquirer requires every response field to be preserved
+  // (integration manual §4.2).
+  /// 28-char base64 identifier returned by `command=v`. The key we use to ask
+  /// the bank for a result and to issue a refund against the same card.
+  ecommTransId          String?       @unique
+  /// RESULT (OK | FAILED | CREATED | PENDING | DECLINED | REVERSED | …).
+  ecommResult           String?
+  /// RESULT_CODE — 3-digit processing code, informative only.
+  ecommResultCode       String?
+  /// 3DSECURE authentication outcome, informative only.
+  ecomm3dSecure         String?
+  /// Retrieval reference number — lets the bank trace the transaction.
+  ecommRrn              String?
+  /// Approval code (successful transactions only).
+  ecommApprovalCode     String?
+  /// Masked card number as returned by the bank, e.g. "4***********6789".
+  /// Never a full PAN — we neither receive nor store one.
+  ecommCardMask         String?
+
+  // ── Refund back to the same card (Fibank instruction §I.16) ─────────────
+  /// Identifier of the refund transaction (`command=k` → REFUND_TRANS_ID).
+  ecommRefundTransId    String?
+  /// How much was sent back, in minor units. May be less than `amount`.
+  refundedAmount        Int?
+  refundedAt            DateTime?
 
   booking               Booking?
 
