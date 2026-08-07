@@ -345,7 +345,7 @@ SUPABASE_SERVICE_ROLE_KEY=...
 
 # Имейли
 RESEND_API_KEY=...
-RESEND_FROM=FitLab Varna <noreply@fitlabvarna.com>
+RESEND_FROM="FitLab Varna <noreply@fitlabvarna.com>"
 
 # Cron
 CRON_SECRET=<дълъг случаен низ: openssl rand -hex 32>
@@ -355,6 +355,16 @@ ECOMM_ENVIRONMENT=test
 ECOMM_CERT_PFX_BASE64=<base64 на keystore-а от банката>
 ECOMM_CERT_PASSWORD=<паролата от банката>
 ```
+
+**Стойности с интервали се ограждат в кавички.** `RESEND_FROM` съдържа интервал и
+ъглови скоби, така че се пише така:
+
+```ini
+RESEND_FROM="FitLab Varna <noreply@fitlabvarna.com>"
+```
+
+Next и systemd свалят обграждащите кавички сами, така че стойността стига чиста до
+приложението.
 
 Заключи файла — вътре има service-role ключ и паролата на банковия сертификат:
 
@@ -372,16 +382,27 @@ chown fitlab:fitlab /opt/fitlab/app/.env && chmod 600 /opt/fitlab/app/.env
 ### 5.2 Билд
 
 ```bash
-runuser -u fitlab -- bash -lc 'cd /opt/fitlab/app && set -a && . ./.env && set +a && npm run build'
+runuser -u fitlab -- bash -lc 'cd /opt/fitlab/app && npm run build'
 ```
 
 `npm run build` вика `prisma generate && next build`. `sharp` (за `next/image`)
 идва като зависимост на Next 16 — не се инсталира отделно.
 
+⚠️ **Не подавай `.env` през shell-а** (`set -a && . ./.env`). Първо е излишно:
+Next чете `.env` сам, а `prisma.config.ts` импортва `dotenv/config`. Второ, чупи
+се — shell-ът тълкува стойност със интервали и `<>` като пренасочване:
+
+```
+./.env: line 14: syntax error near unexpected token `newline'
+./.env: line 14: `RESEND_FROM=FitLab Varna <noreply@fitlabvarna.com>'
+```
+
+Затова командата по-горе е просто `npm run build`, без sourcing.
+
 Бърза проверка, преди да пипаме nginx:
 
 ```bash
-runuser -u fitlab -- bash -lc 'cd /opt/fitlab/app && set -a && . ./.env && set +a && ./node_modules/.bin/next start -p 3000'
+runuser -u fitlab -- bash -lc 'cd /opt/fitlab/app && ./node_modules/.bin/next start -p 3000'
 ```
 
 От друга сесия: `curl -I http://127.0.0.1:3000/schedule` → очаква се `200`.
@@ -687,8 +708,10 @@ as_fitlab() { runuser -u fitlab -- bash -lc "$1"; }
 
 as_fitlab "cd $APP && git fetch --all && git reset --hard origin/main"
 as_fitlab "cd $APP && npm ci"
-as_fitlab "cd $APP && set -a && . ./.env && set +a && npx prisma migrate deploy"
-as_fitlab "cd $APP && set -a && . ./.env && set +a && npm run build"
+# Без sourcing на .env — Prisma и Next си го четат сами (dotenv), а през shell
+# стойности с интервали (RESEND_FROM) чупят изпълнението.
+as_fitlab "cd $APP && npx prisma migrate deploy"
+as_fitlab "cd $APP && npm run build"
 
 systemctl restart fitlab
 sleep 3
