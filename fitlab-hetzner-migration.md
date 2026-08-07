@@ -217,19 +217,36 @@ PHP, Apache, nginx или MariaDB. Ако HestiaCP е инсталирал св�
 Клонирането става **като `fitlab`**, не като root — иначе файловете стават на root
 и systemd услугата няма да може да пише в `.next`.
 
+⚠️ `su - fitlab` ще откаже с **„This account is currently not available"**.
+HestiaCP създава потребителите с shell `nologin` и **това е правилно** — акаунт,
+който само върти приложение, няма нужда да може да влиза по SSH. Не го променяй;
+изпълнявай командите му с `runuser` от root:
+
 ```bash
-su - fitlab
+runuser -u fitlab -- git clone <твоето-git-remote> /opt/fitlab/app
 ```
 
 ```bash
-git clone <твоето-git-remote> /opt/fitlab/app && cd /opt/fitlab/app && npm ci
+runuser -u fitlab -- bash -lc 'cd /opt/fitlab/app && npm ci'
 ```
 
-Ако репото е частно, направи deploy key:
-`ssh-keygen -t ed25519 -C fitlab-deploy -f ~/.ssh/id_ed25519 -N ""` и добави
-`~/.ssh/id_ed25519.pub` в GitHub → repo → Settings → Deploy keys (read-only).
+Ако репото е частно, направи deploy key за същия потребител:
+
+```bash
+runuser -u fitlab -- ssh-keygen -t ed25519 -C fitlab-deploy -f /home/fitlab/.ssh/id_ed25519 -N ""
+```
+
+…и добави съдържанието на `/home/fitlab/.ssh/id_ed25519.pub` в GitHub → repo →
+Settings → **Deploy keys** (read-only).
+
+> Ако предпочиташ да можеш да влизаш като `fitlab` по SSH, това се включва от
+> панела: **Users → fitlab → Edit → SSH Access → `bash`**. Тогава `su - fitlab`
+> работи и можеш да пропуснеш `runuser` навсякъде по-долу. Аз препоръчвам да
+> остане `nologin` — един акаунт по-малко за пазене.
 
 ### 5.1 Environment файл
+
+Файлът се създава от root, но трябва да е притежаван от `fitlab`:
 
 ```bash
 nano /opt/fitlab/app/.env
@@ -263,7 +280,7 @@ ECOMM_CERT_PASSWORD=<паролата от банката>
 Заключи файла — вътре има service-role ключ и паролата на банковия сертификат:
 
 ```bash
-chmod 600 /opt/fitlab/app/.env
+chown fitlab:fitlab /opt/fitlab/app/.env && chmod 600 /opt/fitlab/app/.env
 ```
 
 Стойностите от Vercel се изнасят с `vercel env pull .env.production` локално, за да
@@ -276,7 +293,7 @@ chmod 600 /opt/fitlab/app/.env
 ### 5.2 Билд
 
 ```bash
-cd /opt/fitlab/app && set -a && . ./.env && set +a && npm run build
+runuser -u fitlab -- bash -lc 'cd /opt/fitlab/app && set -a && . ./.env && set +a && npm run build'
 ```
 
 `npm run build` вика `prisma generate && next build`. `sharp` (за `next/image`)
@@ -285,7 +302,7 @@ cd /opt/fitlab/app && set -a && . ./.env && set +a && npm run build
 Бърза проверка, преди да пипаме nginx:
 
 ```bash
-cd /opt/fitlab/app && set -a && . ./.env && set +a && npx next start -p 3000
+runuser -u fitlab -- bash -lc 'cd /opt/fitlab/app && set -a && . ./.env && set +a && ./node_modules/.bin/next start -p 3000'
 ```
 
 От друга сесия: `curl -I http://127.0.0.1:3000/schedule` → очаква се `200`.
@@ -572,38 +589,45 @@ Supabase Dashboard → **Authentication → URL Configuration**:
 
 ## 11. Деплой скрипт
 
+Скриптът се държи от root и вика `runuser` за всичко, което пипа файлове — така
+`fitlab` остава без shell и без sudo права, а рестартът е единственото, което
+изисква root.
+
 ```bash
-nano /home/fitlab/deploy.sh
+nano /opt/fitlab/deploy.sh
 ```
 
 ```bash
 #!/usr/bin/env bash
-# Деплой на FitLab. Билдът е преди рестарта, така че провален билд
-# не оставя сайта долу.
+# Деплой на FitLab. Билдът е ПРЕДИ рестарта, така че провален билд
+# не оставя сайта долу. Изпълнява се като root.
 set -euo pipefail
 
 APP=/opt/fitlab/app
-cd "$APP"
+as_fitlab() { runuser -u fitlab -- bash -lc "$1"; }
 
-git fetch --all
-git reset --hard origin/main
+as_fitlab "cd $APP && git fetch --all && git reset --hard origin/main"
+as_fitlab "cd $APP && npm ci"
+as_fitlab "cd $APP && set -a && . ./.env && set +a && npx prisma migrate deploy"
+as_fitlab "cd $APP && set -a && . ./.env && set +a && npm run build"
 
-npm ci
-set -a; . ./.env; set +a
-
-npx prisma migrate deploy
-npm run build
-
-sudo systemctl restart fitlab
+systemctl restart fitlab
 sleep 3
-curl -fsS -o /dev/null http://127.0.0.1:3000/schedule && echo "✅ деплой ок" || { echo "❌ приложението не отговаря"; exit 1; }
+curl -fsS -o /dev/null http://127.0.0.1:3000/schedule \
+  && echo "✅ деплой ок" \
+  || { echo "❌ приложението не отговаря — journalctl -u fitlab -n 50"; exit 1; }
 ```
 
 ```bash
-chmod +x /home/fitlab/deploy.sh && echo 'fitlab ALL=(root) NOPASSWD: /usr/bin/systemctl restart fitlab' > /etc/sudoers.d/fitlab-restart && chmod 440 /etc/sudoers.d/fitlab-restart
+chmod 750 /opt/fitlab/deploy.sh
 ```
 
-Оттук нататък деплоят е `ssh fitlab@<IP> ./deploy.sh`.
+Оттук нататък деплоят е `ssh root@<IP> /opt/fitlab/deploy.sh`.
+
+> Предишната версия на този документ даваше на `fitlab` sudo право за
+> `systemctl restart` и деплой по `ssh fitlab@`. То отпада — акаунтът е `nologin`
+> (§5), така че sudoers файлът не е нужен. Ако си го създал:
+> `rm -f /etc/sudoers.d/fitlab-restart`.
 
 ### 11.1 Staging инстанция (силно препоръчително на този сървър)
 
@@ -622,8 +646,9 @@ CCX23 има ресурс да върти втора инстанция, а тя
    ```bash
    v-change-web-domain-proxy-tpl fitlab test.fitlabvarna.com nodejs-staging yes
    ```
-3. Клонирай кода в `/opt/fitlab-staging/app` (`mkdir -p` + `chown fitlab:fitlab`),
-   направи собствен `.env` с:
+3. Клонирай кода в `/opt/fitlab-staging/app` (`mkdir -p` +
+   `chown fitlab:fitlab`, после `runuser -u fitlab -- git clone …`), направи
+   собствен `.env` с:
    - `PORT=3001`
    - `NEXT_PUBLIC_APP_URL=https://test.fitlabvarna.com`
    - `ECOMM_ENVIRONMENT=test`
