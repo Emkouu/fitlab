@@ -49,8 +49,9 @@ export type ClassFormProps = {
   practices: Array<{ id: string; name: string }>;
   trainers: Array<{ id: string; name: string }>;
   initialData?: ClassFormInput & { id: string };
-  /** Pre-fill deposit (EUR string, e.g. "20.00") for create mode. Defaults to "20.00". */
-  defaultDepositEur?: string;
+  /** `Studio.defaultDeposit` as an EUR string, shown as the placeholder so the
+   *  admin can see what an empty (inherited) field will actually charge. */
+  studioDepositEur?: string;
   onSubmit: (
     data: ClassFormInput,
     action: "save_and_close" | "save_and_add",
@@ -73,7 +74,7 @@ export function ClassForm({
   practices,
   trainers,
   initialData,
-  defaultDepositEur = "20.00",
+  studioDepositEur,
   onSubmit: onSubmitProp,
   isLoading = false,
   successToast = null,
@@ -105,7 +106,7 @@ export function ClassForm({
         practiceId: "",
         trainerIds: [],
         capacity: 15,
-        depositEur: defaultDepositEur,
+        depositEur: "",
         isSpecialEvent: false,
         eventNotes: undefined,
         imageUrl: "",
@@ -438,8 +439,12 @@ export function ClassForm({
       <div>
         <label className="block text-sm font-semibold text-[color:var(--brand-ink)]">
           Депозит
-          <span className="text-[color:var(--brand-magenta)]">*</span>
         </label>
+        <p className="mt-1 text-xs leading-relaxed text-[color:var(--brand-purple)]/65">
+          Остави празно, за да важи сумата от Настройки
+          {studioDepositEur ? ` (${studioDepositEur} €)` : ""}. Попълни само ако
+          този клас трябва да е с различен депозит.
+        </p>
         <div className="mt-2 flex items-center rounded-lg border border-[color:var(--brand-purple)]/20 px-3 py-2.5 transition-all focus-within:border-[color:var(--brand-magenta)] focus-within:ring-1 focus-within:ring-[color:var(--brand-magenta)]/30">
           <Controller
             name="depositEur"
@@ -449,7 +454,7 @@ export function ClassForm({
                 {...field}
                 type="text"
                 inputMode="decimal"
-                placeholder="20.00"
+                placeholder={studioDepositEur ?? "10.00"}
                 className="w-full text-sm font-medium text-[color:var(--brand-ink)] placeholder-[color:var(--brand-purple)]/40 outline-none"
                 disabled={isSubmitting || isLoading}
               />

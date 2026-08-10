@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import { PaymentStatus } from "@/lib/generated/prisma/enums";
-import { DEPOSIT_UNIT_MINOR } from "@/lib/deposit";
+import { depositAmountMinor } from "@/lib/deposit";
 import { formatSofiaDay, formatSofiaTime } from "@/lib/format";
 import { registerTransaction } from "./client";
 
@@ -8,11 +8,11 @@ import { registerTransaction } from "./client";
  * Register the deposit payment for a card-source booking with Fibank ECOMM and
  * hand back the in-app URL that POSTs the client onward to the bank's card page.
  *
- * Replaces the Stripe Checkout hop: the amount charged is one **deposit unit**
- * (`DEPOSIT_UNIT_MINOR`, €10) — the one-off standing guarantee described in
- * `lib/deposit.ts` and quoted to the client everywhere — not
- * `ScheduledClass.depositAmount`, which is a per-class admin field the client is
- * never shown.
+ * The amount charged is the **deposit for this class**, resolved through
+ * `depositAmountMinor()` — the studio setting from Админ → Настройки unless that
+ * class carries its own override. It is the one-off standing guarantee described
+ * in `lib/deposit.ts`, and it is the same number quoted to the client on the
+ * card, in the booking modal and on /pay: never charge anything else.
  *
  * Idempotent at the Booking level: a booking that already has a registered
  * transaction is sent back to the same one instead of being charged twice.
@@ -94,7 +94,7 @@ export async function startEcommPaymentForBooking(args: {
       scheduledClass: {
         include: {
           practice: { select: { name: true } },
-          studio: { select: { name: true } },
+          studio: { select: { name: true, defaultDeposit: true } },
         },
       },
     },
@@ -118,9 +118,16 @@ export async function startEcommPaymentForBooking(args: {
 
   const cls = booking.scheduledClass;
   const description = `Depozit ${cls.practice.name} ${formatSofiaDay(cls.startAt)} ${formatSofiaTime(cls.startAt)}`;
+  const amountMinor = depositAmountMinor(cls, cls.studio);
+
+  // A 0 deposit means this class asks for no guarantee — there is nothing to
+  // charge, and the bank would reject a zero-amount registration anyway.
+  if (amountMinor <= 0) {
+    return { ok: false, error: "class requires no deposit" };
+  }
 
   const registered = await registerTransaction({
-    amountMinor: DEPOSIT_UNIT_MINOR,
+    amountMinor,
     clientIp: args.clientIp,
     description,
   });
@@ -138,7 +145,7 @@ export async function startEcommPaymentForBooking(args: {
     await prisma.payment.update({
       where: { id: booking.payment.id },
       data: {
-        amount: DEPOSIT_UNIT_MINOR,
+        amount: amountMinor,
         currency: "EUR",
         status: PaymentStatus.pending,
         ecommTransId: registered.transId,
@@ -154,7 +161,7 @@ export async function startEcommPaymentForBooking(args: {
   } else {
     await prisma.payment.create({
       data: {
-        amount: DEPOSIT_UNIT_MINOR,
+        amount: amountMinor,
         currency: "EUR",
         status: PaymentStatus.pending,
         ecommTransId: registered.transId,

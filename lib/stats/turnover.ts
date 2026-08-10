@@ -17,8 +17,10 @@ import { sofiaDateKey } from "@/lib/format";
 export type TurnoverBookingRow = {
   status: BookingStatus;
   source: BookingSource;
-  /** Deposit in minor units (EUR cents) — ScheduledClass.depositAmount. */
-  depositAmount: number;
+  /** Deposit in minor units (EUR cents), already resolved by the caller through
+   *  `depositAmountMinor()` — never the raw `ScheduledClass.depositAmount`
+   *  column, which is NULL whenever the class inherits the studio setting. */
+  depositMinor: number;
   /** Class start instant (UTC from Postgres). */
   classStartAt: Date;
 };
@@ -84,7 +86,7 @@ export function dailyStats(rows: TurnoverBookingRow[]): DayStats[] {
     day.bookings += 1;
     if (row.status === BookingStatus.attended) day.attended += 1;
     if (row.status === BookingStatus.no_show) day.noShows += 1;
-    if (countsTowardTurnover(row)) day.turnoverMinor += row.depositAmount;
+    if (countsTowardTurnover(row)) day.turnoverMinor += row.depositMinor;
   }
 
   return Array.from(byDay.values()).sort((a, b) =>

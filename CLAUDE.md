@@ -22,10 +22,10 @@ Mobile-first booking app for a premium yoga/fitness studio. API-first so a futur
 - **Studio** — id, name, slug. Keep `studioId` FK on classes now (multi-location is Phase 2).
 - **Practice/Category** — class type (Виняса Флоу, Пилатес, Хатха, Ин, Терапевтична, Тай Чи…). One→many ScheduledClasses.
 - **Trainer** — id, name, photo, bio, specialties. **Many-to-many** with classes (some classes have two trainers).
-- **ScheduledClass** — start datetime, **duration minutes stored explicitly** (varies 45–240, never assume), practiceId, studioId, **capacity** (our addition, not in export), depositAmount, isSpecialEvent, eventNotes.
+- **ScheduledClass** — start datetime, **duration minutes stored explicitly** (varies 45–240, never assume), practiceId, studioId, **capacity** (our addition, not in export), `depositAmount` (nullable per-class override), isSpecialEvent, eventNotes.
 - **Booking** — userId, scheduledClassId, status, createdAt, cancelledAt, paymentId (nullable), source (`card` | `onsite_deposit` | `balance`). **Partial unique index** on `(userId, scheduledClassId)` WHERE `status != 'cancelled'` — lets a user re-book a class after cancelling it.
 - **Payment** — ECOMM transaction fields (`ecommTransId`, result, RRN, card mask, refund), amount, currency (`EUR`), status. The `stripe*` columns remain only for rows from the removed Stripe integration. Every paid booking has one.
-- **User/Role** — enum `super_admin | admin | coach | member`. User may also link to a Trainer. Verified phone. Carries `depositBalance Int @default(0)` (minor units / EUR cents) accumulated from refunded cancellations.
+- **User/Role** — enum `super_admin | admin | coach | member`. User may also link to a Trainer. Verified phone. Carries `depositBalance Int @default(0)` — the standing deposit in EUR cents, i.e. the amount the client actually paid.
 - **Phase 2 stubs (table-ready, unused):** Membership/Pass, Waitlist, Notification, RecurringRule.
 
 **Booking statuses:** `booked`, `pending_deposit`, `paid`, `attended`, `no_show`, `cancelled`.
@@ -47,18 +47,18 @@ Pure tested functions in `/lib`, separate from API routes (reusable by RN + cron
 
 1. **No overbooking.** Capacity check + insert must be **atomic** — one DB transaction with row-level lock (`SELECT … FOR UPDATE`) or conditional insert. Never read-count-then-insert.
 2. **No duplicates** — rely on the partial unique index on `(userId, scheduledClassId)` WHERE `status != 'cancelled'`; show "вече си записан" on violation. The partial predicate lets a user re-book the same class after cancelling.
-3. **Deposit is a ONE-OFF standing guarantee, not a per-booking fee** (`lib/deposit.ts`). €10 paid once at the studio, recorded by an admin on `User.depositBalance`; it is what makes online reserving possible and **stays** on the profile. Booking requires `depositBalance ≥ DEPOSIT_UNIT_MINOR` but **never debits it**. Source → initial status:
-   - `card`    → `booked` → Fibank ECOMM (`/pay/<id>` → bank) → the return leg flips to `paid`.
+3. **Deposit is a ONE-OFF standing guarantee, not a per-booking fee** (`lib/deposit.ts`). Paid once — at the studio (an admin records it) or online by card — onto `User.depositBalance`; it is what makes online reserving possible and **stays** on the profile. Booking requires the balance to cover the class's deposit but **never debits it**. Source → initial status:
+   - `card`    → `booked` → Fibank ECOMM (`/pay/<id>` → bank) → the return leg flips to `paid` **and records the deposit on the profile** (in `settleEcommPaymentForBooking`'s transaction, at `payment.amount` — what the bank actually took — conditional on `depositBalance < payment.amount` so replays and repeat card bookings can't stack two).
    - `balance` → `booked` (instant; the standing deposit backs it, no debit).
    - `onsite_deposit` → `pending_deposit` (paid in cash on arrival).
    - Spot is held in all three cases.
    - The **class fee** is a separate thing, always settled on site. The client picks an intended method in the booking modal (`subscription | cash | multisport`, see `lib/payments/classFeeMethods.ts`), persisted on `Booking.onsiteMethod`; staff confirm or correct it in Attendance.
 4. **JIT abandoned-checkout sweep.** `createBooking` opportunistically cancels stale card holds on the same class inside the row-locked transaction: `source=card` AND `status=booked` AND no paid `Payment` AND `createdAt < now − 15min`. On-site and balance bookings are never swept.
-5. **Cancellation:** studio config `cancelWindowHours` (default **4** in MVP). Before (start − window) → cancel clean, **deposit stays** (nothing to refund — it was never debited). After → `cancelled` + **burn one deposit** (`card`/`balance` only; `onsite_deposit` never touches `depositBalance`). Admin can pass `overrideRefund` to skip the burn.
+5. **Cancellation:** studio config `cancelWindowHours` (default **4** in MVP). Before (start − window) → cancel clean, **deposit stays** (nothing to refund — it was never debited). After → `cancelled` + **burn the deposit** via `burnDeposit()` (`card`/`balance` only; `onsite_deposit` never touches `depositBalance`). Admin can pass `overrideRefund` to skip the burn.
 6. **Attendance:** staff sets `attended` (with the class-fee method) or `no_show`.
    - `attended` → deposit **untouched**, stays for the next booking.
-   - `no_show`  → burn one deposit, once (guarded on `previousStatus`).
-   - Correcting a `no_show` back to `attended` **restores** the deposit, so a mis-tap never costs the client €10.
+   - `no_show`  → burn the deposit, once (guarded on `previousStatus` + the ledger's own claim).
+   - Correcting a `no_show` back to `attended` **restores exactly what was burned**, so a mis-tap never costs the client money.
    - The engine only returns verdicts + `previousStatus`; the money moves in `app/admin/attendance/_actions.ts`.
 
 ## Roadmap (§9) — commit after each step
@@ -79,7 +79,7 @@ After step 10, MVP done. Only then consider Phase 2.
 ## Legal identity + policies
 
 - The trader and GDPR controller is **ФИЗИОЛАЙФ 22 ЕООД (ЕИК 207009324)**; „FitLab Varna" is only a trade name. All of it lives in `lib/legal/company.ts` (`COMPANY`, `ACQUIRER`, `PROCESSORS`, `DPA`, `CPC`, `POLICIES_LAST_UPDATED`) — never hardcode the company anywhere else. Bump `POLICIES_LAST_UPDATED` on every policy edit.
-- `/policies` renders five anchored sections: Търговец, Поверителност (GDPR Art. 13 disclosure set), Плащания и депозити (virtual POS), Общи условия, Бисквитки. Studio-specific numbers (address, phone, `cancelWindowHours`) come from the DB; the deposit amount from `DEPOSIT_UNIT_MINOR`.
+- `/policies` renders five anchored sections: Търговец, Поверителност (GDPR Art. 13 disclosure set), Плащания и депозити (virtual POS), Общи условия, Бисквитки. Studio-specific numbers (address, phone, `cancelWindowHours`, the deposit) all come from the DB.
 - Online card deposits go through the **виртуален ПОС на Първа инвестиционна банка АД (Fibank)** — card data never touches our servers.
 - Trader identity must stay permanently accessible: landing-page footer line + electronic receipt („Търговец" row in `emails/BookingConfirmation.tsx`).
 - `/policies` sections were rewritten for the acquirer's 07.08.2026 letter — see `fitlab-fibank-integration.md` for the requirement→location map. Anything the bank is told must stay true in the code.
@@ -88,13 +88,29 @@ After step 10, MVP done. Only then consider Phase 2.
 
 `Studio.defaultClassPrice` (€10) with an optional `Practice.priceMinor` override, resolved **only** through `classPriceMinor()` in `lib/pricing.ts`. Never read either column directly. The acquirer requires the final price of the service to be visible at every step that leads to a transaction, so it appears on the schedule card, in the booking modal, on `/pay`, on the receipt and in `/policies#prices`. Editable in Админ → Настройки and Админ → Практики.
 
+## Deposit amount
+
+Configurable, and shaped exactly like „Class price". Resolve **only** through `depositAmountMinor(scheduledClass, studio)` in `lib/deposit.ts` — never read either column directly:
+
+1. `ScheduledClass.depositAmount` — per-class override, **NULL by default** (the „Депозит" field on the admin class form; empty = inherit).
+2. `Studio.defaultDeposit` — the studio-wide amount, editable in Админ → Настройки. This is the knob for everyday changes.
+3. `FALLBACK_DEPOSIT_MINOR` (€10) — last resort, so an amount is never missing from a screen that leads to a card transaction.
+
+A stored **0 is a real amount** (a class needing no guarantee), not „unset"; only NULL falls through. `startEcommPaymentForBooking` refuses a 0-deposit card payment rather than registering a zero-amount transaction with the bank.
+
+`User.depositBalance` holds **the amount the client actually paid**, in cents — deliberately not a count times a fixed unit, since with a configurable amount „two deposits" has no single value and a client who paid before a change still holds what they paid. So:
+
+- **Burn** (`burnDeposit` in `lib/payments/depositLedger.ts`) consumes the whole standing deposit and records it on `Booking.depositBurnedMinor`; **restore** gives back exactly that. Never subtract the class's amount — a client holding €10 against a class since raised to €20 would fail a `gte` guard and silently burn nothing.
+- Both are idempotent through the `depositBurnedMinor` claim, so a double tap or replayed action moves money once. The three callers (attendance, admin cancel, client cancel) go through the ledger; none of them does its own arithmetic.
+- The admin ± control records the studio-level amount (`studioDepositAmountMinor()`) or clears it. Admin screens show money, not a count.
+
 ## Card payments — Fibank ECOMM
 
 - Client: `lib/payments/ecomm/` — `protocol.ts` (pure, tested: response parsing, EUR=978, amount formatting, BG→latin transliteration of `description`, IPv4 normalisation), `client.ts` (mutual-TLS POST via `node:https` + the four commands), `config.ts` (endpoints + PKCS#12 keystore from env; never throws at import).
 - Flow: `bookClassAction(source: "card")` → `startEcommPaymentForBooking` registers `command=v` and stores `Payment.ecommTransId` → the client is sent to `/pay/<bookingId>`, which **POSTs** `trans_id` to ClientHandler (a POST is mandatory) → the bank returns the client to `/api/payments/ecomm/return` or `/fail` → `settleEcommPaymentForBooking` asks `command=c` and writes the result.
 - **`RESULT` is the only field that decides success** (manual §4.2); `RESULT_CODE` and `3DSECURE` are informational. Every returned field is preserved on `Payment.ecomm*`, and a retry after a decline archives the superseded attempt into `Payment.ecommHistory` (append-only) before reusing the row — the manual requires every response to survive, and ECOMM refuses a second attempt on a spent `trans_id`, so retries always mean a fresh transaction.
 - The return URLs are registered with the bank verbatim and **must never carry query parameters**. The booking is identified by the `ecomm_booking` cookie (`SameSite=None; Secure`, since the bank POSTs cross-site) with the `booking_id` form field as fallback.
-- The card charge is **`DEPOSIT_UNIT_MINOR`** (€10), never `ScheduledClass.depositAmount` — that column is an admin field the client is never shown.
+- The card charge is the deposit resolved by **`depositAmountMinor()`** for that class (see „Deposit amount" below) — the same number quoted in the booking modal and on `/pay`. Never charge anything else.
 - Refunds go back **only** to the same card (`lib/payments/refundCardPayment.ts`, `command=k`). Payments with no `ecommTransId` (rows left from the removed Stripe integration) are reported as `unsupported` rather than silently marked refunded.
 - **Stripe is gone** — `lib/stripe.ts`, `createCheckoutForBooking.ts`, `/api/stripe/webhook` and the `stripe` dependency were deleted. Its `Payment.stripe*` columns stay for historical rows. Never reintroduce a module that throws at import over a missing key: that is what broke the production build.
 - The **test** gateway (`mdpay-test.fibank.bg`) serves a certificate whose SANs cover only the bank's internal names, so `client.ts` relaxes the *hostname* check for `ECOMM_ENVIRONMENT=test` via `isFibankTestCertificate()` — chain verification stays on, `rejectUnauthorized` is never disabled, and production gets no exemption.
@@ -141,13 +157,13 @@ Because the deposit is never debited at booking time, the only money action is t
 
 | `source`           | verdict = false (timely cancel / attended) | verdict = true (late cancel / no-show) |
 |--------------------|--------------------------------------------|----------------------------------------|
-| `card`             | nothing — deposit stays on the profile     | decrement `User.depositBalance` by one unit |
-| `balance`          | nothing — deposit stays on the profile     | decrement `User.depositBalance` by one unit |
+| `card`             | nothing — deposit stays on the profile     | consume the standing deposit, recorded on the booking |
+| `balance`          | nothing — deposit stays on the profile     | consume the standing deposit, recorded on the booking |
 | `onsite_deposit`   | nothing (no recorded deposit)              | nothing (no recorded deposit)*         |
 
 \* For on-site bookings no deposit was ever recorded, so "forfeit" is a non-event for us. Studio staff handles cash in the room; the engine's job is just to set the status correctly so reports stay consistent.
 
-Burns are **idempotent by construction**: `markAttendanceAction` burns only when `previousStatus !== no_show`, restores when a `no_show` is corrected to `attended`, and always clamps at 0 via a conditional `updateMany`. A studio-side class cancellation never burns anything.
+Burns are **idempotent by construction**: `markAttendanceAction` burns only when `previousStatus !== no_show`, restores when a `no_show` is corrected to `attended`, and `lib/payments/depositLedger.ts` claims `Booking.depositBurnedMinor` before any balance moves, so a replay is a no-op. A studio-side class cancellation never burns anything.
 
 Implication: the refund logic lives in `lib/payments/refundCardPayment.ts` and gates on `source === "card"` before doing anything. The engine never talks to the bank.
 

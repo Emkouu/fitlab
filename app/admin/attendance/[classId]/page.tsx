@@ -3,7 +3,6 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { getStaffUser } from "@/lib/auth/getStaffUser";
-import { depositCount } from "@/lib/deposit";
 import { PaymentStatus, BookingStatus, Role } from "@/lib/generated/prisma/enums";
 import { Heartbeat } from "@/app/_components/Heartbeat";
 import { formatSofiaDay, formatSofiaTime } from "@/lib/format";
@@ -90,7 +89,7 @@ export default async function AdminAttendanceClassPage({
     status: b.status,
     source: b.source,
     who: b.user.fullName ?? b.user.email ?? b.user.phone ?? "—",
-    deposits: depositCount(b.user.depositBalance),
+    depositMinor: b.user.depositBalance,
     cardPaid:
       b.source === "card" &&
       (b.payment?.status === PaymentStatus.paid ||

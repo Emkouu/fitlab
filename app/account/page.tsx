@@ -4,7 +4,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/db";
-import { depositCount } from "@/lib/deposit";
+import { formatEurMinor } from "@/lib/format";
 import { Heartbeat } from "@/app/_components/Heartbeat";
 import { Breadcrumb } from "@/app/_components/Breadcrumb";
 import { PaymentBanner } from "@/app/_components/PaymentBanner";
@@ -40,7 +40,9 @@ export default async function AccountPage() {
         include: {
           practice: { select: { name: true } },
           trainers: { orderBy: { name: "asc" }, select: { id: true, name: true } },
-          studio: { select: { name: true, cancelWindowHours: true } },
+          studio: {
+          select: { name: true, cancelWindowHours: true, defaultDeposit: true },
+        },
         },
       },
       payment: { select: { id: true, amount: true, currency: true, status: true, createdAt: true } },
@@ -163,8 +165,12 @@ export default async function AccountPage() {
         <Row label="Роля" value={profile?.role ?? "member"} mono />
         {profile?.depositBalance !== undefined && (
           <Row
-            label="Депозити"
-            value={String(depositCount(profile.depositBalance))}
+            label="Депозит"
+            value={
+              profile.depositBalance > 0
+                ? formatEurMinor(profile.depositBalance)
+                : "няма"
+            }
             mono
           />
         )}

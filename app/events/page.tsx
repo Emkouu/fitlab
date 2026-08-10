@@ -7,7 +7,7 @@ import {
   formatSofiaTime,
   formatEurMinor,
 } from "@/lib/format";
-import { DEPOSIT_UNIT_MINOR } from "@/lib/deposit";
+import { depositAmountMinor } from "@/lib/deposit";
 import { Heartbeat } from "@/app/_components/Heartbeat";
 
 export const dynamic = "force-dynamic";
@@ -37,7 +37,7 @@ export default async function EventsPage() {
     include: {
       practice: { select: { name: true, description: true } },
       trainers: { orderBy: { name: "asc" }, select: { name: true } },
-      studio: { select: { name: true } },
+      studio: { select: { name: true, defaultDeposit: true } },
       _count: {
         select: { bookings: { where: { status: { in: ACTIVE_STATUSES } } } },
       },
@@ -97,9 +97,11 @@ type EventRow = {
   capacity: number;
   eventNotes: string | null;
   imageUrl: string | null;
+  /** Per-event deposit override; NULL inherits the studio setting. */
+  depositAmount: number | null;
   practice: { name: string; description: string | null };
   trainers: { name: string }[];
-  studio: { name: string };
+  studio: { name: string; defaultDeposit: number };
   _count: { bookings: number };
 };
 
@@ -145,7 +147,7 @@ function EventCard({ event }: { event: EventRow }) {
 
         <div className="mt-4 flex items-center justify-between gap-3">
           <span className="font-display text-[11px] font-bold uppercase tracking-wider text-[color:var(--brand-purple)]/60">
-            Депозит {formatEurMinor(DEPOSIT_UNIT_MINOR)}
+            Депозит {formatEurMinor(depositAmountMinor(event, event.studio))}
             {!full && (
               <span className="ml-2 text-[color:var(--brand-purple)]/45">
                 · {remaining} места

@@ -81,6 +81,7 @@ export default async function AdminSchedulePage() {
 
       <AdminScheduleSurface
         classes={classes}
+        studioDefaultDeposit={studio.defaultDeposit}
         isSuperAdmin={admin.role === Role.super_admin}
         readOnly={readOnly}
       />

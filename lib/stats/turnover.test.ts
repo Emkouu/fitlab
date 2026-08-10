@@ -10,9 +10,9 @@ function row(
   source: BookingSource,
   status: BookingStatus,
   classStartAt = DAY1,
-  depositAmount = 2000,
+  depositMinor = 2000,
 ) {
-  return { source, status, classStartAt, depositAmount };
+  return { source, status, classStartAt, depositMinor };
 }
 
 describe("countsTowardTurnover", () => {

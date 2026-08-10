@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { Breadcrumb } from "@/app/_components/Breadcrumb";
 import { PaymentLogos } from "@/app/_components/PaymentLogos";
 import { formatEurMinor } from "@/lib/format";
-import { DEPOSIT_UNIT_MINOR } from "@/lib/deposit";
+import { depositAmountMinor } from "@/lib/deposit";
 import { classPriceMinor } from "@/lib/pricing";
 import {
   ACQUIRER,
@@ -51,6 +51,7 @@ export default async function PoliciesPage() {
         cancelWindowHours: true,
         cardPaymentsEnabled: true,
         defaultClassPrice: true,
+        defaultDeposit: true,
       },
     }),
     prisma.practice.findMany({
@@ -64,7 +65,9 @@ export default async function PoliciesPage() {
   const phone = studio?.phone;
   const cancelHours = studio?.cancelWindowHours ?? 4;
   const cardEnabled = studio?.cardPaymentsEnabled ?? true;
-  const deposit = formatEurMinor(DEPOSIT_UNIT_MINOR);
+  // The studio-level deposit — what a client is quoted for a regular class. A
+  // class carrying its own override states its amount on its own screens.
+  const deposit = formatEurMinor(depositAmountMinor(null, studio));
   const standardPrice = formatEurMinor(classPriceMinor(null, studio));
   // Only practices that deviate from the studio price are worth listing.
   const pricedExceptions = practices.filter(

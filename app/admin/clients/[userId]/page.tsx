@@ -7,7 +7,7 @@ import { BookingStatus, PaymentStatus } from "@/lib/generated/prisma/enums";
 import { Heartbeat } from "@/app/_components/Heartbeat";
 import { ClientDetail } from "../_components/ClientDetail";
 import { DepositRefundPanel } from "../_components/DepositRefundPanel";
-import { DEPOSIT_UNIT_MINOR } from "@/lib/deposit";
+import { depositAmountMinor } from "@/lib/deposit";
 import { formatSofiaDateTime } from "@/lib/format";
 import { AdminBreadcrumb } from "../../_components/AdminBreadcrumb";
 
@@ -35,7 +35,13 @@ export default async function AdminClientDetailPage({
             include: {
               practice: { select: { name: true } },
               trainers: { select: { id: true, name: true } },
-              studio: { select: { name: true, cancelWindowHours: true } },
+              studio: {
+                select: {
+                  name: true,
+                  cancelWindowHours: true,
+                  defaultDeposit: true,
+                },
+              },
             },
           },
         },
@@ -65,7 +71,10 @@ export default async function AdminClientDetailPage({
       b.status === BookingStatus.attended ||
       b.status === BookingStatus.no_show
     ) {
-      return sum + b.scheduledClass.depositAmount;
+      return (
+        sum +
+        depositAmountMinor(b.scheduledClass, b.scheduledClass.studio)
+      );
     }
     return sum;
   }, 0);
@@ -128,7 +137,10 @@ export default async function AdminClientDetailPage({
           id: b.id,
           status: b.status,
           source: b.source,
-          depositAmount: b.scheduledClass.depositAmount,
+          depositMinor: depositAmountMinor(
+            b.scheduledClass,
+            b.scheduledClass.studio,
+          ),
           startAt: b.scheduledClass.startAt.toISOString(),
           durationMinutes: b.scheduledClass.durationMinutes,
           practiceName: b.scheduledClass.practice.name,
@@ -140,7 +152,7 @@ export default async function AdminClientDetailPage({
       <DepositRefundPanel
         userId={user.id}
         depositBalance={user.depositBalance}
-        depositUnit={DEPOSIT_UNIT_MINOR}
+
         canRefund={admin.role === "super_admin"}
         refundablePayments={refundablePayments}
       />

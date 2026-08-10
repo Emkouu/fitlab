@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { ScheduledClass, Practice, Trainer } from "@/lib/generated/prisma/client";
 import { formatSofiaDay, formatSofiaTime, formatEurMinor } from "@/lib/format";
+import { depositAmountMinor } from "@/lib/deposit";
 import { CancelClassModal } from "./CancelClassModal";
 import { DeleteClassModal } from "./DeleteClassModal";
 
@@ -15,10 +16,14 @@ export type ScheduleListProps = {
       bookings: number;
     };
   })[];
+  /** `Studio.defaultDeposit`, so a class with no override can show what it
+   *  actually inherits instead of a blank. */
+  studioDefaultDeposit: number;
 };
 
 export function ScheduleList({
   classes,
+  studioDefaultDeposit,
   isSuperAdmin,
   readOnly = false,
 }: ScheduleListProps & { isSuperAdmin: boolean; readOnly?: boolean }) {
@@ -102,7 +107,19 @@ export function ScheduleList({
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span>Депозит: {formatEurMinor(cls.depositAmount)}</span>
+                    <span>
+                      Депозит:{" "}
+                      {formatEurMinor(
+                        depositAmountMinor(cls, {
+                          defaultDeposit: studioDefaultDeposit,
+                        }),
+                      )}
+                      {cls.depositAmount === null && (
+                        <span className="ml-1 text-[color:var(--brand-purple)]/45">
+                          (от настройките)
+                        </span>
+                      )}
+                    </span>
                   </div>
                 </div>
 

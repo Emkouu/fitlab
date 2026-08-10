@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { formatEurMinor } from "@/lib/format";
 import { useRouter } from "next/navigation";
 import { BookingStatus, BookingSource } from "@/lib/generated/prisma/enums";
 import { adminAdjustClientDepositAction } from "@/app/admin/_actions";
@@ -18,8 +19,8 @@ export type AttendanceRow = {
   status: BookingStatus;
   source: BookingSource;
   who: string;
-  /** Whole prepaid deposits the client currently has available. */
-  deposits: number;
+  /** The standing deposit the client currently holds, in EUR cents. */
+  depositMinor: number;
   cardPaid: boolean;
   /** Class-fee method the client picked when booking, or null. */
   onsiteMethod: string | null;
@@ -69,7 +70,7 @@ function AttendanceItem({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [errMsg, setErrMsg] = useState<string | null>(null);
-  const [deposits, setDeposits] = useState(row.deposits);
+  const [depositMinor, setDepositMinor] = useState(row.depositMinor);
   // "" = staff hasn't picked how the client pays the class fee yet. Prefilled
   // from what the client chose in the booking modal.
   const [method, setMethod] = useState<ClassFeeMethod | "">(
@@ -135,7 +136,7 @@ function AttendanceItem({
         setErrMsg(r.message);
         return;
       }
-      setDeposits(r.deposits);
+      setDepositMinor(r.balanceMinor);
       router.refresh();
     });
   }
@@ -163,27 +164,28 @@ function AttendanceItem({
 
       <MoneyNote status={row.status} source={row.source} cardPaid={row.cardPaid} />
 
-      {/* Deposit management (admins only). Records that a client paid a
-          deposit at the desk, or removes one. Discrete units (€10 each). */}
+      {/* Deposit management (admins only). Records that a client paid the
+          deposit at the desk, or removes it. The amount granted comes from
+          Админ → Настройки; what is shown is what the client actually holds. */}
       {canManageDeposits && (
         <div className="flex items-center justify-between gap-3 px-5 pb-3">
           <span className="text-[11px] uppercase tracking-wider text-[color:var(--brand-purple)]/60">
-            Депозити:{" "}
+            Депозит:{" "}
             <strong
               className={
-                deposits > 0
+                depositMinor > 0
                   ? "text-[color:var(--brand-magenta)]"
                   : "text-[color:var(--brand-purple)]/50"
               }
             >
-              {deposits}
+              {depositMinor > 0 ? formatEurMinor(depositMinor) : "няма"}
             </strong>
           </span>
           <div className="flex items-center gap-1.5">
             <button
               type="button"
               onClick={() => adjustDeposit(-1)}
-              disabled={pending || deposits <= 0}
+              disabled={pending || depositMinor <= 0}
               aria-label="Свали един депозит"
               className="flex h-8 w-8 items-center justify-center rounded-lg border border-[color:var(--brand-pink)]/60 font-display text-lg font-bold text-[color:var(--brand-purple)] transition-colors hover:bg-[color:var(--brand-pink-soft)] disabled:opacity-40"
             >

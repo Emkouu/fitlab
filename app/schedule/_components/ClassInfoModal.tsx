@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { motion } from "framer-motion";
 import { formatEurMinor, formatSofiaDay, formatSofiaTime } from "@/lib/format";
+import { depositAmountMinor } from "@/lib/deposit";
 import type { ClassCardRow } from "./ClassCard";
 import { joinWaitlistAction } from "../_actions";
 
@@ -154,7 +155,9 @@ function Body({
             </span>{" "}
             / {row.capacity}
           </InfoRow>
-          <InfoRow label="Депозит">{formatEurMinor(row.depositAmount)}</InfoRow>
+          <InfoRow label="Депозит">
+            {formatEurMinor(depositAmountMinor(row, row.studio))}
+          </InfoRow>
           <InfoRow label="Студио">{row.studio.name}</InfoRow>
         </dl>
 

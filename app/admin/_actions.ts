@@ -11,7 +11,10 @@ import {
 } from "@/lib/generated/prisma/enums";
 import { getAdminUser } from "@/lib/auth/getAdminUser";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { DEPOSIT_UNIT_MINOR, depositsToMinor } from "@/lib/deposit";
+import {
+  burnDeposit,
+  studioDepositAmountMinor,
+} from "@/lib/payments/depositLedger";
 import { ACTIVE_BOOKING_STATUSES, cancelBooking } from "@/lib/booking";
 import { notifyWaitlist } from "@/lib/notifications/notifyWaitlist";
 import { notifyClassCancelled } from "@/lib/notifications/notifyClassCancelled";
@@ -52,6 +55,20 @@ import { generateSlug } from "@/lib/utils/slug";
 import { sofiaToUtc } from "@/lib/format/sofiaTime";
 import { sofiaDateKey } from "@/lib/format";
 import { generateRecurringDates } from "@/lib/schedule/generateRecurringDates";
+
+/**
+ * The class form's deposit field → `ScheduledClass.depositAmount`.
+ *
+ * Empty (the normal case) means the class carries no override and follows the
+ * studio setting, so it must be stored as NULL — never as 0, which would mean
+ * „this class needs no deposit at all".
+ */
+function parseDepositOverride(depositEur: string | undefined): number | null {
+  const raw = depositEur?.trim();
+  if (!raw) return null;
+  const cents = Math.round(parseFloat(raw) * 100);
+  return Number.isFinite(cents) && cents >= 0 ? cents : null;
+}
 
 const MAX_RECURRENCE_CLASSES = 50;
 const MAX_RECURRENCE_RANGE_MS = 1000 * 60 * 60 * 24 * 31 * 3; // ~3 months
@@ -407,8 +424,10 @@ export async function upsertClassAction(
       };
     }
 
-    // ─── Convert deposit EUR to cents ────────────────────────────────────
-    const depositAmount = Math.round(parseFloat(validatedInput.depositEur) * 100);
+    // ─── Convert the deposit override to cents ───────────────────────────
+    // Empty means „no override" → NULL, so the class follows the studio
+    // setting from Админ → Настройки (see lib/deposit.ts).
+    const depositAmount = parseDepositOverride(validatedInput.depositEur);
 
     // ─── Determine create vs update ──────────────────────────────────────
     const isCreate = !validatedInput.classId || validatedInput.classId === "";
@@ -451,9 +470,7 @@ export async function upsertClassAction(
         };
       }
 
-      const depositAmount = Math.round(
-        parseFloat(validatedInput.depositEur) * 100,
-      );
+      const depositAmount = parseDepositOverride(validatedInput.depositEur);
       const earliest = new Date(Date.now() + 30 * 60 * 1000);
 
       const created = await prisma.$transaction(async (tx) => {
@@ -1024,22 +1041,11 @@ export async function adminCancelBookingAction(
   }
 
   // Money side: the deposit was never debited by the booking, so a timely
-  // cancel moves nothing. A LATE cancel burns one deposit — unless the admin
-  // ticked „запази депозита" (overrideRefund), the escape hatch for sick
+  // cancel moves nothing. A LATE cancel burns the standing deposit — unless the
+  // admin ticked „запази депозита" (overrideRefund), the escape hatch for sick
   // clients and studio mistakes.
   const shouldBurn = result.depositForfeited && !overrideRefund;
-  let depositBurned = false;
-  if (
-    shouldBurn &&
-    (booking.source === BookingSource.card ||
-      booking.source === BookingSource.balance)
-  ) {
-    const burn = await prisma.user.updateMany({
-      where: { id: booking.userId, depositBalance: { gte: DEPOSIT_UNIT_MINOR } },
-      data: { depositBalance: { decrement: DEPOSIT_UNIT_MINOR } },
-    });
-    depositBurned = burn.count > 0;
-  }
+  const depositBurned = shouldBurn && (await burnDeposit(bookingId)) > 0;
   // Deposit kept whenever we didn't burn it.
   const refundedToBalance = !depositBurned;
 
@@ -1505,20 +1511,25 @@ export async function uploadImageAction(
 /* ───────────────────────── Client deposits ───────────────────────── */
 
 export type AdjustDepositResult =
-  | { ok: true; deposits: number; message: string }
+  | { ok: true; balanceMinor: number; message: string }
   | { ok: false; message: string };
 
 /**
- * Admin: grant (+1) or revoke (−1) one prepaid deposit for a client. The
- * deposit is a standing €10 guarantee (see lib/deposit.ts) — a client pays it
- * once on-site and an admin records it here; bookings don't consume it, only a
- * no-show or a late cancel does. The revoke path clamps at 0 (never negative).
- * Financial action → admin-gated only.
+ * Admin: record (+1) or remove (−1) a client's standing deposit. A client pays
+ * it once at the desk and an admin logs it here; bookings don't consume it,
+ * only a no-show or a late cancel does (see lib/deposit.ts).
  *
- * `delta` is a signed count of whole deposits (typically +1 or −1).
+ * The amount granted is whatever Админ → Настройки currently says. It is a
+ * money amount, not a count: the deposit is one indivisible guarantee, so
+ * recording it sets the balance to that amount and removing it clears it.
+ * A client who paid before the studio changed the setting keeps the amount they
+ * actually paid until someone re-records it.
+ *
+ * Financial action → admin-gated only.
  */
 export async function adminAdjustClientDepositAction(input: {
   userId: string;
+  /** +1 records a deposit, −1 removes it. */
   delta: number;
 }): Promise<AdjustDepositResult> {
   const admin = await getAdminUser();
@@ -1537,20 +1548,18 @@ export async function adminAdjustClientDepositAction(input: {
   });
   if (!user) return { ok: false, message: "Клиентът не е намерен." };
 
-  // Work in whole deposits, clamp at 0, then store back as cents.
-  const current = Math.floor(user.depositBalance / DEPOSIT_UNIT_MINOR);
-  const next = Math.max(0, current + delta);
-  if (next === current) {
-    return { ok: true, deposits: current, message: "Няма промяна." };
+  const next = delta > 0 ? await studioDepositAmountMinor() : 0;
+  if (next === user.depositBalance) {
+    return { ok: true, balanceMinor: next, message: "Няма промяна." };
   }
 
   await prisma.user.update({
     where: { id: user.id },
-    data: { depositBalance: depositsToMinor(next) },
+    data: { depositBalance: next },
   });
 
   console.log(
-    `[admin-audit] adjustDeposit by=${admin.id} target=${user.id} delta=${delta} deposits=${next}`,
+    `[admin-audit] adjustDeposit by=${admin.id} target=${user.id} from=${user.depositBalance} to=${next}`,
   );
 
   revalidatePath(`/admin/clients/${user.id}`);
@@ -1558,7 +1567,7 @@ export async function adminAdjustClientDepositAction(input: {
   revalidatePath("/admin/attendance");
   return {
     ok: true,
-    deposits: next,
+    balanceMinor: next,
     message: delta > 0 ? "Депозитът е записан." : "Депозитът е свален.",
   };
 }
@@ -1759,9 +1768,12 @@ export async function refundDepositAction(
   if (!user) {
     return { ok: false, message: "Клиентът не е намерен." };
   }
-  if (user.depositBalance < DEPOSIT_UNIT_MINOR) {
+  if (user.depositBalance <= 0) {
     return { ok: false, message: "Клиентът няма депозит по профила." };
   }
+  // Give back exactly what the client is holding, whatever the setting says
+  // today — they may have paid before it changed.
+  const refundMinor = user.depositBalance;
 
   if (method === "card") {
     if (!paymentId) {
@@ -1779,7 +1791,7 @@ export async function refundDepositAction(
     // Network I/O stays outside the transaction (CLAUDE.md admin policy).
     const refund = await refundCardPayment({
       paymentId: payment.id,
-      amountMinor: Math.min(DEPOSIT_UNIT_MINOR, payment.amount),
+      amountMinor: Math.min(refundMinor, payment.amount),
     });
     if (!refund.ok) {
       console.error(
@@ -1795,18 +1807,18 @@ export async function refundDepositAction(
     }
   }
 
-  // Clear one deposit unit from the profile. Conditional so it can never go
-  // negative, and so a replayed submit is a no-op rather than a second deduction.
+  // Clear the deposit from the profile. Conditional on the balance we read, so
+  // a replayed submit is a no-op rather than a second clearing.
   const cleared = await prisma.user.updateMany({
-    where: { id: userId, depositBalance: { gte: DEPOSIT_UNIT_MINOR } },
-    data: { depositBalance: { decrement: DEPOSIT_UNIT_MINOR } },
+    where: { id: userId, depositBalance: refundMinor },
+    data: { depositBalance: 0 },
   });
   if (cleared.count === 0) {
     return { ok: false, message: "Депозитът вече е възстановен." };
   }
 
   console.log(
-    `[admin-audit] refundDeposit by=${admin.id} user=${userId} method=${method} payment=${paymentId ?? "-"} amount=${DEPOSIT_UNIT_MINOR}`,
+    `[admin-audit] refundDeposit by=${admin.id} user=${userId} method=${method} payment=${paymentId ?? "-"} amount=${refundMinor}`,
   );
 
   revalidatePath(`/admin/clients/${userId}`);

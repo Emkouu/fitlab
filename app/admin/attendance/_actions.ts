@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { markAttendance } from "@/lib/booking";
 import { getStaffUser } from "@/lib/auth/getStaffUser";
-import { DEPOSIT_UNIT_MINOR } from "@/lib/deposit";
+import { burnDeposit, restoreDeposit } from "@/lib/payments/depositLedger";
 import {
   isClassFeeMethod,
   type ClassFeeMethod,
@@ -28,10 +28,10 @@ export type MarkAttendanceActionResult =
  * for the next booking.
  *
  * Money side (the engine only returns the verdict, CLAUDE.md):
- *   → no_show   : burn one deposit, unless an earlier no_show mark on this
- *                 booking already burned it.
- *   → attended  : restore the deposit if this call corrects an earlier
- *                 no_show, so a mis-tap never costs the client €10.
+ *   → no_show   : burn the standing deposit, unless an earlier no_show mark on
+ *                 this booking already burned it.
+ *   → attended  : restore the exact amount burned if this call corrects an
+ *                 earlier no_show, so a mis-tap never costs the client money.
  */
 export async function markAttendanceAction(input: {
   bookingId: string;
@@ -84,19 +84,12 @@ export async function markAttendanceAction(input: {
   let depositRestored = false;
 
   if (input.outcome === "no_show" && !wasNoShow) {
-    // Burn exactly one deposit, clamped at 0 — the conditional WHERE keeps the
-    // read-check-decrement atomic so a double tap can't drive it negative.
-    const burn = await prisma.user.updateMany({
-      where: { id: booking.userId, depositBalance: { gte: DEPOSIT_UNIT_MINOR } },
-      data: { depositBalance: { decrement: DEPOSIT_UNIT_MINOR } },
-    });
-    depositBurned = burn.count > 0;
+    // Consume the standing deposit and record what was taken; the ledger keeps
+    // it idempotent so a double tap can't charge twice.
+    depositBurned = (await burnDeposit(booking.id)) > 0;
   } else if (input.outcome === "attended" && wasNoShow) {
-    await prisma.user.update({
-      where: { id: booking.userId },
-      data: { depositBalance: { increment: DEPOSIT_UNIT_MINOR } },
-    });
-    depositRestored = true;
+    // Give back exactly what the earlier no_show took.
+    depositRestored = (await restoreDeposit(booking.id)) > 0;
   }
 
   console.log(

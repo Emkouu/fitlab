@@ -35,12 +35,19 @@ export const classFormSchema = z
       .int("Capacity must be a whole number")
       .min(1, "Capacity must be at least 1")
       .max(50, "Capacity cannot exceed 50"),
+    /**
+     * Per-class deposit override. EMPTY means „inherit Studio.defaultDeposit"
+     * — the normal case — so the field is optional and only validated when the
+     * admin actually types an amount.
+     */
     depositEur: z
       .string()
       .regex(
-        /^\d+(\.\d{2})?$/,
-        'Deposit must be a valid EUR amount (e.g., "20", "20.00", "0.50")',
-      ),
+        /^(\d+(\.\d{2})?)?$/,
+        'Deposit must be a valid EUR amount (e.g., "20", "20.00", "0.50") or empty',
+      )
+      .optional()
+      .default(""),
     isSpecialEvent: z.boolean().default(false),
     eventNotes: z.string().optional(),
     /** Promo image URL for the „Събития" screen (special events only). */

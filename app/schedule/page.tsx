@@ -34,6 +34,7 @@ const CLASS_CARD_INCLUDE = {
       cancelWindowHours: true,
       cardPaymentsEnabled: true,
       defaultClassPrice: true,
+          defaultDeposit: true,
     },
   },
   _count: {

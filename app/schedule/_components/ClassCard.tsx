@@ -13,7 +13,9 @@ export type ClassCardRow = {
   durationMinutes: number;
   capacity: number;
   eventNotes: string | null;
-  depositAmount: number;
+  /** Per-class deposit override in EUR cents; NULL inherits the studio setting.
+   *  Never read directly — resolve via `depositAmountMinor()`. */
+  depositAmount: number | null;
   cancelledAt: Date | string | null;
   practiceId: string;
   practice: { name: string; description: string | null; priceMinor: number | null };
@@ -23,6 +25,7 @@ export type ClassCardRow = {
     cancelWindowHours: number;
     cardPaymentsEnabled: boolean;
     defaultClassPrice: number;
+    defaultDeposit: number;
   };
   _count: { bookings: number };
 };

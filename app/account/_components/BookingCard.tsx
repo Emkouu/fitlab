@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { formatSofiaDay, formatSofiaTime, formatEurMinor } from "@/lib/format";
+import { depositAmountMinor } from "@/lib/deposit";
 import { BookingStatus, BookingSource } from "@/lib/generated/prisma/enums";
 import type { Booking, ScheduledClass } from "@/lib/generated/prisma/client";
 import { CancelBookingButton } from "./CancelBookingButton";
@@ -11,7 +12,7 @@ type BookingWithRelations = Booking & {
   scheduledClass: ScheduledClass & {
     practice: { name: string };
     trainers: { id: string; name: string }[];
-    studio: { name: string; cancelWindowHours: number };
+    studio: { name: string; cancelWindowHours: number; defaultDeposit: number };
   };
 };
 
@@ -103,7 +104,9 @@ export function BookingCard({ booking, isPast, onCancelled }: Props) {
               Депозит
             </p>
             <p className="text-sm font-bold text-[color:var(--brand-ink)]">
-              {formatEurMinor(scheduledClass.depositAmount)}
+              {formatEurMinor(
+                depositAmountMinor(scheduledClass, scheduledClass.studio),
+              )}
             </p>
           </div>
           <div className="text-right">

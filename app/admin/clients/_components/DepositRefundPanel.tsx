@@ -28,13 +28,11 @@ export type RefundablePayment = {
 export function DepositRefundPanel({
   userId,
   depositBalance,
-  depositUnit,
   refundablePayments,
   canRefund,
 }: {
   userId: string;
   depositBalance: number;
-  depositUnit: number;
   refundablePayments: RefundablePayment[];
   canRefund: boolean;
 }) {
@@ -48,7 +46,7 @@ export function DepositRefundPanel({
   >(null);
   const [confirming, setConfirming] = useState<"card" | "cash" | null>(null);
 
-  const hasDeposit = depositBalance >= depositUnit;
+  const hasDeposit = depositBalance > 0;
   if (!hasDeposit) return null;
 
   async function submit(method: "card" | "cash") {
@@ -71,7 +69,7 @@ export function DepositRefundPanel({
         Възстановяване на депозит
       </h2>
       <p className="mt-2 text-xs leading-relaxed text-[color:var(--brand-purple)]/70">
-        Клиентът има депозит {formatEurMinor(depositUnit)} по профила. Ако не
+        Клиентът има депозит {formatEurMinor(depositBalance)} по профила. Ако не
         желае да го ползва за следващи класове, върни му сумата — по същата карта,
         ако е платена с карта, или в брой, ако е оставена на място.
       </p>
@@ -117,7 +115,7 @@ export function DepositRefundPanel({
           <div className="mt-4 space-y-2">
             {refundablePayments.length > 0 && (
               <ConfirmButton
-                label={`Върни ${formatEurMinor(depositUnit)} по картата`}
+                label={`Върни ${formatEurMinor(depositBalance)} по картата`}
                 confirmLabel="Потвърди връщането по карта"
                 active={confirming === "card"}
                 disabled={isPending || paymentId === ""}

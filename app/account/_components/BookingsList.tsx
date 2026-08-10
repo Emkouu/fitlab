@@ -10,7 +10,7 @@ type BookingWithRelations = Booking & {
   scheduledClass: ScheduledClass & {
     practice: { name: string };
     trainers: { id: string; name: string }[];
-    studio: { name: string; cancelWindowHours: number };
+    studio: { name: string; cancelWindowHours: number; defaultDeposit: number };
   };
 };
 

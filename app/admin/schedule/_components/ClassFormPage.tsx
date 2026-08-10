@@ -18,7 +18,7 @@ export function ClassFormPage({
   practices,
   trainers,
   initialData,
-  defaultDepositEur,
+  studioDepositEur,
 }: ClassFormPageProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -58,7 +58,7 @@ export function ClassFormPage({
       practices={practices}
       trainers={trainers}
       initialData={initialData}
-      defaultDepositEur={defaultDepositEur}
+      studioDepositEur={studioDepositEur}
       onSubmit={handleSubmit}
       isLoading={isPending}
       successToast={toast}

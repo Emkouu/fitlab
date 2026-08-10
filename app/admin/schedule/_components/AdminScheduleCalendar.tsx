@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import type { ScheduledClass, Practice, Trainer } from "@/lib/generated/prisma/client";
 import { sofiaDateKey, formatSofiaTime, formatEurMinor } from "@/lib/format";
+import { depositAmountMinor } from "@/lib/deposit";
 
 const MONTHS_BG = [
   "Януари", "Февруари", "Март", "Април", "Май", "Юни",
@@ -26,9 +27,12 @@ type AdminClass = ScheduledClass & {
  */
 export function AdminScheduleCalendar({
   classes,
+  studioDefaultDeposit,
   readOnly = false,
 }: {
   classes: AdminClass[];
+  /** `Studio.defaultDeposit`, for classes that inherit rather than override. */
+  studioDefaultDeposit: number;
   readOnly?: boolean;
 }) {
   const initialKey = sofiaDateKey(new Date());
@@ -135,7 +139,12 @@ export function AdminScheduleCalendar({
           ) : (
             <ul className="space-y-2.5">
               {selectedClasses.map((cls) => (
-                <ClassRow key={cls.id} cls={cls} readOnly={readOnly} />
+                <ClassRow
+                  key={cls.id}
+                  cls={cls}
+                  studioDefaultDeposit={studioDefaultDeposit}
+                  readOnly={readOnly}
+                />
               ))}
             </ul>
           )}
@@ -145,7 +154,15 @@ export function AdminScheduleCalendar({
   );
 }
 
-function ClassRow({ cls, readOnly = false }: { cls: AdminClass; readOnly?: boolean }) {
+function ClassRow({
+  cls,
+  studioDefaultDeposit,
+  readOnly = false,
+}: {
+  cls: AdminClass;
+  studioDefaultDeposit: number;
+  readOnly?: boolean;
+}) {
   const isCancelled = !!cls.cancelledAt;
   return (
     <li>
@@ -185,7 +202,17 @@ function ClassRow({ cls, readOnly = false }: { cls: AdminClass; readOnly?: boole
               {cls._count.bookings} / {cls.capacity} места
             </span>
           </div>
-          <p>Депозит: {formatEurMinor(cls.depositAmount)}</p>
+          <p>
+            Депозит:{" "}
+            {formatEurMinor(
+              depositAmountMinor(cls, { defaultDeposit: studioDefaultDeposit }),
+            )}
+            {cls.depositAmount === null && (
+              <span className="ml-1 text-[color:var(--brand-purple)]/45">
+                (от настройките)
+              </span>
+            )}
+          </p>
         </div>
         {!isCancelled && (
           <div className="mt-3 flex gap-2">

@@ -77,6 +77,23 @@ export async function settleEcommPaymentForBooking(args: {
         where: { id: booking.id },
         data: { status: BookingStatus.paid },
       }),
+      // The card charge IS the one-off standing deposit (see lib/deposit.ts):
+      // `source=card` is offered precisely to the client who doesn't have one
+      // yet. The bank confirmed the money moved, so record it on the profile —
+      // otherwise it stays invisible, the client can never book with `balance`,
+      // and an admin can't even refund it.
+      //
+      // The amount recorded is what the bank actually took (`payment.amount`),
+      // not what the setting says now: the studio may raise the deposit between
+      // this payment and the next screen that reads the balance.
+      //
+      // Conditional on `lt`, so this is idempotent: a replayed return POST or a
+      // second card booking can never stack two deposits, and it never lowers a
+      // balance the client already holds from a bigger deposit.
+      prisma.user.updateMany({
+        where: { id: booking.userId, depositBalance: { lt: payment.amount } },
+        data: { depositBalance: payment.amount },
+      }),
     ]);
 
     if (!alreadyPaid) {

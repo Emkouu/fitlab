@@ -12,7 +12,7 @@ import {
   ECOMM_BOOKING_COOKIE_OPTIONS,
 } from "@/lib/payments/ecomm/returnLeg";
 import { POLICIES_LAST_UPDATED } from "@/lib/legal/company";
-import { DEPOSIT_UNIT_MINOR } from "@/lib/deposit";
+import { depositAmountMinor, hasDepositFor } from "@/lib/deposit";
 import {
   isClassFeeMethod,
   type ClassFeeMethod,
@@ -66,6 +66,7 @@ export async function getClassesForMonth(
           cancelWindowHours: true,
           cardPaymentsEnabled: true,
           defaultClassPrice: true,
+          defaultDeposit: true,
         },
       },
       _count: {
@@ -183,27 +184,31 @@ export async function bookClassAction(input: {
     source = input.source === "card" ? BookingSource.card : BookingSource.onsite_deposit;
   }
 
+  const cls = await prisma.scheduledClass.findUnique({
+    where: { id: input.scheduledClassId },
+    select: {
+      depositAmount: true,
+      studio: { select: { cardPaymentsEnabled: true, defaultDeposit: true } },
+    },
+  });
+
   // Server-side card kill-switch guard. UI hides the card option when the
   // studio has card payments off, but never trust the client.
-  if (source === BookingSource.card) {
-    const cls = await prisma.scheduledClass.findUnique({
-      where: { id: input.scheduledClassId },
-      select: { studio: { select: { cardPaymentsEnabled: true } } },
-    });
-    if (cls && !cls.studio.cardPaymentsEnabled) {
-      return {
-        ok: false,
-        reason: "card_disabled",
-        message: "Плащането с карта е временно недостъпно. Избери друг начин.",
-      };
-    }
+  if (source === BookingSource.card && cls && !cls.studio.cardPaymentsEnabled) {
+    return {
+      ok: false,
+      reason: "card_disabled",
+      message: "Плащането с карта е временно недостъпно. Избери друг начин.",
+    };
   }
 
-  // Server-side deposit guard. The deposit is a standing guarantee (paid once
-  // at the studio, see lib/deposit.ts): a client needs one on the profile to
-  // reserve, but booking does NOT spend it. Never trust the client, re-check.
+  // Server-side deposit guard. The deposit is a standing guarantee (paid once,
+  // see lib/deposit.ts): a client needs one on the profile to reserve, but
+  // booking does NOT spend it. The amount is the studio setting unless this
+  // class overrides it. Never trust the client, re-check.
   if (source === BookingSource.balance) {
-    if (profile.depositBalance < DEPOSIT_UNIT_MINOR) {
+    const required = depositAmountMinor(cls, cls?.studio);
+    if (!hasDepositFor(profile.depositBalance, required)) {
       return {
         ok: false,
         reason: "insufficient_balance",

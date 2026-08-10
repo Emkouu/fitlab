@@ -6,6 +6,7 @@ import { getAdminUser } from "@/lib/auth/getAdminUser";
 import { BookingStatus } from "@/lib/generated/prisma/enums";
 import { formatEurMinor, formatSofiaDay, sofiaDateKey } from "@/lib/format";
 import { dailyStats, type DayStats } from "@/lib/stats/turnover";
+import { depositAmountMinor } from "@/lib/deposit";
 import { AdminBreadcrumb } from "../_components/AdminBreadcrumb";
 
 export const metadata = { title: "FitLab Varna — Статистика" };
@@ -43,7 +44,13 @@ export default async function AdminStatsPage() {
     select: {
       status: true,
       source: true,
-      scheduledClass: { select: { startAt: true, depositAmount: true } },
+      scheduledClass: {
+        select: {
+          startAt: true,
+          depositAmount: true,
+          studio: { select: { defaultDeposit: true } },
+        },
+      },
     },
   });
 
@@ -52,7 +59,7 @@ export default async function AdminStatsPage() {
     rows.map((b) => ({
       status: b.status,
       source: b.source,
-      depositAmount: b.scheduledClass.depositAmount,
+      depositMinor: depositAmountMinor(b.scheduledClass, b.scheduledClass.studio),
       classStartAt: b.scheduledClass.startAt,
     })),
   ).filter((d) => d.dayKey <= todayKey);

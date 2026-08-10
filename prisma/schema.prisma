@@ -69,8 +69,11 @@ model Studio {
   phone              String?
   facebookUrl        String?
   instagramUrl       String?
-  /// Default deposit (minor units / EUR cents) pre-filled on the new-class form.
-  defaultDeposit     Int    @default(2000)
+  /// The deposit required to reserve online (minor units / EUR cents), set in
+  /// Админ → Настройки. Applies to every class unless that class carries its
+  /// own `ScheduledClass.depositAmount`. Resolve ONLY through
+  /// `depositAmountMinor()` in lib/deposit.ts.
+  defaultDeposit     Int    @default(1000)
   /// Final price of one group class (minor units / EUR cents), settled on site.
   /// Shown on the schedule and in the booking modal — the acquirer requires the
   /// end price of the service to be visible (Fibank instruction §I.8/§I.9).
@@ -125,8 +128,11 @@ model ScheduledClass {
   /// Duration in MINUTES, stored explicitly (export varies 45–240; never assume).
   durationMinutes Int
   capacity        Int
-  /// Stored in minor units (EUR cents) to avoid float drift. 2000 = €20.00.
-  depositAmount   Int
+  /// Per-class deposit override, in minor units (EUR cents). NULL = inherit
+  /// `Studio.defaultDeposit`. Resolve ONLY through `depositAmountMinor()` in
+  /// lib/deposit.ts — never read this column directly. A stored 0 is a real
+  /// amount (a class that needs no guarantee), not "unset".
+  depositAmount   Int?
   isSpecialEvent  Boolean  @default(false)
   eventNotes      String?
   /// Promo image (public URL) shown above the card on the „Събития" screen.
@@ -182,6 +188,13 @@ model Booking {
   /// Attendance). NULL = not yet collected. Orthogonal to attendance status —
   /// payment and attendance are independent axes.
   depositSettledAt DateTime?
+
+  /// How much of the standing deposit this booking consumed (EUR cents), set
+  /// when it was burned by a no-show or a late cancel. NULL = never burned.
+  /// Recorded because the deposit amount is configurable: correcting a
+  /// mis-tapped no_show must give back exactly what was taken, not whatever the
+  /// setting happens to say now.
+  depositBurnedMinor Int?
 
   /// Proof that the client ticked „Приемам Общите условия" before the booking
   /// was created — the acquirer requires explicit consent before the client is

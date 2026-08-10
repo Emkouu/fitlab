@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { formatEurMinor, formatSofiaDay, formatSofiaTime } from "@/lib/format";
-import { DEPOSIT_UNIT_MINOR, depositCount } from "@/lib/deposit";
+import { depositAmountMinor, hasDepositFor } from "@/lib/deposit";
 import { classPriceMinor } from "@/lib/pricing";
 import {
   CLASS_FEE_METHODS,
@@ -54,7 +54,7 @@ export function BookingModal({
 }: {
   row: ClassCardRow | null;
   onClose: () => void;
-  /** Deposit balance (EUR cents) on the profile — read as whole deposits. */
+  /** Standing deposit (EUR cents) on the profile. */
   userBalance?: number;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -67,8 +67,9 @@ export function BookingModal({
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [, startTransition] = useTransition();
 
-  const deposits = depositCount(userBalance);
-  const hasDeposit = deposits >= 1;
+  // What this class asks for: the studio setting unless the class overrides it.
+  const depositRequired = depositAmountMinor(row, row?.studio);
+  const hasDeposit = hasDepositFor(userBalance, depositRequired);
   // A client without a deposit can pay it online, when the studio has card
   // payments switched on — otherwise the only route is paying it at the studio.
   const canPayDepositByCard = !hasDeposit && (row?.studio.cardPaymentsEnabled ?? false);
@@ -224,12 +225,12 @@ export function BookingModal({
                     title="Депозит (еднократно)"
                     trailing={
                       <span className="font-display text-sm font-bold text-[color:var(--brand-magenta)]">
-                        {formatEurMinor(DEPOSIT_UNIT_MINOR)}
+                        {formatEurMinor(depositRequired)}
                       </span>
                     }
                   >
                     <p className="text-[13px] leading-relaxed text-[color:var(--brand-purple)]/80">
-                      Депозитът в размер на {formatEurMinor(DEPOSIT_UNIT_MINOR)}{" "}
+                      Депозитът в размер на {formatEurMinor(depositRequired)}{" "}
                       се заплаща <strong>еднократно</strong> и е отделен от
                       цената на тренировката. Той ти дава възможност да запазваш
                       място онлайн.
@@ -408,7 +409,7 @@ export function BookingModal({
                     <>Опитай отново</>
                   ) : (
                     <>
-                      Плати депозит {formatEurMinor(DEPOSIT_UNIT_MINOR)} с карта{" "}
+                      Плати депозит {formatEurMinor(depositRequired)} с карта{" "}
                       <Arrow />
                     </>
                   )}

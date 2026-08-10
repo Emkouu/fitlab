@@ -203,11 +203,13 @@ export function SettingsForm({ initialData, canEdit }: SettingsFormProps) {
 
         <div>
           <label className={labelClass}>
-            Депозит по подразбиране (EUR)
+            Депозит (EUR)
             <span className="text-[color:var(--brand-magenta)]">*</span>
           </label>
           <p className={helperClass}>
-            Използва се като начална стойност при добавяне на нов клас.
+            Сумата, която клиентът плаща еднократно, за да може да резервира
+            онлайн. Важи за всички класове, освен ако за конкретен клас не е
+            зададен друг депозит.
           </p>
           <Controller
             name="defaultDepositEur"
@@ -217,7 +219,7 @@ export function SettingsForm({ initialData, canEdit }: SettingsFormProps) {
                 {...field}
                 type="text"
                 inputMode="decimal"
-                placeholder="20.00"
+                placeholder="10.00"
                 className={inputClass}
                 disabled={isSubmitting}
               />

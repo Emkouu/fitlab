@@ -71,8 +71,12 @@ export default async function AdminScheduleEditPage({ params }: EditPageProps) {
     practiceId: scheduledClass.practiceId,
     trainerIds: scheduledClass.trainers.map((t) => t.id),
     capacity: scheduledClass.capacity,
-    // Convert cents to EUR string (e.g., 2000 -> "20.00")
-    depositEur: (scheduledClass.depositAmount / 100).toFixed(2),
+    // Cents → EUR string ("20.00"). Empty when the class has no override, so
+    // the form shows it inheriting the studio setting.
+    depositEur:
+      scheduledClass.depositAmount === null
+        ? ""
+        : (scheduledClass.depositAmount / 100).toFixed(2),
     isSpecialEvent: scheduledClass.isSpecialEvent,
     eventNotes: scheduledClass.eventNotes || "",
     imageUrl: scheduledClass.imageUrl || "",

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/db";
 import { cancelBooking } from "@/lib/booking/engine";
-import { DEPOSIT_UNIT_MINOR } from "@/lib/deposit";
+import { burnDeposit } from "@/lib/payments/depositLedger";
 import { notifyWaitlist } from "@/lib/notifications/notifyWaitlist";
 import { notifyBookingCancelled } from "@/lib/notifications/notifyBookingCancelled";
 
@@ -67,17 +67,10 @@ export async function POST(
 
   // Money side (lib/deposit.ts): the deposit was never debited by the booking,
   // so a timely cancel moves nothing — the client keeps it. A LATE cancel is
-  // exactly the case the deposit exists for: burn one. On-site bookings never
-  // had a recorded deposit behind them, so they stay untouched.
+  // exactly the case the deposit exists for: burn it. The ledger skips sources
+  // with no recorded deposit behind them (on-site cash).
   const depositBurned =
-    result.depositForfeited &&
-    (booking.source === "card" || booking.source === "balance");
-  if (depositBurned) {
-    await prisma.user.updateMany({
-      where: { id: fitlabUser.id, depositBalance: { gte: DEPOSIT_UNIT_MINOR } },
-      data: { depositBalance: { decrement: DEPOSIT_UNIT_MINOR } },
-    });
-  }
+    result.depositForfeited && (await burnDeposit(bookingId)) > 0;
   // The client keeps their deposit whenever it wasn't burned.
   const depositReturned = !result.depositForfeited;
 

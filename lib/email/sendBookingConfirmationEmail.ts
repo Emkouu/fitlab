@@ -7,7 +7,7 @@ import {
   formatSofiaDateTime,
   formatEurMinor,
 } from "@/lib/format";
-import { DEPOSIT_UNIT_MINOR } from "@/lib/deposit";
+import { depositAmountMinor } from "@/lib/deposit";
 import { classPriceMinor } from "@/lib/pricing";
 import { siteOrigin } from "@/lib/legal/company";
 
@@ -83,9 +83,11 @@ export async function sendBookingConfirmationEmail(
     "/account";
 
   // The receipt must state the amount that actually moved. For a card booking
-  // that's the registered Payment; otherwise it's one deposit unit — the €10 the
-  // client is quoted everywhere, never the per-class admin field.
-  const transactionAmount = booking.payment?.amount ?? DEPOSIT_UNIT_MINOR;
+  // that's the registered Payment; otherwise it's the deposit this class asks
+  // for — the same number quoted in the booking modal.
+  const transactionAmount =
+    booking.payment?.amount ??
+    depositAmountMinor(booking.scheduledClass, booking.scheduledClass.studio);
   // …and the date the money moved, not the date the row was created.
   const transactionDate =
     booking.payment && booking.payment.status === "paid"

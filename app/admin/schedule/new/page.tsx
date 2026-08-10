@@ -30,9 +30,9 @@ export default async function AdminScheduleNewPage() {
       select: { defaultDeposit: true },
     }),
   ]);
-  const defaultDepositEur = (
-    (studio?.defaultDeposit ?? 2000) / 100
-  ).toFixed(2);
+  // Shown as the field's placeholder: a new class inherits this unless the
+  // admin types an override.
+  const studioDepositEur = ((studio?.defaultDeposit ?? 1000) / 100).toFixed(2);
 
   return (
     <main className="mx-auto w-full max-w-[440px] px-5 pb-12 pt-6 font-sans text-[color:var(--brand-ink)]">
@@ -63,7 +63,7 @@ export default async function AdminScheduleNewPage() {
         mode="create"
         practices={practices}
         trainers={trainers}
-        defaultDepositEur={defaultDepositEur}
+        studioDepositEur={studioDepositEur}
       />
     </main>
   );

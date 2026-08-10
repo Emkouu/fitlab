@@ -12,7 +12,7 @@ import {
   formatSofiaDay,
   formatSofiaTime,
 } from "@/lib/format";
-import { DEPOSIT_UNIT_MINOR, depositCount } from "@/lib/deposit";
+
 import {
   adminAdjustClientDepositAction,
   adminCancelBookingAction,
@@ -34,7 +34,7 @@ type BookingView = {
   id: string;
   status: BookingStatus;
   source: BookingSource;
-  depositAmount: number;
+  depositMinor: number;
   startAt: string;
   durationMinutes: number;
   practiceName: string;
@@ -223,7 +223,7 @@ function DepositControl({ user }: { user: UserView }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const deposits = depositCount(user.depositBalance);
+  const hasDeposit = user.depositBalance > 0;
 
   function adjust(delta: number) {
     setMsg(null);
@@ -240,9 +240,9 @@ function DepositControl({ user }: { user: UserView }) {
         Депозити
       </h2>
       <p className="mb-4 text-[12px] leading-relaxed text-[color:var(--brand-purple)]/65">
-        Депозитът е {formatEurMinor(DEPOSIT_UNIT_MINOR)}, платен еднократно в
-        студиото. Дава право на записване и остава по профила; усвоява се само
-        при неявяване или късна отмяна.
+        Депозитът се плаща еднократно (сумата е в Админ → Настройки, освен ако
+        класът не е с отделна). Дава право на записване и остава по профила;
+        усвоява се само при неявяване или късна отмяна.
       </p>
 
       <div className="flex items-center justify-between gap-3">
@@ -251,16 +251,16 @@ function DepositControl({ user }: { user: UserView }) {
             Налични
           </p>
           <p
-            className={`mt-0.5 font-display text-3xl font-bold ${deposits > 0 ? "text-[color:var(--brand-magenta)]" : "text-[color:var(--brand-purple)]/50"}`}
+            className={`mt-0.5 font-display text-3xl font-bold ${hasDeposit ? "text-[color:var(--brand-magenta)]" : "text-[color:var(--brand-purple)]/50"}`}
           >
-            {deposits}
+            {hasDeposit ? formatEurMinor(user.depositBalance) : "няма"}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => adjust(-1)}
-            disabled={pending || deposits <= 0}
+            disabled={pending || !hasDeposit}
             aria-label="Свали един депозит"
             className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[color:var(--brand-pink)]/60 font-display text-xl font-bold text-[color:var(--brand-purple)] transition-colors hover:bg-[color:var(--brand-pink-soft)] disabled:opacity-40"
           >
@@ -309,12 +309,12 @@ function StatsBar({ user, stats }: { user: UserView; stats: Stats }) {
       <Stat label="Общо платено" value={formatEurMinor(stats.totalSpendMinor)} />
       <div className="col-span-2 rounded-2xl bg-white px-4 py-3 shadow-[0_1px_2px_rgba(123,45,142,0.05),0_4px_16px_-8px_rgba(236,72,153,0.18)]">
         <p className="text-[11px] uppercase tracking-wider text-[color:var(--brand-purple)]/60">
-          Налични депозити
+          Депозит по профила
         </p>
         <p
           className={`mt-1 font-display text-2xl font-bold ${user.depositBalance > 0 ? "text-[color:var(--brand-magenta)]" : "text-[color:var(--brand-purple)]/50"}`}
         >
-          {depositCount(user.depositBalance)}
+          {user.depositBalance > 0 ? formatEurMinor(user.depositBalance) : "няма"}
         </p>
       </div>
     </section>
@@ -439,7 +439,7 @@ function BookingRow({
 
       <div className="mt-2 flex items-center justify-between text-[11px]">
         <span className="text-[color:var(--brand-purple)]/60">
-          {SOURCE_LABEL[booking.source]} · {formatEurMinor(booking.depositAmount)}
+          {SOURCE_LABEL[booking.source]} · {formatEurMinor(booking.depositMinor)}
         </span>
       </div>
 
