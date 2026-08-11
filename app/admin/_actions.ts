@@ -1,8 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { prisma } from "@/lib/db";
 import { refundCardPayment } from "@/lib/payments/refundCardPayment";
+import { getTransactionResult } from "@/lib/payments/ecomm/client";
+import { normalizeClientIp } from "@/lib/payments/ecomm/protocol";
+import { formatResultCode } from "@/lib/payments/ecomm/responseCodes";
+import { settleEcommPaymentForBooking } from "@/lib/payments/ecomm/settlePaymentForBooking";
 import {
   BookingSource,
   BookingStatus,
@@ -37,6 +42,8 @@ import {
   type AddClientInput,
   refundDepositSchema,
   type RefundDepositInput,
+  recheckPaymentSchema,
+  type RecheckPaymentInput,
 } from "@/lib/validation/clientForm";
 import { getStaffUser } from "@/lib/auth/getStaffUser";
 import {
@@ -1831,5 +1838,157 @@ export async function refundDepositAction(
       method === "card"
         ? "Депозитът е върнат по същата карта и е премахнат от профила."
         : "Депозитът е отбелязан като върнат в брой и е премахнат от профила.",
+  };
+}
+
+/* ─────────────── Re-ask the bank about a card transaction ─────────────── */
+
+export type RecheckPaymentResult =
+  | { ok: true; message: string }
+  | { ok: false; message: string };
+
+/**
+ * „Провери в банката" — ask ECOMM `command=c` what happened to a transaction we
+ * have no result for.
+ *
+ * The gap this closes: the result is normally written by the return leg, which
+ * only runs if the client's browser comes back to our return URL. A client who
+ * closes the tab on the card page leaves the row registered and silent, so when
+ * the acquirer asks what we recorded for that `TrnID` the honest answer is
+ * „nothing" — even though the bank knows. This makes the answer reachable from
+ * the desk instead of from the database.
+ *
+ * Two paths, deliberately:
+ *
+ * - Booking still active → the full settle path (`settleEcommPaymentForBooking`),
+ *   the same tested code the return leg runs, so an OK also records the deposit
+ *   and sends the receipt exactly once.
+ * - Booking already cancelled → **record only**. Every field the bank returns is
+ *   preserved (manual §4.2) and the payment's own status is set, but nothing
+ *   touches the booking or the balance: flipping a cancelled booking to `paid`
+ *   would resurrect a spot the client gave up. If the bank says OK there, the
+ *   money did move and staff are told to refund it through the panel below.
+ */
+export async function recheckPaymentAction(
+  input: RecheckPaymentInput,
+): Promise<RecheckPaymentResult> {
+  const admin = await getAdminUser();
+  if (!admin) {
+    return { ok: false, message: "Нямаш достъп до тази функция." };
+  }
+
+  const parsed = recheckPaymentSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, message: "Невалидни данни." };
+  }
+
+  const payment = await prisma.payment.findUnique({
+    where: { id: parsed.data.paymentId },
+    include: { booking: { select: { id: true, userId: true, status: true } } },
+  });
+  if (!payment) {
+    return { ok: false, message: "Транзакцията не е намерена." };
+  }
+  if (!payment.ecommTransId) {
+    return {
+      ok: false,
+      message: "Това плащане няма регистрирана транзакция в банката.",
+    };
+  }
+
+  const requestHeaders = await headers();
+  const clientIp = normalizeClientIp(
+    requestHeaders.get("x-forwarded-for") ?? requestHeaders.get("x-real-ip"),
+  );
+
+  const booking = payment.booking;
+
+  if (booking && booking.status !== BookingStatus.cancelled) {
+    const settled = await settleEcommPaymentForBooking({
+      bookingId: booking.id,
+      clientIp,
+    });
+    if (!settled.ok) {
+      console.error(
+        `[admin-audit] recheckPayment FAILED by=${admin.id} payment=${payment.id}: ${settled.error}`,
+      );
+      return {
+        ok: false,
+        message: "Банката не отговори. Опитай отново по-късно.",
+      };
+    }
+
+    console.log(
+      `[admin-audit] recheckPayment by=${admin.id} payment=${payment.id} status=${settled.status}`,
+    );
+    revalidatePath(`/admin/clients/${booking.userId}`);
+    revalidatePath("/admin/payments");
+
+    if (settled.status === "paid") {
+      return { ok: true, message: "Банката потвърди плащането — резервацията е платена." };
+    }
+    if (settled.status === "pending") {
+      return {
+        ok: true,
+        message: `Банката още не е приключила транзакцията (${settled.result}).`,
+      };
+    }
+    return {
+      ok: true,
+      message: `Банката отказа транзакцията (${settled.result}). Резултатът е записан.`,
+    };
+  }
+
+  // Cancelled booking (or no booking at all) — record what the bank says, move
+  // nothing. Network I/O first, outside any transaction.
+  const bankResult = await getTransactionResult({
+    transId: payment.ecommTransId,
+    clientIp,
+  });
+  if (!bankResult.ok) {
+    console.error(
+      `[admin-audit] recheckPayment FAILED by=${admin.id} payment=${payment.id}: ${bankResult.error}`,
+    );
+    return { ok: false, message: "Банката не отговори. Опитай отново по-късно." };
+  }
+
+  await prisma.payment.update({
+    where: { id: payment.id },
+    data: {
+      ecommResult: bankResult.result,
+      ecommResultCode: bankResult.resultCode ?? null,
+      ecomm3dSecure: bankResult.threeDSecure ?? null,
+      ecommRrn: bankResult.rrn ?? null,
+      ecommApprovalCode: bankResult.approvalCode ?? null,
+      ecommCardMask: bankResult.cardMask ?? null,
+      status:
+        bankResult.result === "OK"
+          ? PaymentStatus.paid
+          : bankResult.result === "CREATED" || bankResult.result === "PENDING"
+            ? PaymentStatus.pending
+            : PaymentStatus.failed,
+    },
+  });
+
+  console.log(
+    `[admin-audit] recheckPayment by=${admin.id} payment=${payment.id} cancelled-booking result=${bankResult.result}`,
+  );
+  if (booking) revalidatePath(`/admin/clients/${booking.userId}`);
+  revalidatePath("/admin/payments");
+
+  if (bankResult.result === "OK") {
+    return {
+      ok: true,
+      message:
+        "Банката е приела плащането, но резервацията е отказана — сумата трябва да се върне по картата.",
+    };
+  }
+  return {
+    ok: true,
+    message: `Записано: ${bankResult.result}${
+      formatResultCode(bankResult.resultCode)
+        ? ` (${formatResultCode(bankResult.resultCode)})`
+        : ""
+    }.`,
   };
 }

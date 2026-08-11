@@ -75,3 +75,13 @@ export const refundDepositSchema = z.object({
 });
 
 export type RefundDepositInput = z.infer<typeof refundDepositSchema>;
+
+/**
+ * „Провери в банката" — re-ask ECOMM (`command=c`) what happened to a
+ * transaction we never got an answer for.
+ */
+export const recheckPaymentSchema = z.object({
+  paymentId: z.string().min(1),
+});
+
+export type RecheckPaymentInput = z.infer<typeof recheckPaymentSchema>;

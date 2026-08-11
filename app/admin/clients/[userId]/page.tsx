@@ -10,6 +10,11 @@ import { DepositRefundPanel } from "../_components/DepositRefundPanel";
 import { depositAmountMinor } from "@/lib/deposit";
 import { formatSofiaDateTime } from "@/lib/format";
 import { AdminBreadcrumb } from "../../_components/AdminBreadcrumb";
+import { CardTransactions } from "../../_components/CardTransactions";
+import {
+  CARD_TRANSACTION_INCLUDE,
+  toCardTransactionGroup,
+} from "../../_components/cardTransactionView";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +56,15 @@ export default async function AdminClientDetailPage({
   });
 
   if (!user) notFound();
+
+  // Every card transaction this client ever had, superseded attempts included —
+  // the acquirer's questions arrive as a `TrnID` and a timestamp, and this is
+  // where staff can answer them without a database query.
+  const cardPayments = await prisma.payment.findMany({
+    where: { booking: { userId }, ecommTransId: { not: null } },
+    include: CARD_TRANSACTION_INCLUDE,
+    orderBy: { createdAt: "desc" },
+  });
 
   // Stats
   const attended = user.bookings.filter(
@@ -148,6 +162,16 @@ export default async function AdminClientDetailPage({
           trainers: b.scheduledClass.trainers.map((t) => t.name),
         }))}
       />
+
+      <section className="mt-6">
+        <h2 className="mb-3 font-display text-sm font-bold uppercase tracking-wider text-[color:var(--brand-purple)]/70">
+          Картови транзакции
+        </h2>
+        <CardTransactions
+          groups={cardPayments.map((p) => toCardTransactionGroup(p))}
+          emptyText="Клиентът няма плащания с карта — депозитът е оставен на място или още не е плащал."
+        />
+      </section>
 
       <DepositRefundPanel
         userId={user.id}

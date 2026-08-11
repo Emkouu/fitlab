@@ -34,6 +34,13 @@ const GROUPS: { label: string; items: NavItem[] }[] = [
     ],
   },
   {
+    label: "Пари",
+    items: [
+      { href: "/admin/stats", label: "Статистика" },
+      { href: "/admin/payments", label: "Картови плащания" },
+    ],
+  },
+  {
     label: "Настройки",
     items: [{ href: "/admin/settings", label: "Настройки" }],
   },
