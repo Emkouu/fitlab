@@ -121,13 +121,20 @@ function Attempt({
 
       {attempt.transId && <CopyableId label="TrnID" value={attempt.transId} />}
 
+      {/*
+        The acquirer checks this screen against its own list of response fields,
+        so they carry the bank's own names and every one of them is always
+        rendered — a hidden row reads as a field we don't keep, when it only
+        means the bank returned nothing for it.
+      */}
       <dl className="mt-1.5 space-y-0.5">
+        <Row label="RESULT" value={attempt.result} always />
+        <Row label="RESULT_CODE" value={attempt.resultCodeText} always />
+        <Row label="3DSECURE" value={attempt.threeDSecure} always />
+        <Row label="RRN" value={attempt.rrn} always />
+        <Row label="APPROVAL_CODE" value={attempt.approvalCode} always />
+        <Row label="CARD_NUMBER" value={attempt.cardMask} always />
         <Row label="Час" value={attempt.atText} />
-        <Row label="Код" value={attempt.resultCodeText} />
-        <Row label="3DSECURE" value={attempt.threeDSecure} />
-        <Row label="RRN" value={attempt.rrn} />
-        <Row label="Approval" value={attempt.approvalCode} />
-        <Row label="Карта" value={attempt.cardMask} />
         <Row label="Върнато" value={attempt.refundText} />
       </dl>
 
@@ -192,14 +199,26 @@ function CopyableId({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Row({ label, value }: { label: string; value: string | null }) {
-  if (!value) return null;
+/**
+ * `always` keeps the row on screen with an em dash when the bank returned no
+ * value — used for the six fields the acquirer requires us to record.
+ */
+function Row({
+  label,
+  value,
+  always = false,
+}: {
+  label: string;
+  value: string | null;
+  always?: boolean;
+}) {
+  if (!value && !always) return null;
   return (
     <div className="flex gap-2">
-      <dt className="w-20 shrink-0 text-[10px] uppercase tracking-wider text-[color:var(--brand-purple)]/60">
+      <dt className="w-28 shrink-0 font-mono text-[10px] uppercase tracking-wide text-[color:var(--brand-purple)]/60">
         {label}
       </dt>
-      <dd className="min-w-0 flex-1 break-words">{value}</dd>
+      <dd className="min-w-0 flex-1 break-words">{value ?? "—"}</dd>
     </div>
   );
 }
