@@ -87,8 +87,9 @@ export default async function AdminPaymentsPage({
       <p className="mb-4 text-xs leading-relaxed text-[color:var(--brand-purple)]/70">
         Всяка транзакция през виртуалния ПОС, включително заменените опити при
         повторно плащане. Търси по TrnID, RRN или approval code.
-        „Върни сумата&quot; връща цялата сума по същата карта и стои при всяка
-        платена транзакция, която още не е възстановена.
+        „Възстанови сумата&quot; стои при всяка транзакция и изпраща заявка към
+        банката за цялата сума по същата карта — включително когато при нас няма
+        записан резултат. Банката решава дали има какво да върне.
       </p>
 
       {/* Plain GET form: the query lives in the URL, so a search can be shared. */}

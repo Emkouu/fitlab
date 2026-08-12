@@ -89,6 +89,13 @@ export type RefundDepositInput = z.infer<typeof refundDepositSchema>;
  */
 export const refundPaymentSchema = z.object({
   paymentId: z.string().min(1),
+  /**
+   * Which transaction to reverse. A retried card leaves several behind one
+   * `Payment` row and the bank names a specific one; omitted = the row's current
+   * attempt. Ownership is verified against the payment, so an id from another
+   * row is rejected rather than sent to the bank.
+   */
+  transId: z.string().min(1).optional(),
 });
 
 export type RefundPaymentInput = z.infer<typeof refundPaymentSchema>;

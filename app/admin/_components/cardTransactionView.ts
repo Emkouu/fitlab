@@ -30,13 +30,21 @@ export type CardTransactionAttemptView = {
   /** The bank may still have news about this one — offer „Провери в банката". */
   canRecheck: boolean;
   /**
-   * Money is sitting at the studio for this attempt and can go back to the card
-   * — offer „Върни сумата". True for the current attempt of a `paid` payment
-   * that carries an ECOMM `trans_id` and hasn't been refunded yet; superseded
-   * attempts were never charged, and `command=k` only knows the current one.
+   * The transaction „Възстанови сумата" would reverse. The button is offered on
+   * every attempt that has one — see `refundIsForced` for why it isn't gated on
+   * our own idea of whether the money moved.
    */
-  canRefund: boolean;
-  /** „10,00 €" — what „Върни сумата" would send back (the full amount). */
+  refundTransId: string | null;
+  /** Money already went back here — the button reports instead of re-sending. */
+  alreadyRefunded: boolean;
+  /**
+   * Our record shows no confirmed charge for this attempt, so pressing the
+   * button asks the bank anyway and lets it answer. True for `pending` rows (the
+   * client never came back from the card page, yet the money may well have
+   * moved) and for superseded attempts.
+   */
+  refundIsForced: boolean;
+  /** „10,00 €" — what „Възстанови сумата" would send back (the full amount). */
   refundAmountText: string;
 };
 
@@ -121,7 +129,9 @@ export function toCardTransactionGroup(
           } · ${a.refund.transId}`
         : null,
       canRecheck: isRecheckable(a),
-      canRefund: isRefundable(a, payment.status),
+      refundTransId: a.transId,
+      alreadyRefunded: a.refund !== null,
+      refundIsForced: !isRefundable(a, payment.status),
       refundAmountText: formatEurMinor(a.amountMinor),
     })),
   };

@@ -1850,31 +1850,39 @@ export type RefundPaymentResult =
   | { ok: false; message: string };
 
 /**
- * „Върни сумата" — a full card refund of one specific transaction, started from
- * the transaction row in „Картови транзакции".
+ * „Възстанови сумата" — a full card refund of one named transaction, started
+ * from the transaction row in „Картови транзакции".
  *
  * `refundDepositAction` above answers a different question („the client wants
  * their standing deposit back") and is therefore driven by, and gated on,
  * `User.depositBalance`. That gate is wrong for the acquirer's own request —
- * „моля да направите пълно възстановяване на сумата на тези транзакции" — which
+ * „моля да направите пълно възстановяване на сумата на двете транзакции" — which
  * names a transaction, not a profile: the money has to go back whether or not
  * the deposit is still sitting on the balance, and it may well have been burned,
- * cleared or never recorded (a cancelled booking rechecked into `paid`).
+ * cleared or never recorded.
  *
- * So this action gates on the payment alone:
- *   • `Payment.status = paid` — the bank actually took money;
- *   • an `ecommTransId` — the only thing `command=k` can reverse;
- * and refunds the full `Payment.amount`. `refundCardPayment` reports an already
- * refunded row as success, so a double tap says so instead of asking the bank
- * twice.
+ * **The button is unconditional and the refund is forced**, deliberately. The
+ * obvious design — offer it only where `Payment.status = paid` — fails exactly
+ * where it is needed: a client who abandons the bank's card page leaves the row
+ * `pending` with no `RESULT` while the money has in fact moved, and those are
+ * the rows the bank writes to us about. Our record is the unreliable half here,
+ * so `command=k` goes out for any transaction staff point at and the bank —
+ * which knows — either accepts it or refuses with a code we show verbatim. That
+ * turns a hidden button into an answerable question.
+ *
+ * `transId` names the transaction: a retried card leaves several behind one
+ * `Payment` row, and the bank's request often quotes a superseded one. Ownership
+ * is checked inside `refundCardPayment`, so an id from another row is refused
+ * rather than sent to the bank.
  *
  * The profile is then squared with reality: whatever part of the refunded sum is
  * still standing as a deposit comes off the balance (clamped at 0 — a burned or
- * partly cleared deposit simply has less to take back). The booking itself is
- * deliberately left alone; cancelling it is a separate, audited decision, and
- * the message says so.
+ * partly cleared deposit simply has less to take back). Only a refund of the
+ * row's **current** attempt touches the balance; a superseded attempt never put
+ * a deposit there. The booking itself is deliberately left alone; cancelling it
+ * is a separate, audited decision, and the message says so.
  *
- * Moves real money → super_admin only.
+ * Moves real money → super_admin only, behind a two-step confirm in the UI.
  */
 export async function refundPaymentAction(
   input: RefundPaymentInput,
@@ -1894,14 +1902,12 @@ export async function refundPaymentAction(
   if (!parsed.success) {
     return { ok: false, message: "Невалидни данни." };
   }
-  const { paymentId } = parsed.data;
+  const { paymentId, transId } = parsed.data;
 
   const payment = await prisma.payment.findUnique({
     where: { id: paymentId },
     select: {
       id: true,
-      amount: true,
-      status: true,
       ecommTransId: true,
       booking: { select: { userId: true } },
     },
@@ -1909,46 +1915,42 @@ export async function refundPaymentAction(
   if (!payment) {
     return { ok: false, message: "Транзакцията не е намерена." };
   }
-  if (!payment.ecommTransId) {
-    return {
-      ok: false,
-      message:
-        "Тази транзакция няма номер от виртуалния ПОС и не може да се върне оттук — обработи я през банката.",
-    };
-  }
-  if (
-    payment.status !== PaymentStatus.paid &&
-    payment.status !== PaymentStatus.refunded
-  ) {
-    return {
-      ok: false,
-      message:
-        payment.status === PaymentStatus.pending
-          ? "Транзакцията още няма резултат от банката. Първо натисни „Провери в банката\"."
-          : "Транзакцията не е успешна — няма удържана сума за връщане.",
-    };
-  }
 
-  // Network I/O stays outside any Prisma transaction (CLAUDE.md admin policy).
-  const refund = await refundCardPayment({ paymentId: payment.id });
+  // Forced: our own `Payment.status` is not consulted. Network I/O stays outside
+  // any Prisma transaction (CLAUDE.md admin policy).
+  const refund = await refundCardPayment({
+    paymentId: payment.id,
+    transId,
+    force: true,
+  });
   if (!refund.ok) {
     console.error(
-      `[admin-audit] refundPayment FAILED by=${admin.id} payment=${payment.id} reason=${refund.reason}: ${refund.error}`,
+      `[admin-audit] refundPayment FAILED by=${admin.id} payment=${payment.id} trans=${transId ?? payment.ecommTransId} reason=${refund.reason}: ${refund.error}`,
     );
+    if (refund.reason === "unsupported") {
+      return {
+        ok: false,
+        message:
+          "Тази транзакция няма номер от виртуалния ПОС (стар запис) — обработи я през банката.",
+      };
+    }
+    if (refund.reason === "not_found") {
+      return { ok: false, message: "Транзакцията не е намерена." };
+    }
+    // The bank's own words. Staff forward this to the acquirer as-is, so it is
+    // shown instead of a house-written „опитай пак".
     return {
       ok: false,
-      message:
-        refund.reason === "unsupported"
-          ? "Тази транзакция не може да се възстанови автоматично — обработи я през банката."
-          : "Банката отказа възстановяването. Провери транзакцията и опитай отново.",
+      message: `Банката отказа възстановяването: ${formatResultCode(refund.resultCode ?? null) ?? refund.error}`,
     };
   }
 
   // Take the refunded sum off the standing deposit, but only as far as it
   // actually stands there — a burn or an earlier clearing may have consumed it.
+  // A superseded attempt never recorded a deposit, so it never takes one back.
   let clearedFromBalance = 0;
   const userId = payment.booking?.userId;
-  if (userId && !refund.alreadyRefunded) {
+  if (userId && !refund.alreadyRefunded && refund.wasCurrentAttempt) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { depositBalance: true },
@@ -1965,7 +1967,7 @@ export async function refundPaymentAction(
   }
 
   console.log(
-    `[admin-audit] refundPayment by=${admin.id} payment=${payment.id} trans=${payment.ecommTransId} amount=${refund.refundedAmount} already=${refund.alreadyRefunded} balanceCleared=${clearedFromBalance}`,
+    `[admin-audit] refundPayment by=${admin.id} payment=${payment.id} trans=${refund.transId} amount=${refund.refundedAmount} current=${refund.wasCurrentAttempt} already=${refund.alreadyRefunded} balanceCleared=${clearedFromBalance}`,
   );
 
   revalidatePath("/admin/payments");

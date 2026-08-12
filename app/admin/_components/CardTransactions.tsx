@@ -117,7 +117,12 @@ function Attempt({
   async function refund() {
     setBusy(true);
     setFeedback(null);
-    const result = await refundPaymentAction({ paymentId });
+    const result = await refundPaymentAction({
+      paymentId,
+      // Name the transaction: one row can describe several, and the bank's
+      // request quotes a specific TrnID.
+      transId: attempt.transId ?? undefined,
+    });
     setFeedback(result);
     setBusy(false);
     setConfirmingRefund(false);
@@ -177,33 +182,56 @@ function Attempt({
       )}
 
       {/*
-        „Върни сумата" — offered on every charged transaction, not only when the
-        client still has the deposit on their profile. The bank asks us to
-        reverse a `TrnID`; whether the deposit was since burned or cleared is our
-        bookkeeping, not a reason the money can't go back.
+        „Възстанови сумата" stands on EVERY transaction, unconditionally — the
+        one deliberate design decision in this component.
+
+        Gating it on our own `Payment.status` would hide it precisely where the
+        acquirer needs it: a client who abandons the card page leaves the row
+        `pending` with no RESULT while the money has in fact moved, and those are
+        the transactions the bank writes to us about. The bank knows and we do
+        not, so the button always sends `command=k` and the bank's answer —
+        accepted, or a refusal code — is shown verbatim. `refundIsForced` only
+        changes the warning above the confirm, never whether the button exists.
       */}
-      {attempt.canRefund &&
+      {attempt.refundTransId &&
         (canRefund ? (
-          confirmingRefund ? (
-            <div className="mt-2 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={refund}
-                disabled={busy || isPending}
-                className="rounded-lg bg-red-600 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-white transition-colors hover:bg-red-700 disabled:opacity-60"
-              >
-                {busy
-                  ? "Връща се…"
-                  : `Потвърди връщане на ${attempt.refundAmountText}`}
-              </button>
-              <button
-                type="button"
-                onClick={() => setConfirmingRefund(false)}
-                disabled={busy || isPending}
-                className="rounded-lg border border-[color:var(--brand-purple)]/25 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-[color:var(--brand-purple)] hover:bg-[color:var(--brand-pink-soft)] disabled:opacity-60"
-              >
-                Откажи
-              </button>
+          attempt.alreadyRefunded ? (
+            <button
+              type="button"
+              disabled
+              className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-800 disabled:opacity-100"
+            >
+              Сумата е върната
+            </button>
+          ) : confirmingRefund ? (
+            <div className="mt-2">
+              {attempt.refundIsForced && (
+                <p className="mb-2 rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] leading-relaxed text-amber-900">
+                  По този запис нямаме потвърдено плащане. Заявката за
+                  възстановяване се изпраща към банката и тя решава дали има
+                  какво да върне — отговорът ѝ се показва тук.
+                </p>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={refund}
+                  disabled={busy || isPending}
+                  className="rounded-lg bg-red-600 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-white transition-colors hover:bg-red-700 disabled:opacity-60"
+                >
+                  {busy
+                    ? "Връща се…"
+                    : `Потвърди връщане на ${attempt.refundAmountText}`}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingRefund(false)}
+                  disabled={busy || isPending}
+                  className="rounded-lg border border-[color:var(--brand-purple)]/25 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-[color:var(--brand-purple)] hover:bg-[color:var(--brand-pink-soft)] disabled:opacity-60"
+                >
+                  Откажи
+                </button>
+              </div>
             </div>
           ) : (
             <button
@@ -212,7 +240,7 @@ function Attempt({
               disabled={busy || isPending}
               className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-red-700 transition-colors hover:bg-red-100 disabled:opacity-60"
             >
-              Върни сумата ({attempt.refundAmountText})
+              Възстанови сумата ({attempt.refundAmountText})
             </button>
           )
         ) : (

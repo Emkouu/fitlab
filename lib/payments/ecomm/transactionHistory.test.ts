@@ -161,22 +161,60 @@ describe("isRecheckable", () => {
   });
 });
 
+describe("archived refunds", () => {
+  it("surfaces a refund recorded against a superseded attempt", () => {
+    // A forced refund of a superseded transaction has nowhere else to live: the
+    // row's own refund columns describe the current attempt, so it is written
+    // into that attempt's history entry.
+    const history = (PAID.ecommHistory as Record<string, unknown>[]).map(
+      (entry, i) =>
+        i === 0
+          ? {
+              ...entry,
+              refund: {
+                transId: "refund-1",
+                amountMinor: 100,
+                atISO: "2026-08-12T09:00:00.000Z",
+              },
+            }
+          : entry,
+    );
+    const attempts = cardTransactionAttempts({ ...PAID, ecommHistory: history });
+
+    expect(attempts[2].transId).toBe("ouqekPPD2rLedSPfvyvnSLiy3rw=");
+    expect(attempts[2].refund).toEqual({
+      transId: "refund-1",
+      amountMinor: 100,
+      atISO: "2026-08-12T09:00:00.000Z",
+    });
+    // The untouched entries stay untouched.
+    expect(attempts[1].refund).toBeNull();
+  });
+
+  it("ignores a malformed refund object rather than half-reporting one", () => {
+    const history = [{ transId: "x", amount: 100, refund: { amountMinor: 100 } }];
+    expect(cardTransactionAttempts({ ...PAID, ecommHistory: history })[1].refund).toBeNull();
+  });
+});
+
 describe("isRefundable", () => {
   const [current, archived] = cardTransactionAttempts(PAID);
 
-  it("offers the refund on a charged, not-yet-refunded transaction", () => {
+  it("recognises a charged, not-yet-refunded transaction", () => {
     // Note what it does NOT consult: the client's deposit balance. The acquirer
     // asks us to reverse a transaction, so a burned or already-cleared deposit
     // is bookkeeping, not a blocker.
     expect(isRefundable(current, "paid")).toBe(true);
   });
 
-  it("stays off until the bank has actually taken the money", () => {
+  it("treats a row with no confirmed charge as a forced refund", () => {
+    // `pending` is the important one: the money may well have moved and only the
+    // bank knows. The button still appears — it just warns first.
     expect(isRefundable(current, "pending")).toBe(false);
     expect(isRefundable(current, "failed")).toBe(false);
   });
 
-  it("stays off once the money has gone back", () => {
+  it("stops treating it as routine once the money has gone back", () => {
     expect(isRefundable(current, "refunded")).toBe(false);
     // Even mislabelled as paid, a recorded refund closes the door.
     expect(
@@ -190,9 +228,9 @@ describe("isRefundable", () => {
     ).toBe(false);
   });
 
-  it("never offers it for a superseded attempt", () => {
-    // command=k reverses the transaction the row currently describes; the
-    // archived ones were declined and never took anything.
+  it("treats a superseded attempt as forced", () => {
+    // The archived attempts were declined, so nothing in our record says money
+    // moved — but the bank is still the one that gets to answer.
     expect(isRefundable(archived, "paid")).toBe(false);
   });
 });

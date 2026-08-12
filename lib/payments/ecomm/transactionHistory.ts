@@ -15,6 +15,19 @@ import { formatResultCode } from "./responseCodes";
  * shape rather than each re-deriving it from raw JSON.
  */
 
+/**
+ * A refund recorded against an archived attempt.
+ *
+ * The row's own `ecommRefundTransId` / `refundedAmount` / `refundedAt` columns
+ * describe the attempt the row currently is; a superseded attempt has nowhere
+ * else to keep its refund, so it keeps it inside its own history entry.
+ */
+export type ArchivedRefund = {
+  transId: string;
+  amountMinor: number | null;
+  atISO: string | null;
+};
+
 /** One archived attempt, exactly as `appendSupersededAttempt` writes it. */
 type StoredAttempt = {
   transId?: unknown;
@@ -26,6 +39,8 @@ type StoredAttempt = {
   cardMask?: unknown;
   amount?: unknown;
   supersededAt?: unknown;
+  /** Written by `refundCardPayment` when a superseded attempt is reversed. */
+  refund?: unknown;
 };
 
 export type CardTransactionAttempt = {
@@ -128,11 +143,24 @@ export function cardTransactionAttempts(
       amountMinor: typeof entry.amount === "number" ? entry.amount : 0,
       isCurrent: false,
       atISO: str(entry.supersededAt),
-      refund: null,
+      refund: readArchivedRefund(entry.refund),
     });
   }
 
   return attempts;
+}
+
+/** The `refund` object a forced refund writes back into a history entry. */
+function readArchivedRefund(value: unknown): ArchivedRefund | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Record<string, unknown>;
+  const transId = str(raw.transId);
+  if (!transId) return null;
+  return {
+    transId,
+    amountMinor: typeof raw.amountMinor === "number" ? raw.amountMinor : null,
+    atISO: str(raw.atISO),
+  };
 }
 
 /**
@@ -153,19 +181,24 @@ export function isRecheckable(attempt: CardTransactionAttempt): boolean {
 export type PaymentStatusName = "pending" | "paid" | "failed" | "refunded";
 
 /**
- * Can money still go back to the card for this attempt — i.e. should the screen
- * offer „Върни сумата"?
+ * Does OUR OWN record show money that can be given back for this attempt?
  *
- * Three conditions, and deliberately nothing about the client's profile: the
- * acquirer's requests name a transaction („пълно възстановяване на сумата на
- * тези транзакции"), so whether the deposit is still standing on the balance,
- * was burned on a no-show or was already cleared has no bearing on whether the
- * bank can be asked to reverse the charge.
+ * Note what this does **not** decide: whether the screen shows a refund button.
+ * That button is unconditional, because our record is the unreliable half — a
+ * client who abandons the bank's card page leaves the row `pending` with no
+ * `RESULT` while the money has in fact moved, and those are exactly the
+ * transactions the acquirer writes to us about. Only the bank knows, so the
+ * button always asks it. This function decides whether the press is *expected*
+ * to succeed or is a **forced** attempt that needs a warning first.
  *
- * - the payment is `paid` — the bank actually took the money (`pending` has no
- *   result yet, `failed` never charged, `refunded` already went back);
- * - it is the row's **current** attempt — superseded ones were declined, and
- *   `command=k` reverses only the transaction the row currently describes;
+ * Deliberately nothing here about the client's profile either: the acquirer's
+ * requests name a transaction („пълно възстановяване на сумата на двете
+ * транзакции"), so whether the deposit is still standing on the balance, was
+ * burned on a no-show or was already cleared has no bearing on it.
+ *
+ * - the payment is `paid` — we recorded the bank taking the money (`pending` has
+ *   no result yet, `failed` was declined, `refunded` already went back);
+ * - it is the row's **current** attempt — superseded ones were declined;
  * - nothing has been refunded against it yet.
  */
 export function isRefundable(
