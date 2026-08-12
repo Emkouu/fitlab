@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   cardTransactionAttempts,
   isRecheckable,
+  isRefundable,
   type PaymentAttemptSource,
 } from "./transactionHistory";
 
@@ -157,5 +158,41 @@ describe("isRecheckable", () => {
   it("never offers a recheck for an archived attempt", () => {
     // Its trans_id is spent; the bank's answer is already on record.
     expect(isRecheckable({ ...archived, result: null })).toBe(false);
+  });
+});
+
+describe("isRefundable", () => {
+  const [current, archived] = cardTransactionAttempts(PAID);
+
+  it("offers the refund on a charged, not-yet-refunded transaction", () => {
+    // Note what it does NOT consult: the client's deposit balance. The acquirer
+    // asks us to reverse a transaction, so a burned or already-cleared deposit
+    // is bookkeeping, not a blocker.
+    expect(isRefundable(current, "paid")).toBe(true);
+  });
+
+  it("stays off until the bank has actually taken the money", () => {
+    expect(isRefundable(current, "pending")).toBe(false);
+    expect(isRefundable(current, "failed")).toBe(false);
+  });
+
+  it("stays off once the money has gone back", () => {
+    expect(isRefundable(current, "refunded")).toBe(false);
+    // Even mislabelled as paid, a recorded refund closes the door.
+    expect(
+      isRefundable(
+        {
+          ...current,
+          refund: { transId: "rf-1", amountMinor: 100, atISO: null },
+        },
+        "paid",
+      ),
+    ).toBe(false);
+  });
+
+  it("never offers it for a superseded attempt", () => {
+    // command=k reverses the transaction the row currently describes; the
+    // archived ones were declined and never took anything.
+    expect(isRefundable(archived, "paid")).toBe(false);
   });
 });

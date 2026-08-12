@@ -77,6 +77,23 @@ export const refundDepositSchema = z.object({
 export type RefundDepositInput = z.infer<typeof refundDepositSchema>;
 
 /**
+ * „Върни сумата" — a full card refund of one specific transaction, started from
+ * the transaction itself rather than from the client's deposit balance.
+ *
+ * Separate from `refundDepositSchema` on purpose: that one answers „the client
+ * wants their standing deposit back" and is driven by `User.depositBalance`.
+ * This one answers „this transaction must be reversed" — the acquirer's own
+ * wording — and works even when the balance has since been burned, spent or
+ * already cleared, because the money that has to go back is the money the bank
+ * took, not whatever the profile happens to show today.
+ */
+export const refundPaymentSchema = z.object({
+  paymentId: z.string().min(1),
+});
+
+export type RefundPaymentInput = z.infer<typeof refundPaymentSchema>;
+
+/**
  * „Провери в банката" — re-ask ECOMM (`command=c`) what happened to a
  * transaction we never got an answer for.
  */

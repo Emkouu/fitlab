@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { recheckPaymentAction } from "@/app/admin/_actions";
+import { recheckPaymentAction, refundPaymentAction } from "@/app/admin/_actions";
 import type {
   CardTransactionAttemptView,
   CardTransactionGroupView,
@@ -18,13 +18,20 @@ import type {
  * behind one booking. Every attempt is shown, superseded ones included, with the
  * identifiers the bank uses to trace a payment (`TrnID`, RRN, approval code) in
  * a form that can be copied into a reply.
+ *
+ * It is also where money goes back: the acquirer's requests name a transaction
+ * („пълно възстановяване на сумата на тези транзакции"), so „Върни сумата" sits
+ * on the transaction itself, next to the `TrnID` the bank quoted.
  */
 export function CardTransactions({
   groups,
   emptyText = "Няма картови транзакции.",
+  canRefund = false,
 }: {
   groups: CardTransactionGroupView[];
   emptyText?: string;
+  /** Caller is super_admin — the server action re-checks this regardless. */
+  canRefund?: boolean;
 }) {
   if (groups.length === 0) {
     return (
@@ -71,6 +78,7 @@ export function CardTransactions({
                 key={attempt.transId ?? `${group.paymentId}-${index}`}
                 paymentId={group.paymentId}
                 attempt={attempt}
+                canRefund={canRefund}
               />
             ))}
           </ul>
@@ -83,13 +91,16 @@ export function CardTransactions({
 function Attempt({
   paymentId,
   attempt,
+  canRefund,
 }: {
   paymentId: string;
   attempt: CardTransactionAttemptView;
+  canRefund: boolean;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [busy, setBusy] = useState(false);
+  const [confirmingRefund, setConfirmingRefund] = useState(false);
   const [feedback, setFeedback] = useState<{ ok: boolean; message: string } | null>(
     null,
   );
@@ -100,6 +111,16 @@ function Attempt({
     const result = await recheckPaymentAction({ paymentId });
     setFeedback(result);
     setBusy(false);
+    if (result.ok) startTransition(() => router.refresh());
+  }
+
+  async function refund() {
+    setBusy(true);
+    setFeedback(null);
+    const result = await refundPaymentAction({ paymentId });
+    setFeedback(result);
+    setBusy(false);
+    setConfirmingRefund(false);
     if (result.ok) startTransition(() => router.refresh());
   }
 
@@ -154,6 +175,51 @@ function Attempt({
           </button>
         </>
       )}
+
+      {/*
+        „Върни сумата" — offered on every charged transaction, not only when the
+        client still has the deposit on their profile. The bank asks us to
+        reverse a `TrnID`; whether the deposit was since burned or cleared is our
+        bookkeeping, not a reason the money can't go back.
+      */}
+      {attempt.canRefund &&
+        (canRefund ? (
+          confirmingRefund ? (
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={refund}
+                disabled={busy || isPending}
+                className="rounded-lg bg-red-600 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-white transition-colors hover:bg-red-700 disabled:opacity-60"
+              >
+                {busy
+                  ? "Връща се…"
+                  : `Потвърди връщане на ${attempt.refundAmountText}`}
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmingRefund(false)}
+                disabled={busy || isPending}
+                className="rounded-lg border border-[color:var(--brand-purple)]/25 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-[color:var(--brand-purple)] hover:bg-[color:var(--brand-pink-soft)] disabled:opacity-60"
+              >
+                Откажи
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmingRefund(true)}
+              disabled={busy || isPending}
+              className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-red-700 transition-colors hover:bg-red-100 disabled:opacity-60"
+            >
+              Върни сумата ({attempt.refundAmountText})
+            </button>
+          )
+        ) : (
+          <p className="mt-2 rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-800">
+            Само super admin може да върне сумата по картата.
+          </p>
+        ))}
 
       {feedback && (
         <p

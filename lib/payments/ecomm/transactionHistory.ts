@@ -148,3 +148,31 @@ export function isRecheckable(attempt: CardTransactionAttempt): boolean {
   if (attempt.result === null) return true;
   return attempt.result === "CREATED" || attempt.result === "PENDING";
 }
+
+/** Mirrors Prisma's `PaymentStatus`, kept local so this file stays pure. */
+export type PaymentStatusName = "pending" | "paid" | "failed" | "refunded";
+
+/**
+ * Can money still go back to the card for this attempt — i.e. should the screen
+ * offer „Върни сумата"?
+ *
+ * Three conditions, and deliberately nothing about the client's profile: the
+ * acquirer's requests name a transaction („пълно възстановяване на сумата на
+ * тези транзакции"), so whether the deposit is still standing on the balance,
+ * was burned on a no-show or was already cleared has no bearing on whether the
+ * bank can be asked to reverse the charge.
+ *
+ * - the payment is `paid` — the bank actually took the money (`pending` has no
+ *   result yet, `failed` never charged, `refunded` already went back);
+ * - it is the row's **current** attempt — superseded ones were declined, and
+ *   `command=k` reverses only the transaction the row currently describes;
+ * - nothing has been refunded against it yet.
+ */
+export function isRefundable(
+  attempt: CardTransactionAttempt,
+  paymentStatus: PaymentStatusName,
+): boolean {
+  if (!attempt.isCurrent || !attempt.transId) return false;
+  if (attempt.refund !== null) return false;
+  return paymentStatus === "paid";
+}

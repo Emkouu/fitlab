@@ -87,6 +87,8 @@ export default async function AdminPaymentsPage({
       <p className="mb-4 text-xs leading-relaxed text-[color:var(--brand-purple)]/70">
         Всяка транзакция през виртуалния ПОС, включително заменените опити при
         повторно плащане. Търси по TrnID, RRN или approval code.
+        „Върни сумата&quot; връща цялата сума по същата карта и стои при всяка
+        платена транзакция, която още не е възстановена.
       </p>
 
       {/* Plain GET form: the query lives in the URL, so a search can be shared. */}
@@ -109,6 +111,7 @@ export default async function AdminPaymentsPage({
 
       <CardTransactions
         groups={groups}
+        canRefund={admin.role === "super_admin"}
         emptyText={
           query === ""
             ? "Още няма картови транзакции."

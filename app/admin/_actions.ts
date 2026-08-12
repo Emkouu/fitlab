@@ -42,6 +42,8 @@ import {
   type AddClientInput,
   refundDepositSchema,
   type RefundDepositInput,
+  refundPaymentSchema,
+  type RefundPaymentInput,
   recheckPaymentSchema,
   type RecheckPaymentInput,
 } from "@/lib/validation/clientForm";
@@ -60,7 +62,7 @@ import {
 } from "@/lib/validation/partnerForm";
 import { generateSlug } from "@/lib/utils/slug";
 import { sofiaToUtc } from "@/lib/format/sofiaTime";
-import { sofiaDateKey } from "@/lib/format";
+import { formatEurMinor, sofiaDateKey } from "@/lib/format";
 import { generateRecurringDates } from "@/lib/schedule/generateRecurringDates";
 
 /**
@@ -1838,6 +1840,154 @@ export async function refundDepositAction(
       method === "card"
         ? "Депозитът е върнат по същата карта и е премахнат от профила."
         : "Депозитът е отбелязан като върнат в брой и е премахнат от профила.",
+  };
+}
+
+/* ─────────────── Refund one card transaction ─────────────── */
+
+export type RefundPaymentResult =
+  | { ok: true; message: string }
+  | { ok: false; message: string };
+
+/**
+ * „Върни сумата" — a full card refund of one specific transaction, started from
+ * the transaction row in „Картови транзакции".
+ *
+ * `refundDepositAction` above answers a different question („the client wants
+ * their standing deposit back") and is therefore driven by, and gated on,
+ * `User.depositBalance`. That gate is wrong for the acquirer's own request —
+ * „моля да направите пълно възстановяване на сумата на тези транзакции" — which
+ * names a transaction, not a profile: the money has to go back whether or not
+ * the deposit is still sitting on the balance, and it may well have been burned,
+ * cleared or never recorded (a cancelled booking rechecked into `paid`).
+ *
+ * So this action gates on the payment alone:
+ *   • `Payment.status = paid` — the bank actually took money;
+ *   • an `ecommTransId` — the only thing `command=k` can reverse;
+ * and refunds the full `Payment.amount`. `refundCardPayment` reports an already
+ * refunded row as success, so a double tap says so instead of asking the bank
+ * twice.
+ *
+ * The profile is then squared with reality: whatever part of the refunded sum is
+ * still standing as a deposit comes off the balance (clamped at 0 — a burned or
+ * partly cleared deposit simply has less to take back). The booking itself is
+ * deliberately left alone; cancelling it is a separate, audited decision, and
+ * the message says so.
+ *
+ * Moves real money → super_admin only.
+ */
+export async function refundPaymentAction(
+  input: RefundPaymentInput,
+): Promise<RefundPaymentResult> {
+  const admin = await getAdminUser();
+  if (!admin) {
+    return { ok: false, message: "Нямаш достъп до тази функция." };
+  }
+  if (admin.role !== Role.super_admin) {
+    return {
+      ok: false,
+      message: "Само super admin може да възстановява суми по карта.",
+    };
+  }
+
+  const parsed = refundPaymentSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, message: "Невалидни данни." };
+  }
+  const { paymentId } = parsed.data;
+
+  const payment = await prisma.payment.findUnique({
+    where: { id: paymentId },
+    select: {
+      id: true,
+      amount: true,
+      status: true,
+      ecommTransId: true,
+      booking: { select: { userId: true } },
+    },
+  });
+  if (!payment) {
+    return { ok: false, message: "Транзакцията не е намерена." };
+  }
+  if (!payment.ecommTransId) {
+    return {
+      ok: false,
+      message:
+        "Тази транзакция няма номер от виртуалния ПОС и не може да се върне оттук — обработи я през банката.",
+    };
+  }
+  if (
+    payment.status !== PaymentStatus.paid &&
+    payment.status !== PaymentStatus.refunded
+  ) {
+    return {
+      ok: false,
+      message:
+        payment.status === PaymentStatus.pending
+          ? "Транзакцията още няма резултат от банката. Първо натисни „Провери в банката\"."
+          : "Транзакцията не е успешна — няма удържана сума за връщане.",
+    };
+  }
+
+  // Network I/O stays outside any Prisma transaction (CLAUDE.md admin policy).
+  const refund = await refundCardPayment({ paymentId: payment.id });
+  if (!refund.ok) {
+    console.error(
+      `[admin-audit] refundPayment FAILED by=${admin.id} payment=${payment.id} reason=${refund.reason}: ${refund.error}`,
+    );
+    return {
+      ok: false,
+      message:
+        refund.reason === "unsupported"
+          ? "Тази транзакция не може да се възстанови автоматично — обработи я през банката."
+          : "Банката отказа възстановяването. Провери транзакцията и опитай отново.",
+    };
+  }
+
+  // Take the refunded sum off the standing deposit, but only as far as it
+  // actually stands there — a burn or an earlier clearing may have consumed it.
+  let clearedFromBalance = 0;
+  const userId = payment.booking?.userId;
+  if (userId && !refund.alreadyRefunded) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { depositBalance: true },
+    });
+    const take = Math.min(refund.refundedAmount, user?.depositBalance ?? 0);
+    if (take > 0) {
+      // Conditional on the balance we just read, so a replay can't take twice.
+      const updated = await prisma.user.updateMany({
+        where: { id: userId, depositBalance: user!.depositBalance },
+        data: { depositBalance: { decrement: take } },
+      });
+      if (updated.count > 0) clearedFromBalance = take;
+    }
+  }
+
+  console.log(
+    `[admin-audit] refundPayment by=${admin.id} payment=${payment.id} trans=${payment.ecommTransId} amount=${refund.refundedAmount} already=${refund.alreadyRefunded} balanceCleared=${clearedFromBalance}`,
+  );
+
+  revalidatePath("/admin/payments");
+  if (userId) revalidatePath(`/admin/clients/${userId}`);
+  revalidatePath("/admin/clients");
+  revalidatePath("/account");
+
+  if (refund.alreadyRefunded) {
+    return {
+      ok: true,
+      message: `Сумата ${formatEurMinor(refund.refundedAmount)} вече е върната по картата.`,
+    };
+  }
+
+  return {
+    ok: true,
+    message:
+      `Сумата ${formatEurMinor(refund.refundedAmount)} е върната по същата карта.` +
+      (clearedFromBalance > 0
+        ? ` Депозитът по профила е намален с ${formatEurMinor(clearedFromBalance)}.`
+        : "") +
+      " Записването остава както е — отмени го отделно, ако е нужно.",
   };
 }
 

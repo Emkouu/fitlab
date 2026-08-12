@@ -3,6 +3,7 @@ import { formatEurMinor, formatSofiaDateTime } from "@/lib/format";
 import {
   cardTransactionAttempts,
   isRecheckable,
+  isRefundable,
   type PaymentAttemptSource,
 } from "@/lib/payments/ecomm/transactionHistory";
 
@@ -28,6 +29,15 @@ export type CardTransactionAttemptView = {
   refundText: string | null;
   /** The bank may still have news about this one — offer „Провери в банката". */
   canRecheck: boolean;
+  /**
+   * Money is sitting at the studio for this attempt and can go back to the card
+   * — offer „Върни сумата". True for the current attempt of a `paid` payment
+   * that carries an ECOMM `trans_id` and hasn't been refunded yet; superseded
+   * attempts were never charged, and `command=k` only knows the current one.
+   */
+  canRefund: boolean;
+  /** „10,00 €" — what „Върни сумата" would send back (the full amount). */
+  refundAmountText: string;
 };
 
 export type CardTransactionGroupView = {
@@ -111,6 +121,8 @@ export function toCardTransactionGroup(
           } · ${a.refund.transId}`
         : null,
       canRecheck: isRecheckable(a),
+      canRefund: isRefundable(a, payment.status),
+      refundAmountText: formatEurMinor(a.amountMinor),
     })),
   };
 }
