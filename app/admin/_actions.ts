@@ -44,6 +44,8 @@ import {
   type RefundDepositInput,
   recheckPaymentSchema,
   type RecheckPaymentInput,
+  refundTransactionSchema,
+  type RefundTransactionInput,
 } from "@/lib/validation/clientForm";
 import { getStaffUser } from "@/lib/auth/getStaffUser";
 import {
@@ -1990,5 +1992,125 @@ export async function recheckPaymentAction(
         ? ` (${formatResultCode(bankResult.resultCode)})`
         : ""
     }.`,
+  };
+}
+
+/* ────────────── Full refund of one card transaction ────────────── */
+
+export type RefundTransactionResult =
+  | { ok: true; message: string }
+  | { ok: false; message: string };
+
+/**
+ * „Върни сумата" — send one card transaction's full amount back to the card.
+ *
+ * This is the per-transaction counterpart to `refundDepositAction`. The two
+ * answer different questions and neither replaces the other:
+ *
+ * - `refundDepositAction` starts from the client („искам си депозита") and
+ *   returns whatever balance the profile holds, which requires a balance > 0.
+ * - this one starts from the transaction („върнете сумата по тази транзакция"),
+ *   which is how the acquirer asks, and works from the payment alone — a
+ *   transaction can need returning long after the balance was spent or cleared.
+ *
+ * Card money goes back only by a card operation to the same card (Fibank
+ * instruction §I.16); `refundCardPayment` is the single route and is idempotent,
+ * so a double tap returns the sum once.
+ *
+ * The profile's recorded deposit is reduced by what went back, floored at 0: the
+ * client can't keep holding a guarantee they no longer paid. Refunding a
+ * transaction whose booking is still active is allowed but reported, because the
+ * spot then stands without a deposit behind it.
+ *
+ * Moves real money → super_admin only.
+ */
+export async function refundTransactionAction(
+  input: RefundTransactionInput,
+): Promise<RefundTransactionResult> {
+  const admin = await getAdminUser();
+  if (!admin) {
+    return { ok: false, message: "Нямаш достъп до тази функция." };
+  }
+  if (admin.role !== Role.super_admin) {
+    return { ok: false, message: "Само super admin може да връща суми." };
+  }
+
+  const parsed = refundTransactionSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, message: "Невалидни данни." };
+  }
+
+  const payment = await prisma.payment.findUnique({
+    where: { id: parsed.data.paymentId },
+    include: { booking: { select: { id: true, userId: true, status: true } } },
+  });
+  if (!payment) {
+    return { ok: false, message: "Транзакцията не е намерена." };
+  }
+
+  // Network I/O first and outside any Prisma transaction (CLAUDE.md admin rules).
+  const refund = await refundCardPayment({ paymentId: payment.id });
+  if (!refund.ok) {
+    console.error(
+      `[admin-audit] refundTransaction FAILED by=${admin.id} payment=${payment.id} reason=${refund.reason}: ${refund.error}`,
+    );
+    if (refund.reason === "unsupported") {
+      return {
+        ok: false,
+        message:
+          "Тази транзакция не е през виртуалния ПОС — обработи я директно през банката.",
+      };
+    }
+    if (refund.reason === "not_paid") {
+      return {
+        ok: false,
+        message: "По тази транзакция няма получена сума, която да се върне.",
+      };
+    }
+    return {
+      ok: false,
+      message: "Банката отказа връщането. Провери транзакцията и опитай отново.",
+    };
+  }
+
+  if (refund.alreadyRefunded) {
+    return { ok: true, message: "Сумата вече е върната по картата." };
+  }
+
+  // The card charge was recorded as the standing deposit; the money is gone, so
+  // the profile can't keep claiming it. Conditional on the balance we just read,
+  // so a replay is a no-op instead of a second reduction.
+  const booking = payment.booking;
+  if (booking) {
+    const user = await prisma.user.findUnique({
+      where: { id: booking.userId },
+      select: { depositBalance: true },
+    });
+    if (user && user.depositBalance > 0) {
+      await prisma.user.updateMany({
+        where: { id: booking.userId, depositBalance: user.depositBalance },
+        data: {
+          depositBalance: Math.max(0, user.depositBalance - refund.refundedAmount),
+        },
+      });
+    }
+  }
+
+  console.log(
+    `[admin-audit] refundTransaction by=${admin.id} payment=${payment.id} amount=${refund.refundedAmount}`,
+  );
+
+  if (booking) revalidatePath(`/admin/clients/${booking.userId}`);
+  revalidatePath("/admin/payments");
+  revalidatePath("/account");
+
+  const bookingStillActive =
+    booking !== null && booking.status !== BookingStatus.cancelled;
+
+  return {
+    ok: true,
+    message: bookingStillActive
+      ? "Сумата е върната по картата. Резервацията остава активна — отпиши клиента, ако мястото трябва да се освободи."
+      : "Сумата е върната по картата.",
   };
 }

@@ -28,6 +28,8 @@ export type CardTransactionAttemptView = {
   refundText: string | null;
   /** The bank may still have news about this one — offer „Провери в банката". */
   canRecheck: boolean;
+  /** Money can go back through this one — offer „Върни сумата". */
+  canRefund: boolean;
 };
 
 export type CardTransactionGroupView = {
@@ -111,6 +113,7 @@ export function toCardTransactionGroup(
           } · ${a.refund.transId}`
         : null,
       canRecheck: isRecheckable(a),
+      canRefund: a.refundable,
     })),
   };
 }

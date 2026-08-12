@@ -3,7 +3,10 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { recheckPaymentAction } from "@/app/admin/_actions";
+import {
+  recheckPaymentAction,
+  refundTransactionAction,
+} from "@/app/admin/_actions";
 import type {
   CardTransactionAttemptView,
   CardTransactionGroupView,
@@ -21,9 +24,12 @@ import type {
  */
 export function CardTransactions({
   groups,
+  canRefund = false,
   emptyText = "Няма картови транзакции.",
 }: {
   groups: CardTransactionGroupView[];
+  /** super_admin — only they may send money back (the action re-checks). */
+  canRefund?: boolean;
   emptyText?: string;
 }) {
   if (groups.length === 0) {
@@ -71,6 +77,7 @@ export function CardTransactions({
                 key={attempt.transId ?? `${group.paymentId}-${index}`}
                 paymentId={group.paymentId}
                 attempt={attempt}
+                canRefund={canRefund}
               />
             ))}
           </ul>
@@ -83,25 +90,32 @@ export function CardTransactions({
 function Attempt({
   paymentId,
   attempt,
+  canRefund,
 }: {
   paymentId: string;
   attempt: CardTransactionAttemptView;
+  canRefund: boolean;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [busy, setBusy] = useState(false);
+  const [armed, setArmed] = useState(false);
   const [feedback, setFeedback] = useState<{ ok: boolean; message: string } | null>(
     null,
   );
 
-  async function recheck() {
+  async function run(action: () => Promise<{ ok: boolean; message: string }>) {
     setBusy(true);
     setFeedback(null);
-    const result = await recheckPaymentAction({ paymentId });
+    const result = await action();
     setFeedback(result);
     setBusy(false);
+    setArmed(false);
     if (result.ok) startTransition(() => router.refresh());
   }
+
+  const recheck = () => run(() => recheckPaymentAction({ paymentId }));
+  const refund = () => run(() => refundTransactionAction({ paymentId }));
 
   return (
     <li
@@ -153,6 +167,42 @@ function Attempt({
             {busy ? "Проверява се…" : "Провери в банката"}
           </button>
         </>
+      )}
+
+      {/*
+        Two taps to move money: the acquirer requires a way to return a paid sum
+        in full, and this is the one place where the transaction itself is the
+        starting point — no dependency on what the client's balance happens to be.
+      */}
+      {attempt.canRefund && canRefund && !armed && (
+        <button
+          type="button"
+          onClick={() => setArmed(true)}
+          disabled={busy || isPending}
+          className="mt-2 rounded-lg border border-[color:var(--brand-purple)]/25 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-[color:var(--brand-purple)] transition-colors hover:bg-[color:var(--brand-pink-soft)] disabled:opacity-60"
+        >
+          Върни сумата
+        </button>
+      )}
+      {attempt.canRefund && canRefund && armed && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={refund}
+            disabled={busy || isPending}
+            className="rounded-lg bg-red-600 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-white transition-colors hover:bg-red-700 disabled:opacity-60"
+          >
+            {busy ? "Връща се…" : `Потвърди ${attempt.amountText} по картата`}
+          </button>
+          <button
+            type="button"
+            onClick={() => setArmed(false)}
+            disabled={busy}
+            className="rounded-lg border border-[color:var(--brand-purple)]/25 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-[color:var(--brand-purple)] hover:bg-[color:var(--brand-pink-soft)]"
+          >
+            Откажи
+          </button>
+        </div>
       )}
 
       {feedback && (

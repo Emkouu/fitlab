@@ -109,6 +109,7 @@ export default async function AdminPaymentsPage({
 
       <CardTransactions
         groups={groups}
+        canRefund={admin.role === "super_admin"}
         emptyText={
           query === ""
             ? "Още няма картови транзакции."

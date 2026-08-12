@@ -85,3 +85,14 @@ export const recheckPaymentSchema = z.object({
 });
 
 export type RecheckPaymentInput = z.infer<typeof recheckPaymentSchema>;
+
+/**
+ * „Върни сумата" — full refund of one card transaction, to the card it came
+ * from. No amount field: the acquirer's requirement is a full return of the sum,
+ * and a partial one would need its own confirmation.
+ */
+export const refundTransactionSchema = z.object({
+  paymentId: z.string().min(1),
+});
+
+export type RefundTransactionInput = z.infer<typeof refundTransactionSchema>;

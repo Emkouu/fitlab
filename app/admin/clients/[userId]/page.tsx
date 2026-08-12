@@ -169,6 +169,7 @@ export default async function AdminClientDetailPage({
         </h2>
         <CardTransactions
           groups={cardPayments.map((p) => toCardTransactionGroup(p))}
+          canRefund={admin.role === "super_admin"}
           emptyText="Клиентът няма плащания с карта — депозитът е оставен на място или още не е плащал."
         />
       </section>

@@ -46,6 +46,13 @@ export type CardTransactionAttempt = {
    */
   isCurrent: boolean;
   /**
+   * Money can still be sent back through this transaction: it is the attempt the
+   * row currently describes, the bank took the money, and nothing has been
+   * returned yet. A superseded attempt is never refundable — no money moved
+   * through it, and its `trans_id` is spent.
+   */
+  refundable: boolean;
+  /**
    * When this attempt stopped changing: the row's `updatedAt` for the current
    * attempt, `supersededAt` for an archived one. ISO, for the client component.
    */
@@ -60,6 +67,8 @@ export type CardTransactionAttempt = {
 
 export type PaymentAttemptSource = {
   amount: number;
+  /** `PaymentStatus` — decides whether there is money left to send back. */
+  status: string;
   ecommTransId: string | null;
   ecommResult: string | null;
   ecommResultCode: string | null;
@@ -99,6 +108,8 @@ export function cardTransactionAttempts(
       cardMask: payment.ecommCardMask,
       amountMinor: payment.amount,
       isCurrent: true,
+      refundable:
+        payment.status === "paid" && payment.ecommRefundTransId === null,
       atISO: payment.updatedAt.toISOString(),
       refund: payment.ecommRefundTransId
         ? {
@@ -127,6 +138,7 @@ export function cardTransactionAttempts(
       cardMask: str(entry.cardMask),
       amountMinor: typeof entry.amount === "number" ? entry.amount : 0,
       isCurrent: false,
+      refundable: false,
       atISO: str(entry.supersededAt),
       refund: null,
     });

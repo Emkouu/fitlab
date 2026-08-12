@@ -12,6 +12,7 @@ import {
  */
 const PAID: PaymentAttemptSource = {
   amount: 100,
+  status: "paid",
   ecommTransId: "oD9Fp8MDPSxpPkkqAH5UE9iHEjE=",
   ecommResult: "OK",
   ecommResultCode: "000",
@@ -53,6 +54,7 @@ const PAID: PaymentAttemptSource = {
 const ABANDONED: PaymentAttemptSource = {
   ...PAID,
   amount: 1000,
+  status: "pending",
   ecommTransId: "R1oHMen4MXSbz80R7wsreHaiON0=",
   ecommResult: null,
   ecommResultCode: null,
@@ -136,6 +138,42 @@ describe("cardTransactionAttempts", () => {
       ecommHistory: [{ transId: "X=", amount: "not a number" }],
     });
     expect(partial).toMatchObject({ transId: "X=", amountMinor: 0, result: null });
+  });
+});
+
+describe("refundable", () => {
+  it("offers a refund on a paid transaction that hasn't been returned", () => {
+    const [current, archived] = cardTransactionAttempts(PAID);
+    expect(current.refundable).toBe(true);
+    // The declined attempt took no money and its trans_id is spent.
+    expect(archived.refundable).toBe(false);
+  });
+
+  it("stops offering one after the money went back", () => {
+    const [current] = cardTransactionAttempts({
+      ...PAID,
+      status: "refunded",
+      ecommRefundTransId: "REFUND_ID=",
+      refundedAmount: 100,
+      refundedAt: new Date("2026-08-12T09:00:00.000Z"),
+    });
+    expect(current.refundable).toBe(false);
+  });
+
+  it("never offers one where no money moved", () => {
+    expect(cardTransactionAttempts(ABANDONED)[0].refundable).toBe(false);
+    expect(
+      cardTransactionAttempts({ ...PAID, status: "failed" })[0].refundable,
+    ).toBe(false);
+  });
+
+  it("guards against a paid row that already carries a refund id", () => {
+    // Belt and braces: if the status write ever lags behind the bank call, the
+    // refund id is still proof the money left.
+    expect(
+      cardTransactionAttempts({ ...PAID, ecommRefundTransId: "REFUND_ID=" })[0]
+        .refundable,
+    ).toBe(false);
   });
 });
 
