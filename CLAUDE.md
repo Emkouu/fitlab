@@ -133,6 +133,7 @@ Staff schedule a whole month ahead; **clients only see a rolling 7 days — toda
 - Applied to `/schedule` only: the agenda query, `getClassesForMonth` (days outside the window come back empty), and the Месец grid (out-of-window days inert/no dots, next-month arrow disabled).
 - `/admin/**` is **not** windowed — staff keep the full month.
 - **Special events are exempt.** `/events` lists them however far out they are, and `?openBooking=<id>` resolves server-side (`loadDeepLinkRow` in `app/schedule/page.tsx`) so an out-of-window event still opens its booking modal. Regular classes can only be deep-linked inside the window.
+- **`?openBooking=<id>` is a shareable link, not only a post-login resume.** It opens the booking sheet for signed-out visitors too — confirming there returns `unauthenticated` and bounces to `/login?next=…` carrying the same deep link, so the visitor lands back on that class after the OTP. Staff copy it from Админ → График („Копирай линк за записване" on each class, `ScheduleList.tsx`), which warns when a regular class sits outside the window and the link would open the schedule without the sheet.
 
 ## Booking flow reference (steps 4–6)
 

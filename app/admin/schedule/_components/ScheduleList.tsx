@@ -3,7 +3,13 @@
 import { useState } from "react";
 import Link from "next/link";
 import { ScheduledClass, Practice, Trainer } from "@/lib/generated/prisma/client";
-import { formatSofiaDay, formatSofiaTime, formatEurMinor } from "@/lib/format";
+import {
+  formatSofiaDay,
+  formatSofiaTime,
+  formatEurMinor,
+  sofiaDateKey,
+} from "@/lib/format";
+import { isWithinPublicWindow } from "@/lib/schedule/publicWindow";
 import { depositAmountMinor } from "@/lib/deposit";
 import { CancelClassModal } from "./CancelClassModal";
 import { DeleteClassModal } from "./DeleteClassModal";
@@ -20,6 +26,66 @@ export type ScheduleListProps = {
    *  actually inherits instead of a blank. */
   studioDefaultDeposit: number;
 };
+
+/**
+ * Copy a shareable link straight to one class's booking sheet, so staff can
+ * send „ето тази тренировка" instead of dictating a date and a time.
+ *
+ * The link is the same `?openBooking=<id>` deep link /events already uses, and
+ * it is resolved server-side — but only special events survive outside the
+ * public 7-day window (`loadDeepLinkRow` in app/schedule/page.tsx). For a
+ * regular class further out the page still opens, just without the sheet, so
+ * say that up front rather than letting someone send a link that half-works.
+ */
+function CopyClassLink({
+  classId,
+  opensBookingModal,
+}: {
+  classId: string;
+  opensBookingModal: boolean;
+}) {
+  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
+
+  const label =
+    state === "copied"
+      ? "Линкът е копиран ✓"
+      : state === "failed"
+        ? "Копирането не стана — линкът е в адреса на класа"
+        : "Копирай линк за записване";
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={async () => {
+          const url = `${window.location.origin}/schedule?openBooking=${encodeURIComponent(classId)}`;
+          try {
+            await navigator.clipboard.writeText(url);
+            setState("copied");
+          } catch {
+            // Clipboard needs a secure context and permission; neither is
+            // guaranteed on every device staff use.
+            setState("failed");
+          }
+          setTimeout(() => setState("idle"), 2500);
+        }}
+        className={`flex w-full items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-center text-xs font-semibold transition-all ${
+          state === "copied"
+            ? "bg-emerald-50 text-emerald-800 ring-1 ring-inset ring-emerald-200"
+            : "border border-[color:var(--brand-purple)]/25 bg-white text-[color:var(--brand-purple)] hover:bg-[color:var(--brand-purple)]/5"
+        }`}
+      >
+        {label}
+      </button>
+      {!opensBookingModal && (
+        <p className="mt-1.5 text-[11px] leading-snug text-[color:var(--brand-purple)]/60">
+          Класът е извън 7-дневния прозорец, който клиентите виждат — линкът ще
+          отвори графика, но не и прозореца за записване.
+        </p>
+      )}
+    </div>
+  );
+}
 
 export function ScheduleList({
   classes,
@@ -126,13 +192,20 @@ export function ScheduleList({
                 {/* „Записани" — open the class's enrolled list + attendance
                     + add-client. Shown for everyone (incl. read-only coaches). */}
                 {!isCancelled && (
-                  <div className="mt-3">
+                  <div className="mt-3 space-y-2">
                     <Link
                       href={`/admin/attendance/${cls.id}`}
                       className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-[color:var(--brand-magenta)]/40 bg-[color:var(--brand-pink-soft)]/50 px-3 py-2 text-center text-xs font-semibold text-[color:var(--brand-magenta)] transition-all hover:bg-[color:var(--brand-pink-soft)]"
                     >
                       Записани ({cls._count.bookings}) →
                     </Link>
+                    <CopyClassLink
+                      classId={cls.id}
+                      opensBookingModal={
+                        cls.isSpecialEvent ||
+                        isWithinPublicWindow(sofiaDateKey(cls.startAt))
+                      }
+                    />
                   </div>
                 )}
 

@@ -83,10 +83,18 @@ export function ScheduleSurface({
     return m;
   })();
 
-  // Auto-open modal on ?openBooking=<id> (post-login resume).
+  // Auto-open modal on ?openBooking=<id>.
+  //
+  // Two callers, and they must both work: the post-login resume (we sent the
+  // visitor to /login and promised to bring them back to this exact class), and
+  // a link staff copied out of the admin schedule to send someone. The second
+  // one lands on a stranger — not signed in, and the whole point is that they
+  // see which class this is — so the modal opens either way. Confirming without
+  // a session is already handled: `bookClassAction` answers `unauthenticated`
+  // and the modal bounces to /login carrying this same deep link.
   useEffect(() => {
     const id = searchParams.get("openBooking");
-    if (!id || !isAuthed) return;
+    if (!id) return;
     const row = rowsById.get(id);
     if (!row) return;
     setOpenClass(row);
@@ -96,7 +104,7 @@ export function ScheduleSurface({
     const qs = params.toString();
     router.replace(`/schedule${qs ? `?${qs}` : ""}`, { scroll: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, isAuthed]);
+  }, [searchParams]);
 
   function handleBook(row: ClassCardRow) {
     if (!isAuthed) {
