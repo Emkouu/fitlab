@@ -155,22 +155,43 @@ DNS-а на продукцията. Излиза от същия IPv4, така 
 → `command=v` с `language=default`, `currency=978`, `amount` в стотинки →
 28-знаков `TRANSACTION_ID`.
 
-⚠️ **Тестовият gateway представя вътрешен сертификат.** `mdpay-test.fibank.bg`
-връща сертификат със SAN `eur-3ds-ecomm-test.int.fibank.bg`, `localhost`,
-`10.10.34.211` — публичното име липсва. Заобиколено е само за
-`ECOMM_ENVIRONMENT=test` (`isFibankTestCertificate` в `protocol.ts`); веригата
-продължава да се проверява и продукцията няма изключение. Ако `mdpay.fibank.bg`
-също връща вътрешен сертификат, продукцията **ще откаже** връзката — да се
-провери преди пускане.
+⚠️ **И двата gateway-я представят вътрешни сертификати.** `mdpay-test.fibank.bg`
+връща SAN `eur-3ds-ecomm-test.int.fibank.bg`, `localhost`, `10.10.34.211`.
+Проверено на 13.08.2026: `mdpay.fibank.bg` прави същото — SAN
+`DNS:3ds-v2-ecomm-prod.int.fibank.bg, IP Address:10.10.84.41`, издаден
+17.06.2021, валиден до 04.08.2031. Публичното име липсва и на двете.
+
+Освен това веригата е изцяло частна: лист ← `CS ROOT` ← `LOCAL CA`
+(самоподписан), тоест никой публичен trust store не я покрива и Node отказва с
+„unable to get issuer certificate".
+
+Решението в кода (`client.ts`) е двучастно и **не** е `rejectUnauthorized: false`:
+
+1. `ca: [...tls.rootCertificates, ...FIBANK_CA_PEM]` — котвите са пиннати в
+   `lib/payments/ecomm/fibankCa.ts`. `CS ROOT` е байт в байт същият, който
+   банката ни прати **вътре в keystore-а** (SHA-256 `03:79:77:35:…:3D:B0`), тоест
+   дошъл е извън канала; `LOCAL CA` (`CD:97:55:18:…:37:50`) се приема само защото
+   проверимо е подписал точно този `CS ROOT`. Нужен е и той, защото OpenSSL не
+   спира на котва, която не е самоподписана.
+2. Проверка на името срещу това, което gateway-ят наистина носи — за всяка среда
+   поотделно (`isFibankTestCertificate` / `isFibankProductionCertificate`), с
+   точно съвпадение по име.
+
+**Да се поиска от банката** сертификат, валиден за `mdpay.fibank.bg` и
+`mdpay-test.fibank.bg`. Пинирането по вътрешно име работи, но е заобикалка —
+когато банката оправи това, двата списъка с имена отпадат.
 
 Остава: завършване на цикъла с тестова карта → връщане на
 `/api/payments/ecomm/return` → `command=c` → `RESULT=OK` → разписка.
 
 ### B3. Какво чакаме от банката
 
-1. ~~Keystore (PKCS#12) + парола~~ — **получени** 08.08.2026. Merchant
-   `000001512278900`, валиден 07.08.2026–07.08.2027. Стои в `.env` на сървъра
-   като `ECOMM_CERT_PFX_BASE64` + `ECOMM_CERT_PASSWORD`; не влиза в репото
+1. ~~Keystore (PKCS#12) + парола~~ — **получени** 08.08.2026, и **подменени с
+   продукционния на 13.08.2026**. Merchant `000001512278900`,
+   subject `O=FITLABVARNA.COM, CN=000001512278900`, издател `CS ROOT`, валиден
+   **13.08.2026–12.08.2028** (SHA-256 на файла: `6b4caf50…a607378`). Заменя
+   първия keystore (07.08.2026–07.08.2027). Стои в `.env` на сървъра като
+   `ECOMM_CERT_PFX_BASE64` + `ECOMM_CERT_PASSWORD`; не влиза в репото
    (`*.pkcs12` е в `.gitignore`).
 2. ~~Примерният шаблон и `ResponseCodes.txt`~~ — **получени**. Нашата версия на
    шаблона е в `fibank/cardinfo_bg.mustache.html` (ограниченията са описани в

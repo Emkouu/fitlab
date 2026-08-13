@@ -4,6 +4,7 @@ import {
   ECOMM_LANGUAGE,
   asEcommResult,
   formatEcommAmount,
+  isFibankProductionCertificate,
   isFibankTestCertificate,
   normalizeClientIp,
   parseEcommResponse,
@@ -172,6 +173,40 @@ describe("isFibankTestCertificate", () => {
     expect(isFibankTestCertificate("DNS:example.com")).toBe(false);
     expect(isFibankTestCertificate("")).toBe(false);
     expect(isFibankTestCertificate(undefined)).toBe(false);
+  });
+});
+
+describe("isFibankProductionCertificate", () => {
+  // The SAN string mdpay.fibank.bg actually presented on 13.08.2026.
+  const REAL = "DNS:3ds-v2-ecomm-prod.int.fibank.bg, IP Address:10.10.84.41";
+
+  it("recognises the bank's production certificate", () => {
+    expect(isFibankProductionCertificate(REAL)).toBe(true);
+  });
+
+  it("matches whole names, not substrings", () => {
+    expect(
+      isFibankProductionCertificate("DNS:evil-3ds-v2-ecomm-prod.attacker.example"),
+    ).toBe(false);
+    expect(
+      isFibankProductionCertificate("DNS:3ds-v2-ecomm-prod.int.fibank.bg.attacker.example"),
+    ).toBe(false);
+  });
+
+  it("ignores IP entries — only DNS names grant the exemption", () => {
+    expect(isFibankProductionCertificate("IP Address:10.10.84.41")).toBe(false);
+  });
+
+  it("is case-insensitive about the name, as DNS is", () => {
+    expect(isFibankProductionCertificate("DNS:3DS-V2-ECOMM-PROD.INT.FIBANK.BG")).toBe(true);
+  });
+
+  it("does not accept the test gateway, or an absent SAN", () => {
+    // The two environments are separate keys; neither stands in for the other.
+    expect(isFibankProductionCertificate("DNS:eur-3ds-ecomm-test.int.fibank.bg")).toBe(false);
+    expect(isFibankTestCertificate("DNS:3ds-v2-ecomm-prod.int.fibank.bg")).toBe(false);
+    expect(isFibankProductionCertificate("")).toBe(false);
+    expect(isFibankProductionCertificate(undefined)).toBe(false);
   });
 });
 

@@ -153,7 +153,7 @@ export function sanitizeEcommDescription(input: string): string {
   return cleaned.slice(0, ECOMM_DESCRIPTION_MAX).trim();
 }
 
-/* ─── TLS identity of the bank's test gateway ──────────────────────────────── */
+/* ─── TLS identity of the bank's gateways ──────────────────────────────────── */
 
 /**
  * Host names the Fibank **test** gateway actually presents.
@@ -162,14 +162,40 @@ export function sanitizeEcommDescription(input: string): string {
  * names — `eur-3ds-ecomm-test.int.fibank.bg`, plus `localhost` and RFC1918
  * addresses — so Node's hostname check fails with „Hostname/IP does not match
  * certificate's altnames" even though the certificate chain itself verifies.
- *
- * Production (`mdpay.fibank.bg`) is expected to present a matching certificate
- * and is never given this exemption — see `client.ts`.
  */
 export const FIBANK_TEST_CERT_NAMES = [
   "eur-3ds-ecomm-test.int.fibank.bg",
   "eur-3ds-ecomm-test",
 ] as const;
+
+/**
+ * Host name the Fibank **production** gateway actually presents.
+ *
+ * We expected `mdpay.fibank.bg` to carry a publicly valid certificate for its
+ * own name. It does not: on 13.08.2026 it served
+ *
+ *   subject CN = 3ds-v2-ecomm-prod.int.fibank.bg
+ *   SAN       = DNS:3ds-v2-ecomm-prod.int.fibank.bg, IP Address:10.10.84.41
+ *   issued    17.06.2021, valid to 04.08.2031
+ *
+ * — an internal name, from the bank's private CA, and not a recent oversight.
+ * So production gets the same narrow treatment as test: the name is checked
+ * against the one name the gateway really carries, over a chain that must reach
+ * the bank's own CA (`fibankCa.ts`). The bank has been asked to serve a
+ * certificate for `mdpay.fibank.bg`; when it does, this entry can go.
+ */
+export const FIBANK_PRODUCTION_CERT_NAMES = [
+  "3ds-v2-ecomm-prod.int.fibank.bg",
+] as const;
+
+/** DNS entries of a raw `subjectaltname`, lowercased. */
+function dnsNamesOf(subjectAltName: string): string[] {
+  return subjectAltName
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.toUpperCase().startsWith("DNS:"))
+    .map((entry) => entry.slice(4).trim().toLowerCase());
+}
 
 /**
  * Is this the bank's known test certificate?
@@ -179,13 +205,20 @@ export const FIBANK_TEST_CERT_NAMES = [
  */
 export function isFibankTestCertificate(subjectAltName: string | undefined): boolean {
   if (!subjectAltName) return false;
-  const names = subjectAltName
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.toUpperCase().startsWith("DNS:"))
-    .map((entry) => entry.slice(4).trim().toLowerCase());
-
+  const names = dnsNamesOf(subjectAltName);
   return FIBANK_TEST_CERT_NAMES.some((expected) => names.includes(expected));
+}
+
+/**
+ * Is this the bank's known production certificate? Same exact-match rule as
+ * the test one, against the single name `mdpay.fibank.bg` really presents.
+ */
+export function isFibankProductionCertificate(
+  subjectAltName: string | undefined,
+): boolean {
+  if (!subjectAltName) return false;
+  const names = dnsNamesOf(subjectAltName);
+  return FIBANK_PRODUCTION_CERT_NAMES.some((expected) => names.includes(expected));
 }
 
 /* ─── client IP ────────────────────────────────────────────────────────────── */

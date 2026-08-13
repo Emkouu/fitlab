@@ -1,11 +1,17 @@
 import { request as httpsRequest } from "node:https";
-import { checkServerIdentity as tlsCheckServerIdentity, type PeerCertificate } from "node:tls";
+import {
+  checkServerIdentity as tlsCheckServerIdentity,
+  rootCertificates,
+  type PeerCertificate,
+} from "node:tls";
 import { URL } from "node:url";
-import { getEcommConfig } from "./config";
+import { getEcommConfig, type EcommEnvironment } from "./config";
+import { FIBANK_CA_PEM } from "./fibankCa";
 import {
   ECOMM_CURRENCY_EUR,
   ECOMM_LANGUAGE,
   formatEcommAmount,
+  isFibankProductionCertificate,
   isFibankTestCertificate,
   parseEcommResponse,
   sanitizeEcommDescription,
@@ -55,7 +61,7 @@ async function callEcomm(params: Record<string, string>): Promise<EcommCallResul
       body,
       pfx: config.pfx,
       passphrase: config.passphrase,
-      allowTestCertificate: config.environment === "test",
+      environment: config.environment,
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -68,34 +74,44 @@ async function callEcomm(params: Record<string, string>): Promise<EcommCallResul
 }
 
 /**
- * Hostname verification for the TEST gateway only.
+ * Hostname verification against the name each gateway really presents.
  *
- * `mdpay-test.fibank.bg` presents a certificate whose SANs cover the bank's
- * internal names, not the public host we dial, so the default check rejects it.
- * We keep `rejectUnauthorized` on — the chain is still verified by a public CA —
- * and relax **only** the name check, and only when the peer really is the known
- * test certificate. Anything else, including any failure in production, is
- * returned to Node as the error it is.
+ * Neither gateway carries a certificate for the public host we dial: test
+ * serves `eur-3ds-ecomm-test.int.fibank.bg`, production serves
+ * `3ds-v2-ecomm-prod.int.fibank.bg` (see `protocol.ts` for both, with dates).
+ * Node's default check therefore fails with „Hostname/IP does not match
+ * certificate's altnames" on a connection that is otherwise exactly right.
+ *
+ * So we substitute the name we *do* expect, per environment, and nothing else:
+ * a peer that is not the bank's known gateway still gets the error Node
+ * produced. Combined with `ca` below — which pins the bank's own CA — this
+ * verifies both halves of the identity: the chain, and the name on it.
  *
  * This is deliberately not `rejectUnauthorized: false`: that would accept any
  * certificate from anyone, in every environment.
  */
-function checkTestGatewayIdentity(
-  host: string,
-  cert: PeerCertificate,
-): Error | undefined {
-  const strict = tlsCheckServerIdentity(host, cert);
-  if (!strict) return undefined;
-  if (isFibankTestCertificate(cert.subjectaltname)) {
+function gatewayIdentityChecker(environment: EcommEnvironment) {
+  return function checkGatewayIdentity(
+    host: string,
+    cert: PeerCertificate,
+  ): Error | undefined {
+    const strict = tlsCheckServerIdentity(host, cert);
+    if (!strict) return undefined;
+
+    const known =
+      environment === "test"
+        ? isFibankTestCertificate(cert.subjectaltname)
+        : isFibankProductionCertificate(cert.subjectaltname);
+    if (!known) return strict;
+
     console.warn(
-      "[ecomm] accepting the bank's internal TEST certificate for",
+      `[ecomm] accepting the bank's internal ${environment.toUpperCase()} certificate for`,
       host,
       "— SANs:",
       cert.subjectaltname,
     );
     return undefined;
-  }
-  return strict;
+  };
 }
 
 function postWithClientCertificate(args: {
@@ -103,10 +119,10 @@ function postWithClientCertificate(args: {
   body: string;
   pfx: Buffer;
   passphrase: string;
-  /** Relax the hostname check for the bank's test gateway (see above). */
-  allowTestCertificate: boolean;
+  /** Decides which gateway certificate name is the expected one. */
+  environment: EcommEnvironment;
 }): Promise<string> {
-  const { url, body, pfx, passphrase, allowTestCertificate } = args;
+  const { url, body, pfx, passphrase, environment } = args;
   return new Promise((resolve, reject) => {
     const req = httpsRequest(
       {
@@ -117,14 +133,17 @@ function postWithClientCertificate(args: {
         method: "POST",
         pfx,
         passphrase,
+        // Both gateways chain to the bank's private CA, which no public trust
+        // store carries — without this the handshake dies on „unable to get
+        // issuer certificate". The public roots stay in the list so nothing
+        // else about TLS changes.
+        ca: [...rootCertificates, ...FIBANK_CA_PEM],
         // Force IPv4. The bank whitelists our server's IPv4 address, and a
         // dual-stack host (every Hetzner box) may otherwise pick IPv6 for the
         // outgoing connection — the bank would then see an address it doesn't
         // know and reject the call.
         family: 4,
-        ...(allowTestCertificate
-          ? { checkServerIdentity: checkTestGatewayIdentity }
-          : {}),
+        checkServerIdentity: gatewayIdentityChecker(environment),
         headers: {
           "content-type": "application/x-www-form-urlencoded",
           "content-length": Buffer.byteLength(body).toString(),
