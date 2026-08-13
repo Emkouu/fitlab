@@ -36,21 +36,52 @@ export const ECOMM_BOOKING_COOKIE_OPTIONS = {
   maxAge: 60 * 60, // one hour — longer than any card session
 } as const;
 
+/** Where the booking id came from — `none` means neither path had it. */
+export type ReturnBookingSource = "cookie" | "body" | "none";
+
+export type ResolvedReturnBooking = {
+  bookingId: string | null;
+  source: ReturnBookingSource;
+};
+
 /** Pull the booking id out of a return POST. Cookie first, then the body. */
 export async function resolveReturnBookingId(
   request: Request,
   cookieValue: string | undefined,
-): Promise<string | null> {
-  if (cookieValue && cookieValue.trim() !== "") return cookieValue.trim();
+): Promise<ResolvedReturnBooking> {
+  if (cookieValue && cookieValue.trim() !== "") {
+    return { bookingId: cookieValue.trim(), source: "cookie" };
+  }
 
   try {
     const form = await request.formData();
     const fromBody = form.get("booking_id");
-    if (typeof fromBody === "string" && fromBody.trim() !== "") return fromBody.trim();
+    if (typeof fromBody === "string" && fromBody.trim() !== "") {
+      return { bookingId: fromBody.trim(), source: "body" };
+    }
   } catch {
     // Not form-encoded — nothing to read.
   }
-  return null;
+  return { bookingId: null, source: "none" };
+}
+
+/**
+ * What to print when neither path identified a booking.
+ *
+ * A bare `could not identify the booking` cannot be acted on: a client whose
+ * payment we just lost and a scanner probing the registered URL produce the
+ * identical line. These four facts separate them — the bank always arrives as a
+ * cross-site form POST, so a GET with no body and no cookie is somebody else.
+ * No client data is logged; the user agent is the request's own header.
+ */
+export function describeUnidentifiedReturn(request: Request): string {
+  const ua = request.headers.get("user-agent") ?? "<no user-agent>";
+  return [
+    `method=${request.method}`,
+    `content-type=${request.headers.get("content-type") ?? "<none>"}`,
+    `cookie-header=${request.headers.get("cookie") ? "present" : "absent"}`,
+    `ua=${ua.slice(0, 120)}`,
+  ].join(" ");
 }
 
 /** Client IP for `command=c`, from the proxy headers of the return request. */

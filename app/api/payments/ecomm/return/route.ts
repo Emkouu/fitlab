@@ -5,6 +5,7 @@ import {
   ECOMM_BOOKING_COOKIE,
   absoluteUrl,
   clientIpFromRequest,
+  describeUnidentifiedReturn,
   resolveReturnBookingId,
 } from "@/lib/payments/ecomm/returnLeg";
 
@@ -34,7 +35,7 @@ export async function GET(request: Request) {
 
 async function handleReturn(request: Request) {
   const jar = await cookies();
-  const bookingId = await resolveReturnBookingId(
+  const { bookingId, source } = await resolveReturnBookingId(
     request,
     jar.get(ECOMM_BOOKING_COOKIE)?.value,
   );
@@ -43,9 +44,13 @@ async function handleReturn(request: Request) {
   jar.delete(ECOMM_BOOKING_COOKIE);
 
   if (!bookingId) {
-    console.error("[ecomm/return] could not identify the booking");
+    console.error(
+      "[ecomm/return] could not identify the booking —",
+      describeUnidentifiedReturn(request),
+    );
     return redirectTo(request, "/account?payment=unknown");
   }
+  console.log(`[ecomm/return] booking ${bookingId} identified by ${source}`);
 
   const settled = await settleEcommPaymentForBooking({
     bookingId,
