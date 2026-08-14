@@ -188,7 +188,7 @@ export default async function AdminPage() {
       </div>
 
       {/* Quick Actions */}
-      <AdminActions />
+      <AdminActions isSuperAdmin={admin.role === "super_admin"} />
     </main>
   );
 }

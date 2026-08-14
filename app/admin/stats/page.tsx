@@ -6,18 +6,33 @@ import { getAdminUser } from "@/lib/auth/getAdminUser";
 import { BookingStatus } from "@/lib/generated/prisma/enums";
 import { formatEurMinor, formatSofiaDay, sofiaDateKey } from "@/lib/format";
 import { dailyStats, type DayStats } from "@/lib/stats/turnover";
+import { burnedDepositTotals } from "@/lib/stats/burnedDeposits";
+import {
+  currentMonthKey,
+  formatMonthKeyBg,
+  isMonthKey,
+  sofiaMonthRange,
+} from "@/lib/stats/monthRange";
 import { depositAmountMinor } from "@/lib/deposit";
 import { AdminBreadcrumb } from "../_components/AdminBreadcrumb";
+import { MonthNav } from "../_components/MonthNav";
 
 export const metadata = { title: "FitLab Varna — Статистика" };
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
-export default async function AdminStatsPage() {
+export default async function AdminStatsPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ month?: string }>;
+}) {
   const admin = await getAdminUser();
   if (!admin) {
     redirect("/schedule");
   }
+
+  const { month } = searchParams ? await searchParams : {};
+  const monthKey = isMonthKey(month) ? month : currentMonthKey();
 
   const studio = await prisma.studio.findUnique({
     where: { slug: "fitlab-varna" },
@@ -53,6 +68,30 @@ export default async function AdminStatsPage() {
       },
     },
   });
+
+  // Burned deposits for the chosen Sofia month — money the studio kept because
+  // the client no-showed or cancelled late. Grouped by the day of the class
+  // that was missed, which is the day staff will remember.
+  const monthRange = sofiaMonthRange(monthKey);
+  const burnedRows = await prisma.booking.findMany({
+    where: {
+      depositBurnedMinor: { not: null },
+      scheduledClass: {
+        studioId: studio.id,
+        startAt: { gte: monthRange.from, lt: monthRange.to },
+      },
+    },
+    select: {
+      depositBurnedMinor: true,
+      scheduledClass: { select: { startAt: true } },
+    },
+  });
+  const burned = burnedDepositTotals(
+    burnedRows.map((b) => ({
+      depositBurnedMinor: b.depositBurnedMinor,
+      classDayKey: sofiaDateKey(b.scheduledClass.startAt),
+    })),
+  );
 
   const todayKey = sofiaDateKey(now);
   const days = dailyStats(
@@ -103,6 +142,57 @@ export default async function AdminStatsPage() {
         <TotalCard label="Записвания" value={String(totalBookings)} />
         <TotalCard label="Присъствали" value={String(totalAttended)} />
       </div>
+
+      {/* Burned deposits — a month at a time, independent of the 30-day view
+          above, because this is the figure that closes a month. */}
+      <section className="mb-8">
+        <h2 className="mb-1 font-display text-lg font-bold tracking-tight">
+          Усвоени депозити
+        </h2>
+        <p className="mb-3 text-xs leading-relaxed text-[color:var(--brand-purple)]/70">
+          Депозити, които остават за студиото — неявяване или отказ след срока.
+        </p>
+
+        <MonthNav monthKey={monthKey} basePath="/admin/stats" />
+
+        <div className="grid grid-cols-2 gap-3">
+          <TotalCard label="Сума" value={formatEurMinor(burned.totalMinor)} accent />
+          <TotalCard label="Брой" value={String(burned.count)} />
+        </div>
+
+        {burned.byDay.length === 0 ? (
+          <p className="mt-3 rounded-2xl bg-white px-4 py-5 text-center text-sm text-[color:var(--brand-purple)]/70 shadow-[0_1px_2px_rgba(123,45,142,0.05),0_4px_16px_-8px_rgba(236,72,153,0.18)]">
+            През {formatMonthKeyBg(monthKey)} няма усвоени депозити.
+          </p>
+        ) : (
+          <ul className="mt-3 space-y-2">
+            {burned.byDay.map((d) => (
+              <li
+                key={d.dayKey}
+                className="flex items-baseline justify-between gap-3 rounded-2xl bg-white px-4 py-3 shadow-[0_1px_2px_rgba(123,45,142,0.05),0_4px_16px_-8px_rgba(236,72,153,0.18)]"
+              >
+                <span className="font-mono text-[11px] uppercase tracking-wider text-[color:var(--brand-purple)]/60">
+                  {formatSofiaDay(new Date(`${d.dayKey}T12:00:00+03:00`))}
+                </span>
+                <span className="flex items-baseline gap-3">
+                  <span className="text-[11px] text-[color:var(--brand-purple)]/60">
+                    {d.count} бр.
+                  </span>
+                  <span className="font-display text-base font-bold text-[color:var(--brand-magenta)]">
+                    {formatEurMinor(d.totalMinor)}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <p className="mt-3 text-[11px] leading-relaxed text-[color:var(--brand-purple)]/55">
+          Сумата е това, което клиентът реално е платил и е изгубил — записва се
+          на резервацията в момента на усвояването. Поправено „не дойде" връща
+          депозита и той отпада от справката.
+        </p>
+      </section>
 
       {/* Per-day rows */}
       {days.length === 0 ? (

@@ -61,10 +61,33 @@ const COACH_GROUPS: { label: string; items: NavItem[] }[] = [
   },
 ];
 
-export function AdminActions({ isCoach = false }: { isCoach?: boolean }) {
+/**
+ * Owner-only entries. The trainer report shows what each coach declared they
+ * collected, so it is not something the coaches' own colleagues get to browse —
+ * the page re-checks the role server-side; hiding it here is only the courtesy
+ * of not showing a link that would bounce.
+ */
+const SUPER_ADMIN_GROUP: { label: string; items: NavItem[] } = {
+  label: "Само за супер админ",
+  items: [{ href: "/admin/reports/trainers", label: "Отчет по инструктори" }],
+};
+
+export function AdminActions({
+  isCoach = false,
+  isSuperAdmin = false,
+}: {
+  isCoach?: boolean;
+  isSuperAdmin?: boolean;
+}) {
+  const groups = isCoach
+    ? COACH_GROUPS
+    : isSuperAdmin
+      ? [...GROUPS, SUPER_ADMIN_GROUP]
+      : GROUPS;
+
   return (
     <>
-      {(isCoach ? COACH_GROUPS : GROUPS).map((group) => (
+      {groups.map((group) => (
         <div key={group.label} className="mb-6">
           <div className={groupLabelClass}>{group.label}</div>
           <div className="space-y-3">
