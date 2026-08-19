@@ -44,6 +44,10 @@ export type CreateBookingInput = {
    *  The caller has already refused the booking if consent was missing; passing
    *  it here just stamps the proof onto the row inside the same transaction. */
   termsVersion?: string | null;
+  /** Mark this as the client's „първо посещение" — reserved without a deposit
+   *  so they can see the studio first. The caller owns the eligibility check
+   *  (no bookings at all); the engine only records the fact. */
+  isFirstVisit?: boolean;
 };
 
 export type CreateBookingResult =
@@ -89,6 +93,7 @@ export async function createBooking(
   input: CreateBookingInput,
 ): Promise<CreateBookingResult> {
   const { userId, scheduledClassId, source, onsiteMethod, termsVersion } = input;
+  const isFirstVisit = input.isFirstVisit === true;
 
   const initialStatus =
     source === BookingSource.card || source === BookingSource.balance
@@ -176,6 +181,7 @@ export async function createBooking(
           // The class fee is settled on site for every source, so the intended
           // method is worth keeping regardless of how the spot was reserved.
           onsiteMethod: onsiteMethod ?? null,
+          isFirstVisit,
           // Proof of consent, stamped in the same transaction as the row it
           // belongs to. NULL only when the caller didn't collect a version.
           ...(termsVersion != null

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { syncUserFromSupabase } from "@/lib/auth/syncUser";
 import { safeNextPath } from "@/lib/auth/safeNext";
+import { isProfileComplete, onboardingPathFor } from "@/lib/auth/profileComplete";
 import { prisma } from "@/lib/db";
 
 /**
@@ -30,13 +31,10 @@ export async function POST(request: Request) {
 
   const profile = await prisma.user.findUnique({
     where: { supabaseUserId: user.id },
-    select: { fullName: true },
+    select: { fullName: true, phone: true },
   });
 
-  const redirect =
-    !profile?.fullName || profile.fullName.trim() === ""
-      ? `/onboarding?next=${encodeURIComponent(next)}`
-      : next;
+  const redirect = isProfileComplete(profile) ? next : onboardingPathFor(next);
 
   return NextResponse.json({ redirect });
 }

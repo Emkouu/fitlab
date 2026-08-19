@@ -51,11 +51,15 @@ export function BookingModal({
   row,
   onClose,
   userBalance = 0,
+  isFirstTimeVisitor = false,
 }: {
   row: ClassCardRow | null;
   onClose: () => void;
   /** Standing deposit (EUR cents) on the profile. */
   userBalance?: number;
+  /** True when this client has never booked anything — they get the one
+   *  „първо посещение" reservation, without paying a deposit first. */
+  isFirstTimeVisitor?: boolean;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const router = useRouter();
@@ -65,6 +69,9 @@ export function BookingModal({
   const [method, setMethod] = useState<ClassFeeMethod | "">("");
   // Mandatory consent with the Общи условия. Never pre-ticked.
   const [termsAccepted, setTermsAccepted] = useState(false);
+  // „Идвам за първи път" — hold the spot without a deposit. Never pre-ticked:
+  // it changes what happens with money, so it has to be a deliberate tap.
+  const [firstVisit, setFirstVisit] = useState(false);
   const [, startTransition] = useTransition();
 
   // What this class asks for: the studio setting unless the class overrides it.
@@ -73,6 +80,13 @@ export function BookingModal({
   // A client without a deposit can pay it online, when the studio has card
   // payments switched on — otherwise the only route is paying it at the studio.
   const canPayDepositByCard = !hasDeposit && (row?.studio.cardPaymentsEnabled ?? false);
+  // The free first reservation is offered only to someone with no deposit who
+  // has never booked. Asking a newcomer for €10 before they have seen the room
+  // is what this exists to avoid.
+  const canBookAsFirstVisit = !hasDeposit && isFirstTimeVisitor;
+  // Whichever path is active, we still ask how the class fee will be settled —
+  // staff need an answer in Attendance, and it keeps the trainer report honest.
+  const needsMethod = hasDeposit || (canBookAsFirstVisit && firstVisit);
 
   // Open / close the dialog imperatively in response to the row prop.
   useEffect(() => {
@@ -81,6 +95,7 @@ export function BookingModal({
     if (row && !d.open) {
       setMethod("");
       setTermsAccepted(false);
+      setFirstVisit(false);
       setPhase({ kind: "form" });
       d.showModal();
     } else if (!row && d.open) {
@@ -109,7 +124,7 @@ export function BookingModal({
     }
   }
 
-  async function handleConfirm(source: "balance" | "card") {
+  async function handleConfirm(source: "balance" | "card" | "onsite_deposit") {
     if (!row) return;
     setPhase({ kind: "submitting" });
     startTransition(async () => {
@@ -122,6 +137,7 @@ export function BookingModal({
         source,
         method: method === "" ? undefined : method,
         acceptTerms: termsAccepted,
+        firstVisit: source === "onsite_deposit" ? true : undefined,
       });
       if (result.ok) {
         if (result.redirectTo) {
@@ -237,6 +253,33 @@ export function BookingModal({
                     </p>
                     <DepositTerms cancelWindowHours={row.studio.cancelWindowHours} />
 
+                    {/* First time here: hold the spot without paying anything.
+                        Nobody should be asked for a deposit before they have
+                        seen the studio, so this is offered ahead of the card. */}
+                    {canBookAsFirstVisit && (
+                      <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-3.5 py-3 transition-colors hover:bg-emerald-100/70">
+                        <input
+                          type="checkbox"
+                          checked={firstVisit}
+                          onChange={(e) => setFirstVisit(e.target.checked)}
+                          disabled={phase.kind === "submitting" || full}
+                          aria-describedby="booking-first-visit-hint"
+                          className="mt-0.5 h-[18px] w-[18px] shrink-0 accent-emerald-600"
+                        />
+                        <span
+                          id="booking-first-visit-hint"
+                          className="text-[12px] leading-relaxed text-emerald-900"
+                        >
+                          <strong className="font-display">
+                            Идвам за първи път.
+                          </strong>{" "}
+                          Запази ми място без депозит — ще платя депозита и
+                          тренировката на място, след като видя студиото. Важи{" "}
+                          <strong>само за първата резервация</strong>.
+                        </span>
+                      </label>
+                    )}
+
                     {canPayDepositByCard ? (
                       <div className="mt-3 rounded-2xl border border-[color:var(--brand-pink)]/70 bg-[color:var(--brand-pink-soft)]/40 px-3.5 py-3">
                         <p className="text-[12px] leading-relaxed text-[color:var(--brand-purple)]/80">
@@ -244,7 +287,7 @@ export function BookingModal({
                           го оставиш в студиото преди първата си тренировка.
                         </p>
                       </div>
-                    ) : (
+                    ) : canBookAsFirstVisit ? null : (
                       <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3.5 py-3">
                         <p className="text-[12px] leading-relaxed text-amber-800">
                           Нямаш платен депозит. Плати депозит в студиото, за да
@@ -255,8 +298,9 @@ export function BookingModal({
                   </Section>
                 )}
 
-                {/* Class fee — how the client will pay on site. */}
-                {hasDeposit && (
+                {/* Class fee — how the client will pay on site. Shown for a
+                    first visit too: the fee is due at the desk either way. */}
+                {needsMethod && (
                   <Section title="Плащане на тренировката">
                     <label
                       htmlFor="booking-fee-method"
@@ -283,8 +327,9 @@ export function BookingModal({
                       ))}
                     </select>
                     <p className="mt-2 text-[12px] leading-relaxed text-[color:var(--brand-purple)]/65">
-                      Цената се заплаща на място. Депозитът ти остава по
-                      профила.
+                      {hasDeposit
+                        ? "Цената се заплаща на място. Депозитът ти остава по профила."
+                        : "Цената и депозитът се заплащат на място, на рецепцията."}
                     </p>
                   </Section>
                 )}
@@ -393,7 +438,7 @@ export function BookingModal({
               {/* No deposit yet, card payments on: pay the one-off deposit now.
                   The label names the amount, and consent is already required —
                   the next screen is the bank's card form. */}
-              {canPayDepositByCard && (
+              {canPayDepositByCard && !firstVisit && (
                 <button
                   type="button"
                   onClick={() => handleConfirm("card")}
@@ -416,18 +461,44 @@ export function BookingModal({
                 </button>
               )}
 
+              {/* First visit: hold the spot, nothing paid online. */}
+              {canBookAsFirstVisit && firstVisit && (
+                <button
+                  type="button"
+                  onClick={() => handleConfirm("onsite_deposit")}
+                  disabled={
+                    phase.kind === "submitting" || full || method === "" || !termsAccepted
+                  }
+                  className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-5 py-3.5 font-display text-sm font-bold uppercase tracking-wider text-white transition-colors hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 disabled:opacity-60"
+                >
+                  {phase.kind === "submitting" ? (
+                    <>
+                      <Spinner size={18} />
+                      <span>Запазване</span>
+                    </>
+                  ) : phase.kind === "error" ? (
+                    <>Опитай отново</>
+                  ) : (
+                    <>
+                      Запази без депозит <Arrow />
+                    </>
+                  )}
+                </button>
+              )}
+
               {/* Neither path available — nothing to press, so say why. */}
-              {!hasDeposit && !canPayDepositByCard && (
+              {!hasDeposit && !canPayDepositByCard && !canBookAsFirstVisit && (
                 <p className="text-center text-[12px] leading-relaxed text-[color:var(--brand-purple)]/70">
                   За да запазиш място, плати еднократния депозит в студиото.
                 </p>
               )}
 
-              {!termsAccepted && (hasDeposit || canPayDepositByCard) && (
-                <p className="text-center text-[11px] text-[color:var(--brand-purple)]/60">
-                  Отбележи съгласието с Общите условия, за да продължиш.
-                </p>
-              )}
+              {!termsAccepted &&
+                (hasDeposit || canPayDepositByCard || canBookAsFirstVisit) && (
+                  <p className="text-center text-[11px] text-[color:var(--brand-purple)]/60">
+                    Отбележи съгласието с Общите условия, за да продължиш.
+                  </p>
+                )}
             </div>
           )}
         </div>

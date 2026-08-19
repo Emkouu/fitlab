@@ -1,5 +1,8 @@
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { sofiaDateKey } from "@/lib/format";
+import { isProfileComplete, onboardingPathFor } from "@/lib/auth/profileComplete";
+import { isFirstVisitEligible } from "@/lib/booking/firstVisit";
 import { BookingStatus } from "@/lib/generated/prisma/enums";
 import { AuthChip } from "@/app/_components/AuthChip";
 import { createClient } from "@/lib/supabase/server";
@@ -133,15 +136,35 @@ export default async function SchedulePage({
   let bookedClassIds: string[] = [];
   let waitlistedClassIds: string[] = [];
   let unreadNotificationCount = 0;
+  // „Никога не си се записвал" — the one free first reservation. Counted over
+  // every status, so a cancelled booking closes the door too (see
+  // lib/booking/firstVisit.ts).
+  let isFirstTimeVisitor = false;
   if (user) {
     const fitlabUser = await prisma.user.findUnique({
       where: { supabaseUserId: user.id },
-      select: { id: true, depositBalance: true },
+      select: {
+        id: true,
+        depositBalance: true,
+        fullName: true,
+        phone: true,
+      },
     });
+
+    // Onboarding is not a suggestion. Someone who closed the tab on that form
+    // is a client with no name and no phone, so send them back every time they
+    // arrive — carrying the deep link, so „Избор" still resumes afterwards.
+    if (fitlabUser && !isProfileComplete(fitlabUser)) {
+      const back = openBooking
+        ? `/schedule?openBooking=${encodeURIComponent(openBooking)}`
+        : "/schedule";
+      redirect(onboardingPathFor(back));
+    }
+
     userBalance = fitlabUser?.depositBalance ?? 0;
 
     if (fitlabUser) {
-      const [bookings, waitlistRows, unread] = await Promise.all([
+      const [bookings, waitlistRows, unread, bookingsEver] = await Promise.all([
         prisma.booking.findMany({
           where: {
             userId: fitlabUser.id,
@@ -160,10 +183,12 @@ export default async function SchedulePage({
         prisma.notification.count({
           where: { userId: fitlabUser.id, read: false },
         }),
+        prisma.booking.count({ where: { userId: fitlabUser.id } }),
       ]);
       bookedClassIds = bookings.map((b) => b.scheduledClassId);
       waitlistedClassIds = waitlistRows.map((w) => w.scheduledClassId);
       unreadNotificationCount = unread;
+      isFirstTimeVisitor = isFirstVisitEligible(bookingsEver);
     }
   }
 
@@ -182,6 +207,7 @@ export default async function SchedulePage({
       practices={practices}
       windowEndKey={publicWindowEndKey()}
       deepLinkRow={deepLinkRow}
+      isFirstTimeVisitor={isFirstTimeVisitor}
     />
   );
 }

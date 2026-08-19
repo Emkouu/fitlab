@@ -33,6 +33,7 @@ export function ScheduleSurface({
   practices = [],
   windowEndKey,
   deepLinkRow = null,
+  isFirstTimeVisitor = false,
 }: {
   agendaDays: DayBucket[];
   monthYear: number;
@@ -50,6 +51,9 @@ export function ScheduleSurface({
   /** Row behind `?openBooking=<id>`, resolved server-side. Lets a special
    *  event outside the 7-day window still open its booking modal. */
   deepLinkRow?: ClassCardRow | null;
+  /** Client has never booked anything — eligible for the one deposit-free
+   *  „първо посещение" reservation. */
+  isFirstTimeVisitor?: boolean;
 }) {
   const bookedSet = new Set(bookedClassIds);
   const waitlistedSet = new Set(waitlistedClassIds);
@@ -217,7 +221,12 @@ export function ScheduleSurface({
       </AnimatePresence>
 
       {/* Single global modal, controlled by openClass. */}
-      <BookingModal row={openClass} onClose={() => setOpenClass(null)} userBalance={userBalance} />
+      <BookingModal
+        row={openClass}
+        onClose={() => setOpenClass(null)}
+        userBalance={userBalance}
+        isFirstTimeVisitor={isFirstTimeVisitor}
+      />
       <ClassInfoModal
         row={infoClass}
         onClose={() => setInfoClass(null)}

@@ -5,6 +5,8 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/db";
 import { createBooking } from "@/lib/booking";
+import { isFirstVisitEligible } from "@/lib/booking/firstVisit";
+import { isProfileComplete } from "@/lib/auth/profileComplete";
 import { startEcommPaymentForBooking } from "@/lib/payments/ecomm/startPaymentForBooking";
 import { normalizeClientIp } from "@/lib/payments/ecomm/protocol";
 import {
@@ -111,7 +113,9 @@ export type BookClassActionResult =
         | "checkout_failed"
         | "insufficient_balance"
         | "card_disabled"
-        | "terms_not_accepted";
+        | "terms_not_accepted"
+        | "profile_incomplete"
+        | "first_visit_used";
       message: string;
     };
 
@@ -138,6 +142,9 @@ export async function bookClassAction(input: {
    *  before a client may be redirected to the card-data page, so it gates
    *  every source — not just `card` — and is recorded on the booking. */
   acceptTerms?: boolean;
+  /** The client ticked „първо посещение" — reserve without a deposit, which is
+   *  only allowed for someone who has never booked. Re-checked server-side. */
+  firstVisit?: boolean;
 }): Promise<BookClassActionResult> {
   // 0. Terms consent. Checked before anything is written: the acquirer requires
   //    explicit agreement with the Общи условия prior to the card-data page,
@@ -166,13 +173,30 @@ export async function bookClassAction(input: {
   // 2. Resolve Supabase auth user → FitLab User row.
   const profile = await prisma.user.findUnique({
     where: { supabaseUserId: user.id },
-    select: { id: true, depositBalance: true },
+    select: {
+      id: true,
+      depositBalance: true,
+      fullName: true,
+      phone: true,
+    },
   });
   if (!profile) {
     return {
       ok: false,
       reason: "no_profile",
       message: "Профилът ти все още се настройва. Опитай отново след секунда.",
+    };
+  }
+
+  // 2a. A booking staff cannot act on is worse than no booking: without a name
+  //     and a phone nobody can be called about a full class or a cancellation.
+  //     The schedule page already sends such a client to onboarding; this is the
+  //     same rule at the only place where it costs a spot.
+  if (!isProfileComplete(profile)) {
+    return {
+      ok: false,
+      reason: "profile_incomplete",
+      message: "Довърши профила си с име и телефон, за да запазиш място.",
     };
   }
 
@@ -202,6 +226,26 @@ export async function bookClassAction(input: {
     };
   }
 
+  // „Първо посещение" — the only way to hold a spot without a deposit, and so
+  // the only place `onsite_deposit` may be reached from the client. Before this
+  // gate existed the UI simply never offered the source; anyone posting it by
+  // hand could reserve forever without ever paying a deposit.
+  let isFirstVisit = false;
+  if (source === BookingSource.onsite_deposit) {
+    const bookingsEver = await prisma.booking.count({
+      where: { userId: profile.id },
+    });
+    if (!isFirstVisitEligible(bookingsEver)) {
+      return {
+        ok: false,
+        reason: "first_visit_used",
+        message:
+          "Първото посещение без депозит важи само веднъж. Плати депозит, за да запазиш място.",
+      };
+    }
+    isFirstVisit = true;
+  }
+
   // Server-side deposit guard. The deposit is a standing guarantee (paid once,
   // see lib/deposit.ts): a client needs one on the profile to reserve, but
   // booking does NOT spend it. The amount is the studio setting unless this
@@ -226,6 +270,9 @@ export async function bookClassAction(input: {
     onsiteMethod: isClassFeeMethod(input.method) ? input.method : null,
     // Which revision of the Общи условия was on screen when they ticked.
     termsVersion: POLICIES_LAST_UPDATED,
+    // Recorded so Attendance can show „първо посещение" — staff have to
+    // explain the deposit and collect it at the desk.
+    isFirstVisit,
   });
 
   if (!r.ok) {

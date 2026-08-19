@@ -26,6 +26,11 @@ export type AttendanceRow = {
   onsiteMethod: string | null;
   /** Whether staff marked the on-site deposit as settled ("Разплати"). */
   depositSettled: boolean;
+  /** Reserved through the „първо посещение" path — no deposit paid yet, and
+   *  staff have to explain it and collect it at the desk. */
+  isFirstVisit?: boolean;
+  /** Card hold whose deposit never arrived — listed apart from „Записани". */
+  unfinishedDeposit?: boolean;
 };
 
 export function AttendancePanel({
@@ -158,6 +163,13 @@ function AttendanceItem({
               <span className="ml-1.5 text-emerald-600">· платено ✓</span>
             )}
           </p>
+          {/* First time here — reserved without a deposit, so somebody has to
+              explain it and take it at the desk. */}
+          {row.isFirstVisit && (
+            <p className="mt-1 inline-flex rounded-full bg-emerald-50 px-2 py-0.5 font-display text-[10px] font-bold uppercase tracking-wider text-emerald-700">
+              Първо посещение
+            </p>
+          )}
         </div>
         <StatusChip status={row.status} />
       </div>

@@ -6,6 +6,7 @@ import { safeNextPath } from "@/lib/auth/safeNext";
 import { prisma } from "@/lib/db";
 import { Heartbeat } from "@/app/_components/Heartbeat";
 import { Breadcrumb } from "@/app/_components/Breadcrumb";
+import { isProfileComplete } from "@/lib/auth/profileComplete";
 import { OnboardingForm } from "./_components/OnboardingForm";
 
 export const metadata = {
@@ -33,7 +34,9 @@ export default async function OnboardingPage({
   const { next: rawNext } = await searchParams;
   const next = safeNextPath(rawNext);
 
-  if (profile?.fullName && profile.fullName.trim() !== "") {
+  // Both fields, not just the name: an incomplete profile has to keep landing
+  // here every time the client enters the site until it is filled in.
+  if (isProfileComplete(profile)) {
     redirect(next);
   }
 

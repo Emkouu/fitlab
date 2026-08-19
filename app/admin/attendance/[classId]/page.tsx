@@ -14,6 +14,7 @@ import {
   AddClientToClass,
   type ClientOption,
 } from "../_components/AddClientToClass";
+import { isUnfinishedCardDeposit } from "@/lib/booking/unfinishedDeposit";
 import { AdminBreadcrumb } from "../../_components/AdminBreadcrumb";
 
 export const dynamic = "force-dynamic";
@@ -96,7 +97,18 @@ export default async function AdminAttendanceClassPage({
         b.status === BookingStatus.paid),
     onsiteMethod: b.onsiteMethod,
     depositSettled: b.depositSettledAt !== null,
+    isFirstVisit: b.isFirstVisit,
+    // A card hold whose deposit never arrived. Kept out of „Записани" so the
+    // number staff read is the number of people who actually booked.
+    unfinishedDeposit: isUnfinishedCardDeposit({
+      source: b.source,
+      status: b.status,
+      paymentStatus: b.payment?.status ?? null,
+    }),
   }));
+
+  const enrolled = rows.filter((r) => !r.unfinishedDeposit);
+  const unfinished = rows.filter((r) => r.unfinishedDeposit);
 
   return (
     <main className="mx-auto w-full max-w-[440px] px-5 pb-12 pt-6 font-sans text-[color:var(--brand-ink)]">
@@ -141,7 +153,7 @@ export default async function AdminAttendanceClassPage({
 
       <div className="mb-3 flex items-center justify-between gap-3">
         <h2 className="font-display text-[11px] font-bold uppercase tracking-wider text-[color:var(--brand-purple)]/70">
-          Записани ({rows.length})
+          Записани ({enrolled.length})
         </h2>
         <AddClientToClass
           classId={cls.id}
@@ -150,7 +162,27 @@ export default async function AdminAttendanceClassPage({
         />
       </div>
 
-      <AttendancePanel rows={rows} canManageDeposits={canManageDeposits} />
+      <AttendancePanel rows={enrolled} canManageDeposits={canManageDeposits} />
+
+      {/* Card holds whose deposit never arrived. Separate, because they are not
+          people the studio should expect in the room — and because counting
+          them as „записани" made the class look fuller than it was. */}
+      {unfinished.length > 0 && (
+        <section className="mt-8">
+          <h2 className="mb-1 font-display text-[11px] font-bold uppercase tracking-wider text-amber-700">
+            Недовършени плащания на депозит ({unfinished.length})
+          </h2>
+          <p className="mb-3 text-[11px] leading-relaxed text-[color:var(--brand-purple)]/60">
+            Стигнали са до страницата за плащане с карта, но депозитът не е
+            платен. Не се броят към записаните. Мястото се освобождава
+            автоматично, ако друг клиент запази същия клас след 15 минути.
+          </p>
+          <AttendancePanel
+            rows={unfinished}
+            canManageDeposits={canManageDeposits}
+          />
+        </section>
+      )}
     </main>
   );
 }

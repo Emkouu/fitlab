@@ -180,6 +180,17 @@ model Booking {
   reminder24hSentAt DateTime?
   reminder2hSentAt  DateTime?
 
+  /// Set when a client who had never booked anything used the „първо
+  /// посещение" path: reserved without paying the deposit, so they can see the
+  /// studio before any money is asked for. Eligibility is „no bookings at all",
+  /// which makes the privilege once-only on its own — this column is the record
+  /// staff need in Attendance, not the gate.
+  isFirstVisit Boolean @default(false)
+
+  /// When the „недовършен депозит" nudge was emailed. NULL = not sent. Set by
+  /// /api/cron/reminders so an abandoned card payment is chased exactly once.
+  depositReminderSentAt DateTime?
+
   /// For on-site (`onsite_deposit`) bookings only: how the client pays at the
   /// desk — "cash" | "subscription" | "multisport". Captured from the booking
   /// modal, editable by staff in Attendance. NULL for card/balance bookings.

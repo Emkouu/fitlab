@@ -121,6 +121,26 @@ A stored **0 is a real amount** (a class needing no guarantee), not „unset"; o
 - Env: `ECOMM_ENVIRONMENT`, `ECOMM_CERT_PFX_BASE64`, `ECOMM_CERT_PASSWORD`, optional `ECOMM_MERCHANT_URL` / `ECOMM_CLIENT_URL`. Merchant ID `000001512278900` for both environments; the keystore is base64 in env, never a file in the repo (`*.pkcs12` is gitignored). The **production** keystore (valid 13.08.2026–12.08.2028) replaced the first one on 13.08.2026 — details in `fitlab-fibank-integration.md` §B3.1.
 - ⚠️ Vercel has no static outbound IP; if the bank requires an IP whitelist the calls need a fixed-IP proxy. Open decision — see `fitlab-fibank-integration.md` §B1.
 
+## Profile completeness
+
+Name **and** phone are required, and required *every time* — `isProfileComplete()` in `lib/auth/profileComplete.ts` is the single definition. Onboarding used to be a suggestion (the redirect fired only right after the OTP, and only looked at `fullName`), so closing that tab left a registered client with no name and no phone. The check now runs in `/api/auth/sync`, in `app/onboarding/page.tsx`, on `/schedule` (carrying `?openBooking` through so „Избор" still resumes), and in `bookClassAction` (`reason: "profile_incomplete"`) — the one place where it would otherwise cost a spot.
+
+## First visit without a deposit
+
+A client who has **never booked anything** may reserve once without paying: the „Идвам за първи път" checkbox in the booking modal → `source=onsite_deposit` → `pending_deposit`, deposit collected at the desk. Nobody should be asked for €10 before seeing the room.
+
+- Eligibility is `isFirstVisitEligible(bookingsEver)` in `lib/booking/firstVisit.ts` — `bookingsEver === 0` over **every** status, so the privilege is once-only with no second column to keep in sync, and cancel-then-rebook earns nothing.
+- `bookClassAction` re-checks it, and this is now the **only** way a client can reach `onsite_deposit`. Before the gate the source was simply never offered by the UI; anyone posting it by hand could reserve forever without a deposit.
+- Recorded on `Booking.isFirstVisit`, shown as a „Първо посещение" badge in Attendance so staff explain the deposit and collect it. Admin-created bookings write their rows directly and are unaffected.
+
+## Unfinished card deposits
+
+`isUnfinishedCardDeposit()` in `lib/booking/unfinishedDeposit.ts`: `source=card` AND `status=booked` AND the linked `Payment` is not `paid`. Distinct from `pending_deposit`, which is a client who *chose* to pay at the desk and is expected to walk in.
+
+Такива редове се показват **отделно** in `/admin/attendance/[classId]` — „Недовършени плащания на депозит (N)" — and are excluded from „Записани (N)", which used to count them and make a class look fuller than it was. The spot itself is not leaked: `createBooking`'s JIT sweep reclaims holds older than 15 minutes when the next client books that class.
+
+They also get one nudge by email — see „Email reminders".
+
 ## Terms consent
 
 `bookClassAction` refuses any booking without `acceptTerms === true` (all sources, not just `card`) and stamps `Booking.termsAcceptedAt` + `termsVersion` (= `POLICIES_LAST_UPDATED`) inside the engine's transaction. The checkbox in the booking modal is never pre-ticked, and it gates the button that leads to the bank's card-data page.
@@ -190,6 +210,7 @@ Implication: the refund logic lives in `lib/payments/refundCardPayment.ts` and g
 
 - Class-reminder emails go through **Resend** + `@react-email/components`. Template lives at `emails/ClassReminder.tsx`; send helper at `lib/email/sendReminder.ts`. Env: `RESEND_API_KEY`, optional `RESEND_FROM`.
 - **Vercel Cron** runs `/api/cron/reminders` every **15 minutes** (configured in `vercel.json`). The route is guarded by `Authorization: Bearer ${CRON_SECRET}`.
+- **Abandoned card deposits** get one nudge from the same cron: `emails/DepositReminder.tsx` + `lib/email/sendDepositReminder.ts`, for card holds older than **30 min** with no paid `Payment`, class still ahead and not cancelled. Idempotent through `Booking.depositReminderSentAt`; the sender re-checks `isUnfinishedCardDeposit()` before hitting Resend, so a client who paid in the meantime is never told to pay. The button links to `/pay/<bookingId>`, which either resumes the transaction or sends them back to pick a method if the attempt is spent.
 - Two reminders per booking: **24h** and **2h** before `scheduledClass.startAt`, with a ±15min window so each booking is caught once per mark. Idempotency: `Booking.reminder24hSentAt` / `Booking.reminder2hSentAt` (set only after a successful send).
 - Reminders are only sent for active bookings (`booked | pending_deposit | paid`) on classes that aren't `cancelledAt`. The send helper re-checks status before hitting Resend.
 
