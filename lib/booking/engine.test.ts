@@ -119,7 +119,28 @@ afterAll(async () => {
       where: { id: { in: Array.from(createdUserIds) } },
     });
   }
-  // Leave the test Studio + Practice; cheap to reuse next run.
+  // Remove the fixture Studio and Practice too. Leaving them „to reuse next
+  // run" is what broke production: a second Studio row existed, and
+  // `studioDepositAmountMinor` resolved the studio with an unordered
+  // `findFirst()`, so the desk's „+ Депозит" recorded this studio's €20 onto
+  // real clients. The Practice leaked as well — „Test Practice (BE)" showed up
+  // as a filter chip on the public schedule.
+  //
+  // Deleted only when nothing points at them any more, so a run that failed
+  // half-way can't take real rows with it.
+  const leftoverClasses = await prisma.scheduledClass.count({
+    where: { studio: { slug: TEST_STUDIO_SLUG } },
+  });
+  if (leftoverClasses === 0) {
+    await prisma.studio.deleteMany({ where: { slug: TEST_STUDIO_SLUG } });
+  }
+  const practiceInUse = await prisma.scheduledClass.count({
+    where: { practice: { slug: TEST_PRACTICE_SLUG } },
+  });
+  if (practiceInUse === 0) {
+    await prisma.practice.deleteMany({ where: { slug: TEST_PRACTICE_SLUG } });
+  }
+
   await prisma.$disconnect();
 });
 

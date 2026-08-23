@@ -1,14 +1,26 @@
 import { prisma } from "@/lib/db";
 import { BookingSource } from "@/lib/generated/prisma/enums";
 import { depositAmountMinor } from "@/lib/deposit";
+import { STUDIO_SLUG } from "@/lib/studio";
 
 /**
  * The studio-level deposit amount, for desk actions that aren't tied to one
  * class (an admin recording a cash deposit, the „Възстанови депозит" panel).
- * Multi-location is Phase 2, so there is exactly one studio row.
+ *
+ * Resolved by slug, not by `findFirst()`. The database is not guaranteed to
+ * hold a single studio — the booking-engine tests upsert one of their own —
+ * and an unordered `findFirst` picked whichever row came back. That is how the
+ * desk button recorded the test studio's €20 onto real clients while every
+ * other screen, which looks the studio up by slug, kept saying €10.
+ *
+ * Falls back through `depositAmountMinor` if the row is somehow missing, so a
+ * desk action can never write a zero deposit by accident.
  */
 export async function studioDepositAmountMinor(): Promise<number> {
-  const studio = await prisma.studio.findFirst({ select: { defaultDeposit: true } });
+  const studio = await prisma.studio.findUnique({
+    where: { slug: STUDIO_SLUG },
+    select: { defaultDeposit: true },
+  });
   return depositAmountMinor(null, studio);
 }
 
