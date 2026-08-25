@@ -134,8 +134,8 @@ export function EmailSettingsForm({
       {!encryptionKeyPresent && (
         <p className="rounded-xl bg-red-50 px-4 py-3 text-xs leading-relaxed text-red-700">
           На сървъра липсва <code>SETTINGS_ENCRYPTION_KEY</code>. Без него
-          паролата не може да бъде запазена шифрована — задай променливата във
-          Vercel и презареди.
+          паролата не може да бъде запазена шифрована — добави променливата в
+          <code> .env</code> на сървъра и рестартирай приложението.
         </p>
       )}
 
