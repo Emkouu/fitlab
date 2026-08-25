@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { formatEurMinor } from "@/lib/format";
 import { useRouter } from "next/navigation";
 import { BookingStatus, BookingSource } from "@/lib/generated/prisma/enums";
 import { adminAdjustClientDepositAction } from "@/app/admin/_actions";
 import { markAttendanceAction, setPaymentMethodAction } from "../_actions";
+import { matchesClientQuery } from "@/lib/search/matchClient";
 import {
   CLASS_FEE_METHODS,
   CLASS_FEE_METHOD_LABEL,
@@ -19,6 +20,9 @@ export type AttendanceRow = {
   status: BookingStatus;
   source: BookingSource;
   who: string;
+  /** Contact details — shown on the card and searchable. */
+  phone: string | null;
+  email: string | null;
   /** The standing deposit the client currently holds, in EUR cents. */
   depositMinor: number;
   cardPaid: boolean;
@@ -36,11 +40,24 @@ export type AttendanceRow = {
 export function AttendancePanel({
   rows,
   canManageDeposits = false,
+  searchable = false,
 }: {
   rows: AttendanceRow[];
   /** Admins only — coaches never see deposit controls. */
   canManageDeposits?: boolean;
+  /** Show the „търси" box. Worth it only on a list long enough to scroll. */
+  searchable?: boolean;
 }) {
+  const [q, setQ] = useState("");
+
+  const shown = useMemo(
+    () =>
+      rows.filter((r) =>
+        matchesClientQuery({ name: r.who, phone: r.phone, email: r.email }, q),
+      ),
+    [rows, q],
+  );
+
   if (rows.length === 0) {
     return (
       <div className="rounded-2xl border border-[color:var(--brand-pink)] bg-white px-5 py-8 text-center">
@@ -52,16 +69,47 @@ export function AttendancePanel({
     );
   }
 
+  const showSearch = searchable && rows.length > 3;
+
   return (
-    <ul className="space-y-2.5">
-      {rows.map((r) => (
-        <AttendanceItem
-          key={r.id}
-          row={r}
-          canManageDeposits={canManageDeposits}
-        />
-      ))}
-    </ul>
+    <div>
+      {showSearch && (
+        <div className="mb-3">
+          <input
+            type="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Търси по име, телефон или имейл…"
+            aria-label="Търси записан клиент"
+            className="w-full rounded-xl border border-[color:var(--brand-pink)]/50 bg-white px-4 py-2.5 text-sm text-[color:var(--brand-ink)] shadow-[0_1px_2px_rgba(123,45,142,0.04)] focus:border-[color:var(--brand-magenta)] focus:outline-none"
+          />
+          {q.trim() !== "" && (
+            <p className="mt-1.5 text-[11px] uppercase tracking-wider text-[color:var(--brand-purple)]/55">
+              {shown.length} от {rows.length}
+            </p>
+          )}
+        </div>
+      )}
+
+      {shown.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-[color:var(--brand-pink)] bg-white px-5 py-8 text-center">
+          <p className="font-display text-base font-semibold">Няма съвпадения</p>
+          <p className="mt-2 text-sm text-[color:var(--brand-purple)]/70">
+            Никой от записаните не отговаря на „{q.trim()}“.
+          </p>
+        </div>
+      ) : (
+        <ul className="space-y-2.5">
+          {shown.map((r) => (
+            <AttendanceItem
+              key={r.id}
+              row={r}
+              canManageDeposits={canManageDeposits}
+            />
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -146,6 +194,10 @@ function AttendanceItem({
     });
   }
 
+  // Shown under the name so a search hit is verifiable at a glance — unless
+  // there is no name on file and the contact is already the headline.
+  const contact = [row.phone, row.email].find((v) => v && v !== row.who) ?? null;
+
   const isMarked =
     row.status === BookingStatus.attended ||
     row.status === BookingStatus.no_show;
@@ -157,6 +209,11 @@ function AttendanceItem({
           <p className="truncate text-sm font-medium text-[color:var(--brand-ink)]">
             {row.who}
           </p>
+          {contact !== null && (
+            <p className="mt-0.5 truncate text-[11px] text-[color:var(--brand-purple)]/60">
+              {contact}
+            </p>
+          )}
           <p className="mt-0.5 text-[11px] uppercase tracking-wider text-[color:var(--brand-purple)]/55">
             {sourceLabel(row.source, row.cardPaid)}
             {isOnsite && settled && (

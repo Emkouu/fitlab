@@ -90,6 +90,8 @@ export default async function AdminAttendanceClassPage({
     status: b.status,
     source: b.source,
     who: b.user.fullName ?? b.user.email ?? b.user.phone ?? "—",
+    phone: b.user.phone,
+    email: b.user.email,
     depositMinor: b.user.depositBalance,
     cardPaid:
       b.source === "card" &&
@@ -162,7 +164,11 @@ export default async function AdminAttendanceClassPage({
         />
       </div>
 
-      <AttendancePanel rows={enrolled} canManageDeposits={canManageDeposits} />
+      <AttendancePanel
+        rows={enrolled}
+        canManageDeposits={canManageDeposits}
+        searchable
+      />
 
       {/* Card holds whose deposit never arrived. Separate, because they are not
           people the studio should expect in the room — and because counting

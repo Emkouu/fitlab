@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { adminAddBookingToClassAction } from "@/app/admin/_actions";
+import { matchesClientQuery } from "@/lib/search/matchClient";
 
 export type ClientOption = {
   id: string;
@@ -34,14 +35,12 @@ export function AddClientToClass({
   const enrolled = useMemo(() => new Set(enrolledIds), [enrolledIds]);
 
   const results = useMemo(() => {
-    const needle = q.trim().toLowerCase();
     const available = clients.filter((c) => !enrolled.has(c.id));
-    if (!needle) return available.slice(0, 30);
     return available
-      .filter(
-        (c) =>
-          c.name.toLowerCase().includes(needle) ||
-          c.contact.toLowerCase().includes(needle),
+      .filter((c) =>
+        // Same matcher as the attendance list, so „0888…" finds a client whose
+        // number is stored as „+359888…".
+        matchesClientQuery({ name: c.name, phone: c.contact, email: c.contact }, q),
       )
       .slice(0, 30);
   }, [clients, enrolled, q]);
@@ -82,7 +81,7 @@ export function AddClientToClass({
             autoFocus
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Търси клиент по име или телефон…"
+            placeholder="Търси клиент по име, телефон или имейл…"
             className="mb-2 w-full rounded-xl border border-[color:var(--brand-pink)]/40 bg-white px-3 py-2.5 text-sm focus:border-[color:var(--brand-magenta)] focus:outline-none"
           />
 
