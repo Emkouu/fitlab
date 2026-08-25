@@ -105,3 +105,26 @@ const EUR_FMT = new Intl.NumberFormat("bg-BG", {
 export function formatEurMinor(minor: number): string {
   return EUR_FMT.format(minor / 100);
 }
+
+// Same locale, without the cents — for whole amounts, where „260,00 €" is two
+// characters of noise that pushed the KPI cards out of their own box.
+const EUR_FMT_WHOLE = new Intl.NumberFormat("bg-BG", {
+  style: "currency",
+  currency: "EUR",
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 0,
+});
+
+/**
+ * Money for a narrow box: 26000 → "260 €", 1250 → "12,50 €".
+ *
+ * Drops the cents only when there are none, so nothing is ever rounded away —
+ * a €12,50 turnover still reads €12,50. Use it in KPI tiles and other tight
+ * layouts; keep `formatEurMinor` where the exact amount matters (receipts,
+ * card transactions, deposits).
+ */
+export function formatEurMinorCompact(minor: number): string {
+  return minor % 100 === 0
+    ? EUR_FMT_WHOLE.format(minor / 100)
+    : EUR_FMT.format(minor / 100);
+}

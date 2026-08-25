@@ -4,7 +4,12 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { getAdminUser } from "@/lib/auth/getAdminUser";
 import { BookingStatus } from "@/lib/generated/prisma/enums";
-import { formatEurMinor, formatSofiaDay, sofiaDateKey } from "@/lib/format";
+import {
+  formatEurMinor,
+  formatEurMinorCompact,
+  formatSofiaDay,
+  sofiaDateKey,
+} from "@/lib/format";
 import { dailyStats, type DayStats } from "@/lib/stats/turnover";
 import { burnedDepositTotals } from "@/lib/stats/burnedDeposits";
 import {
@@ -138,7 +143,7 @@ export default async function AdminStatsPage({
 
       {/* Period totals */}
       <div className="mb-6 grid grid-cols-3 gap-3">
-        <TotalCard label="Оборот" value={formatEurMinor(totalTurnover)} accent />
+        <TotalCard label="Оборот" value={formatEurMinorCompact(totalTurnover)} accent />
         <TotalCard label="Записвания" value={String(totalBookings)} />
         <TotalCard label="Присъствали" value={String(totalAttended)} />
       </div>
@@ -156,7 +161,7 @@ export default async function AdminStatsPage({
         <MonthNav monthKey={monthKey} basePath="/admin/stats" />
 
         <div className="grid grid-cols-2 gap-3">
-          <TotalCard label="Сума" value={formatEurMinor(burned.totalMinor)} accent />
+          <TotalCard label="Сума" value={formatEurMinorCompact(burned.totalMinor)} accent />
           <TotalCard label="Брой" value={String(burned.count)} />
         </div>
 
@@ -239,7 +244,7 @@ function TotalCard({
         {label}
       </div>
       <div
-        className={`mt-1.5 font-display text-base font-bold ${
+        className={`mt-1.5 font-display text-base font-bold tabular-nums leading-tight break-words ${
           accent ? "text-[color:var(--brand-magenta)]" : "text-[color:var(--brand-purple)]"
         }`}
       >

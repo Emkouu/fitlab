@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 import { getStaffUser } from "@/lib/auth/getStaffUser";
 import { ACTIVE_BOOKING_STATUSES } from "@/lib/booking";
 import { BookingStatus, Role } from "@/lib/generated/prisma/enums";
-import { formatEurMinor, sofiaDateKey } from "@/lib/format";
+import { formatEurMinorCompact, sofiaDateKey } from "@/lib/format";
 import { dailyStats } from "@/lib/stats/turnover";
 import { depositAmountMinor } from "@/lib/deposit";
 import { AdminActions } from "./_components/AdminActions";
@@ -176,7 +176,7 @@ export default async function AdminPage() {
         <StatCard
           href="/admin/stats"
           label="Дневен оборот"
-          value={formatEurMinor(todayTurnover)}
+          value={formatEurMinorCompact(todayTurnover)}
           valueClass="text-[color:var(--brand-pink)]"
         />
         <StatCard
@@ -204,6 +204,10 @@ function StatCard({
   value: React.ReactNode;
   valueClass: string;
 }) {
+  // A four-digit turnover („1 234 €") does not fit at text-3xl in a half-width
+  // tile, so long values step down a size instead of spilling out of the card.
+  const long = typeof value === "string" && value.length > 7;
+
   return (
     <Link
       href={href}
@@ -212,7 +216,11 @@ function StatCard({
       <div className="text-xs text-[color:var(--brand-purple)]/60 uppercase tracking-wider">
         {label}
       </div>
-      <div className={`mt-2 font-display text-3xl font-bold ${valueClass}`}>
+      <div
+        className={`mt-2 font-display font-bold tabular-nums leading-tight break-words ${
+          long ? "text-2xl" : "text-3xl"
+        } ${valueClass}`}
+      >
         {value}
       </div>
     </Link>
