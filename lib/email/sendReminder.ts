@@ -1,14 +1,11 @@
 import { prisma } from "@/lib/db";
-import { getResend } from "@/lib/email/resend";
+import { deliverEmail } from "@/lib/email/deliver";
 import { ClassReminder } from "@/emails/ClassReminder";
 import { formatSofiaDay, formatSofiaTime } from "@/lib/format";
 
 export type ReminderType = "24h" | "2h";
 
 const ACTIVE_STATUSES = ["booked", "pending_deposit", "paid"] as const;
-
-const FROM_ADDRESS =
-  process.env.RESEND_FROM ?? "FitLab Varna <onboarding@resend.dev>";
 
 const STUDIO_ADDRESS = "ул. Патриарх Евтимий 7а, Варна";
 const STUDIO_PHONE = "088 241 4863";
@@ -27,11 +24,6 @@ export async function sendClassReminder(
   bookingId: string,
   type: ReminderType,
 ): Promise<{ ok: boolean }> {
-  if (!process.env.RESEND_API_KEY) {
-    console.error("[reminders] RESEND_API_KEY not set; skipping send", { bookingId, type });
-    return { ok: false };
-  }
-
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
     include: {
@@ -94,23 +86,14 @@ export async function sendClassReminder(
     footerSite: process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
   });
 
-  try {
-    const result = await getResend().emails.send({
-      from: FROM_ADDRESS,
-      to: email,
-      subject: subjectFor(type, cls.practice.name, timeText),
-      react: reactNode,
-    });
-
-    if (result.error) {
-      console.error("[reminders] resend error", { bookingId, type, error: result.error });
-      return { ok: false };
-    }
-
-    console.log("[reminders] sent", { bookingId, type, to: email, id: result.data?.id });
-    return { ok: true };
-  } catch (err) {
-    console.error("[reminders] send threw", { bookingId, type, err });
-    return { ok: false };
+  const sent = await deliverEmail({
+    to: email,
+    subject: subjectFor(type, cls.practice.name, timeText),
+    react: reactNode,
+    tag: "reminders",
+  });
+  if (!sent.ok) {
+    console.error("[reminders] not sent", { bookingId, type, error: sent.error });
   }
+  return { ok: sent.ok };
 }

@@ -5,8 +5,19 @@ import { prisma } from "@/lib/db";
 import { getAdminUser } from "@/lib/auth/getAdminUser";
 import { AdminBreadcrumb } from "../_components/AdminBreadcrumb";
 import { SettingsForm } from "./_components/SettingsForm";
+import { SystemSettingsAccordion } from "./_components/SystemSettingsAccordion";
+import { EmailSettingsForm } from "./_components/EmailSettingsForm";
+import { emailSettingsView } from "@/lib/email/settings";
+import { formatSofiaDateTime } from "@/lib/format";
 
 export const metadata = { title: "FitLab Varna — Настройки" };
+
+/** Collapsed-state hint, so the accordion says where mail goes без да се отваря. */
+const TRANSPORT_NOTE: Record<string, string> = {
+  smtp: "наш SMTP",
+  resend: "Resend",
+  none: "не е настроено",
+};
 
 export default async function AdminSettingsPage() {
   const admin = await getAdminUser();
@@ -20,6 +31,8 @@ export default async function AdminSettingsPage() {
   if (!studio) {
     throw new Error("Studio not found");
   }
+
+  const email = await emailSettingsView();
 
   const initialData = {
     name: studio.name,
@@ -62,6 +75,42 @@ export default async function AdminSettingsPage() {
         initialData={initialData}
         canEdit={admin.role === "super_admin"}
       />
+
+      {/* Infrastructure knobs, folded away — see SystemSettingsAccordion. */}
+      <div className="mt-10">
+        <SystemSettingsAccordion
+          summaryNote={`Изпращане на имейли · ${TRANSPORT_NOTE[email.activeTransport]}`}
+        >
+          <h2 className="mb-4 font-display text-base font-bold text-[color:var(--brand-purple)]">
+            Изпращане на имейли (SMTP)
+          </h2>
+          <EmailSettingsForm
+            initialData={{
+              smtpEnabled: email.smtpEnabled,
+              smtpHost: email.smtpHost || undefined,
+              smtpPort: email.smtpPort,
+              smtpSecure: email.smtpSecure,
+              smtpUser: email.smtpUser || undefined,
+              smtpPassword: "",
+              fromName: email.fromName || undefined,
+              fromEmail: email.fromEmail || undefined,
+              replyTo: email.replyTo || undefined,
+            }}
+            hasPassword={email.hasPassword}
+            gaps={email.gaps}
+            savedEnabled={email.smtpEnabled}
+            activeTransport={email.activeTransport}
+            encryptionKeyPresent={email.encryptionKeyPresent}
+            resendConfigured={email.resendConfigured}
+            updatedAtText={
+              email.updatedAt ? formatSofiaDateTime(email.updatedAt) : null
+            }
+            updatedByEmail={email.updatedByEmail}
+            testEmailDefault={admin.email ?? ""}
+            canEdit={admin.role === "super_admin"}
+          />
+        </SystemSettingsAccordion>
+      </div>
     </main>
   );
 }

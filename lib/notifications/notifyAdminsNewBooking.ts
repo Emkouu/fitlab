@@ -1,10 +1,8 @@
 import { prisma } from "@/lib/db";
 import { Role, NotificationType } from "@/lib/generated/prisma/enums";
-import { getResend } from "@/lib/email/resend";
+import { deliverEmail } from "@/lib/email/deliver";
 import { formatSofiaDay, formatSofiaTime } from "@/lib/format";
 
-const FROM_ADDRESS =
-  process.env.RESEND_FROM ?? "FitLab Varna <onboarding@resend.dev>";
 
 /** UI payment methods → human label for the admin message (all are on-site). */
 const METHOD_LABEL: Record<string, string> = {
@@ -96,13 +94,6 @@ export async function notifyAdminsNewBooking(
     .map((a) => a.email)
     .filter((e): e is string => Boolean(e));
   if (recipients.length === 0) return;
-  if (!process.env.RESEND_API_KEY) {
-    console.warn("[notifyAdminsNewBooking] RESEND_API_KEY not set; skipping email", {
-      bookingId,
-    });
-    return;
-  }
-
   const trainersText =
     cls.trainers.length > 0 ? cls.trainers.map((t) => t.name).join(" & ") : "—";
   const contact = booking.user.phone ?? booking.user.email ?? "—";
@@ -119,26 +110,10 @@ export async function notifyAdminsNewBooking(
       </table>
     </div>`;
 
-  try {
-    const result = await getResend().emails.send({
-      from: FROM_ADDRESS,
-      to: recipients,
-      subject: `Нова резервация — ${cls.practice.name} (${dateText}, ${timeText} ч.)`,
-      html,
-    });
-    if (result.error) {
-      console.error("[notifyAdminsNewBooking] resend error", {
-        bookingId,
-        error: result.error,
-      });
-      return;
-    }
-    console.log("[notifyAdminsNewBooking] sent", {
-      bookingId,
-      recipients: recipients.length,
-      id: result.data?.id,
-    });
-  } catch (err) {
-    console.error("[notifyAdminsNewBooking] send threw", { bookingId, err });
-  }
+  await deliverEmail({
+    to: recipients,
+    subject: `Нова резервация — ${cls.practice.name} (${dateText}, ${timeText} ч.)`,
+    html,
+    tag: "notifyAdminsNewBooking",
+  });
 }

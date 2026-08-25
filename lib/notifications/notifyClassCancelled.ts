@@ -1,10 +1,8 @@
 import { prisma } from "@/lib/db";
 import { NotificationType } from "@/lib/generated/prisma/enums";
-import { getResend } from "@/lib/email/resend";
+import { deliverEmail } from "@/lib/email/deliver";
 import { formatSofiaDay, formatSofiaTime } from "@/lib/format";
 
-const FROM_ADDRESS =
-  process.env.RESEND_FROM ?? "FitLab Varna <onboarding@resend.dev>";
 const STUDIO_PHONE = "088 241 4863";
 const STUDIO_ADDRESS = "ул. Патриарх Евтимий 7а, Варна";
 
@@ -66,13 +64,6 @@ export async function notifyClassCancelled(
   }
 
   // ── Channel 2: email ────────────────────────────────────────────────────
-  if (!process.env.RESEND_API_KEY) {
-    console.warn("[notifyClassCancelled] RESEND_API_KEY not set; skipping email", {
-      classId,
-    });
-    return;
-  }
-
   const appUrl =
     process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ?? "http://localhost:3000";
 
@@ -101,21 +92,11 @@ export async function notifyClassCancelled(
         <p style="font-size:12px;color:#8a6d86;margin:4px 0">Тел: <a href="tel:${STUDIO_PHONE.replace(/\s+/g, "")}" style="color:#8a6d86">${STUDIO_PHONE}</a></p>
       </div>`;
 
-    try {
-      const result = await getResend().emails.send({
-        from: FROM_ADDRESS,
-        to: u.email,
-        subject: `Отменен клас — ${cls.practice.name} (${dateText})`,
-        html,
-      });
-      if (result.error) {
-        console.error("[notifyClassCancelled] resend error", {
-          userId: u.id,
-          error: result.error,
-        });
-      }
-    } catch (err) {
-      console.error("[notifyClassCancelled] send threw", { userId: u.id, err });
-    }
+    await deliverEmail({
+      to: u.email,
+      subject: `Отменен клас — ${cls.practice.name} (${dateText})`,
+      html,
+      tag: "notifyClassCancelled",
+    });
   }
 }

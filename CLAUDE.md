@@ -206,6 +206,34 @@ Implication: the refund logic lives in `lib/payments/refundCardPayment.ts` and g
   - **Отчет по инструктори** (`/admin/reports/trainers`, **super_admin only**, re-checked server-side): `trainerLedger()` / `classLedger()` in `lib/stats/trainerLedger.ts` share one counting function. Money is narrow on purpose — `cashMinor` is only `attended` + `onsiteMethod=cash` at `classPriceMinor()`; subscription and Multisport are counted, not valued. Two columns exist because they are where undeclared cash hides: **`unrecorded`** (attended, no method recorded) and **`unmarked`** (a past class's booking never resolved at all). A two-trainer class counts in full for both trainers — there is no split rule in the data — so per-trainer sums can exceed studio turnover, and the page says so.
 - **`refundTransactionAction` („Върни сумата")** returns one transaction's full amount to the same card, starting from the payment rather than from the client's balance — the acquirer asks for a refund of a named `TrnID`, while `refundDepositAction`'s control only exists while `depositBalance > 0`. Rendered exactly where money can still go back (current attempt, `status=paid`, no `ecommRefundTransId` — the tested `refundable` flag), two-tap confirm, **super_admin only**. After the bank confirms, `depositBalance` drops by the refunded amount floored at 0, so a profile never claims a guarantee it no longer paid; `refundCardPayment` keeps the whole thing idempotent.
 
+## Изпращане на имейли (mail transport)
+
+Every email **this app composes** — booking confirmation, class reminders, the
+unfinished-deposit nudge, „освободи се място", staff notifications — goes through
+one door: `deliverEmail()` in `lib/email/deliver.ts`. No sender talks to a
+provider directly any more.
+
+- **Login codes are not ours.** The OTP / magic link is sent by Supabase Auth
+  with its own SMTP configured in the Supabase dashboard (today: Resend).
+  Nothing on the admin screen can affect a client's ability to sign in.
+- **Which way out** is decided by the pure, tested `resolveMailTransport()` in
+  `lib/email/transport.ts`: the studio's own SMTP when it is switched on **and**
+  complete (host, port, user, password, from-address), otherwise Resend, and
+  `none` — logged, not thrown — when neither exists. `smtpGaps()` names what is
+  missing, so „включено, но не работи" is never silent.
+- **Fallback.** A refused or timed-out SMTP handover is retried through Resend
+  when a key is configured, and the SMTP error is logged. „Изпрати тестов имейл"
+  passes `allowFallback: false` — a test that quietly succeeded through Resend
+  would report a working SMTP that isn't.
+- **Settings live in the DB** (`EmailSettings`, single row `id = "default"`),
+  editable in Админ → Настройки → **Системни настройки** (collapsed accordion,
+  super_admin only), so changing the mail provider needs no deploy. The password
+  is stored as AES-256-GCM ciphertext (`lib/crypto/secretBox.ts`) keyed by
+  **`SETTINGS_ENCRYPTION_KEY`** (32 bytes, hex or base64) and is never sent to
+  the browser — the form is only told whether one is set, and an empty password
+  field means „keep the stored one". Rotating the key makes the stored password
+  unreadable; retype it in the panel.
+
 ## Email reminders
 
 - Class-reminder emails go through **Resend** + `@react-email/components`. Template lives at `emails/ClassReminder.tsx`; send helper at `lib/email/sendReminder.ts`. Env: `RESEND_API_KEY`, optional `RESEND_FROM`.

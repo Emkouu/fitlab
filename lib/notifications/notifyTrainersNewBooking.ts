@@ -1,9 +1,7 @@
 import { prisma } from "@/lib/db";
-import { getResend } from "@/lib/email/resend";
+import { deliverEmail } from "@/lib/email/deliver";
 import { formatSofiaDay, formatSofiaTime } from "@/lib/format";
 
-const FROM_ADDRESS =
-  process.env.RESEND_FROM ?? "FitLab Varna <onboarding@resend.dev>";
 
 /**
  * Email the trainer(s) of the booked class when a client reserves a spot.
@@ -16,13 +14,6 @@ const FROM_ADDRESS =
  * roll back or fail the booking that already succeeded.
  */
 export async function notifyTrainersNewBooking(bookingId: string): Promise<void> {
-  if (!process.env.RESEND_API_KEY) {
-    console.warn("[notifyTrainersNewBooking] RESEND_API_KEY not set; skipping", {
-      bookingId,
-    });
-    return;
-  }
-
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
     include: {
@@ -72,26 +63,11 @@ export async function notifyTrainersNewBooking(bookingId: string): Promise<void>
           <tr><td style="padding:2px 12px 2px 0;color:#7b2d8e">Контакт</td><td>${contact}</td></tr>
         </table>
       </div>`;
-    try {
-      const result = await getResend().emails.send({
-        from: FROM_ADDRESS,
-        to: trainer.email,
-        subject: `Нова резервация — ${cls.practice.name} (${dateText}, ${timeText} ч.)`,
-        html,
-      });
-      if (result.error) {
-        console.error("[notifyTrainersNewBooking] resend error", {
-          bookingId,
-          to: trainer.email,
-          error: result.error,
-        });
-      }
-    } catch (err) {
-      console.error("[notifyTrainersNewBooking] send threw", {
-        bookingId,
-        to: trainer.email,
-        err,
-      });
-    }
+    await deliverEmail({
+      to: trainer.email,
+      subject: `Нова резервация — ${cls.practice.name} (${dateText}, ${timeText} ч.)`,
+      html,
+      tag: "notifyTrainersNewBooking",
+    });
   }
 }

@@ -1,10 +1,8 @@
 import { prisma } from "@/lib/db";
 import { Role, NotificationType } from "@/lib/generated/prisma/enums";
-import { getResend } from "@/lib/email/resend";
+import { deliverEmail } from "@/lib/email/deliver";
 import { formatSofiaDay, formatSofiaTime } from "@/lib/format";
 
-const FROM_ADDRESS =
-  process.env.RESEND_FROM ?? "FitLab Varna <onboarding@resend.dev>";
 const STUDIO_PHONE = "088 241 4863";
 const STUDIO_ADDRESS = "ул. Патриарх Евтимий 7а, Варна";
 
@@ -53,7 +51,6 @@ export async function notifyBookingCancelled(
     ? "Депозитът остава по профила ти."
     : "Депозитът е усвоен.";
 
-  const hasResend = Boolean(process.env.RESEND_API_KEY);
   const appUrl =
     process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ?? "http://localhost:3000";
 
@@ -75,7 +72,7 @@ export async function notifyBookingCancelled(
   }
 
   /* ── Client: email ── */
-  if (hasResend && booking.user.email) {
+  if (booking.user.email) {
     const html = `
       <div style="font-family:system-ui,Segoe UI,Roboto,sans-serif;color:#2a0e2e;max-width:480px">
         <h2 style="color:#c2158a;margin:0 0 12px">Резервацията е отменена</h2>
@@ -95,25 +92,12 @@ export async function notifyBookingCancelled(
         <p style="font-size:12px;color:#8a6d86;margin:4px 0">${cls.studio.name} · ${STUDIO_ADDRESS}</p>
         <p style="font-size:12px;color:#8a6d86;margin:4px 0">Тел: <a href="tel:${studioPhone.replace(/\s+/g, "")}" style="color:#8a6d86">${studioPhone}</a></p>
       </div>`;
-    try {
-      const result = await getResend().emails.send({
-        from: FROM_ADDRESS,
-        to: booking.user.email,
-        subject: `Отменена резервация — ${cls.practice.name} (${dateText})`,
-        html,
-      });
-      if (result.error) {
-        console.error("[notifyBookingCancelled] client resend error", {
-          bookingId,
-          error: result.error,
-        });
-      }
-    } catch (err) {
-      console.error("[notifyBookingCancelled] client send threw", {
-        bookingId,
-        err,
-      });
-    }
+    await deliverEmail({
+      to: booking.user.email,
+      subject: `Отменена резервация — ${cls.practice.name} (${dateText})`,
+      html,
+      tag: "notifyBookingCancelled",
+    });
   }
 
   // Admins are only pinged when the client cancelled on their own.
@@ -151,7 +135,7 @@ export async function notifyBookingCancelled(
   const recipients = admins
     .map((a) => a.email)
     .filter((e): e is string => Boolean(e));
-  if (!hasResend || recipients.length === 0) return;
+  if (recipients.length === 0) return;
 
   const contact = booking.user.phone ?? booking.user.email ?? "—";
   const html = `
@@ -165,20 +149,10 @@ export async function notifyBookingCancelled(
         <tr><td style="padding:2px 12px 2px 0;color:#7b2d8e">Депозит</td><td>${depositLine}</td></tr>
       </table>
     </div>`;
-  try {
-    const result = await getResend().emails.send({
-      from: FROM_ADDRESS,
-      to: recipients,
-      subject: `Отменена резервация — ${cls.practice.name} (${dateText}, ${timeText} ч.)`,
-      html,
-    });
-    if (result.error) {
-      console.error("[notifyBookingCancelled] admin resend error", {
-        bookingId,
-        error: result.error,
-      });
-    }
-  } catch (err) {
-    console.error("[notifyBookingCancelled] admin send threw", { bookingId, err });
-  }
+  await deliverEmail({
+    to: recipients,
+    subject: `Отменена резервация — ${cls.practice.name} (${dateText}, ${timeText} ч.)`,
+    html,
+    tag: "notifyBookingCancelled",
+  });
 }

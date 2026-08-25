@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { getResend } from "@/lib/email/resend";
+import { deliverEmail } from "@/lib/email/deliver";
 import { BookingConfirmation } from "@/emails/BookingConfirmation";
 import {
   formatSofiaDay,
@@ -11,8 +11,6 @@ import { depositAmountMinor } from "@/lib/deposit";
 import { classPriceMinor } from "@/lib/pricing";
 import { siteOrigin } from "@/lib/legal/company";
 
-const FROM_ADDRESS =
-  process.env.RESEND_FROM ?? "FitLab Varna <onboarding@resend.dev>";
 
 const STUDIO_ADDRESS = "ул. Патриарх Евтимий 7а, Варна";
 const STUDIO_PHONE = "088 241 4863";
@@ -31,18 +29,11 @@ function depositStatusText(source: string, status: string): string {
  * Send a one-shot booking confirmation email. Safe to call after any of:
  *   - balance/onsite booking creation (status: booked | pending_deposit)
  *   - the ECOMM return leg flipping a card booking to `paid`
- * Skips silently if RESEND_API_KEY is not set or the user has no email.
+ * Skips silently if no mail transport is configured or the user has no email.
  */
 export async function sendBookingConfirmationEmail(
   bookingId: string,
 ): Promise<void> {
-  if (!process.env.RESEND_API_KEY) {
-    console.warn("[booking-confirmation] RESEND_API_KEY not set; skipping", {
-      bookingId,
-    });
-    return;
-  }
-
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
     include: {
@@ -122,27 +113,16 @@ export async function sendBookingConfirmationEmail(
     cardMask: booking.payment?.ecommCardMask ?? null,
   });
 
-  try {
-    const result = await getResend().emails.send({
-      from: FROM_ADDRESS,
-      to: email,
-      subject: `Записан/а си! ${cls.practice.name} — ${dateText} в ${timeText}`,
-      react: reactNode,
-    });
-
-    if (result.error) {
-      console.error("[booking-confirmation] resend error", {
-        bookingId,
-        error: result.error,
-      });
-      return;
-    }
-    console.log("[booking-confirmation] sent", {
+  const sent = await deliverEmail({
+    to: email,
+    subject: `Записан/а си! ${cls.practice.name} — ${dateText} в ${timeText}`,
+    react: reactNode,
+    tag: "booking-confirmation",
+  });
+  if (!sent.ok) {
+    console.error("[booking-confirmation] not sent", {
       bookingId,
-      to: email,
-      id: result.data?.id,
+      error: sent.error,
     });
-  } catch (err) {
-    console.error("[booking-confirmation] send threw", { bookingId, err });
   }
 }

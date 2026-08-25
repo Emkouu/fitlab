@@ -15,6 +15,19 @@ import {
   Role,
 } from "@/lib/generated/prisma/enums";
 import { getAdminUser } from "@/lib/auth/getAdminUser";
+import { deliverEmail } from "@/lib/email/deliver";
+import { EMAIL_SETTINGS_ID } from "@/lib/email/settings";
+import {
+  encryptSecret,
+  MissingEncryptionKeyError,
+} from "@/lib/crypto/secretBox";
+import { formatSofiaDateTime } from "@/lib/format";
+import {
+  emailSettingsSchema,
+  type EmailSettingsInput,
+  testEmailSchema,
+  type TestEmailInput,
+} from "@/lib/validation/emailSettingsForm";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   burnDeposit,
@@ -2112,5 +2125,182 @@ export async function refundTransactionAction(
     message: bookingStillActive
       ? "Сумата е върната по картата. Резервацията остава активна — отпиши клиента, ако мястото трябва да се освободи."
       : "Сумата е върната по картата.",
+  };
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Системни настройки → Изпращане на имейли (SMTP)
+
+   Applies to the emails THIS app composes: booking confirmations, class
+   reminders, the unfinished-deposit nudge, staff notifications. Login codes
+   are sent by Supabase Auth and are untouched by anything here — no setting on
+   this screen can stop a client from signing in.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+export type EmailSettingsResult = { ok: boolean; message: string };
+
+export async function updateEmailSettingsAction(
+  input: EmailSettingsInput,
+): Promise<EmailSettingsResult> {
+  const admin = await getAdminUser();
+  if (!admin) {
+    return { ok: false, message: "Нямаш достъп до тази функция." };
+  }
+  // System configuration → super_admin only, like the studio settings.
+  if (admin.role !== Role.super_admin) {
+    return {
+      ok: false,
+      message: "Само super admin може да променя системните настройки.",
+    };
+  }
+
+  const parsed = emailSettingsSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      message: parsed.error.issues[0]?.message ?? "Невалидни данни.",
+    };
+  }
+  const data = parsed.data;
+
+  const existing = await prisma.emailSettings
+    .findUnique({
+      where: { id: EMAIL_SETTINGS_ID },
+      select: { smtpPassword: true },
+    })
+    .catch(() => null);
+
+  // An empty password field means „keep the stored one" — the browser is never
+  // given the current value, so it has nothing to send back.
+  let smtpPassword = existing?.smtpPassword ?? null;
+  const typed = input.smtpPassword?.trim();
+  if (typed) {
+    try {
+      smtpPassword = encryptSecret(typed);
+    } catch (err) {
+      if (err instanceof MissingEncryptionKeyError) {
+        return {
+          ok: false,
+          message:
+            "Липсва SETTINGS_ENCRYPTION_KEY на сървъра — паролата не може да бъде запазена шифрована.",
+        };
+      }
+      console.error("[updateEmailSettings] encrypt failed:", err);
+      return { ok: false, message: "Грешка при шифроване на паролата." };
+    }
+  }
+
+  if (data.smtpEnabled && !smtpPassword) {
+    return {
+      ok: false,
+      message: "За включен SMTP е нужна парола.",
+    };
+  }
+
+  const values = {
+    smtpEnabled: data.smtpEnabled,
+    smtpHost: data.smtpHost ?? null,
+    smtpPort: data.smtpPort ?? null,
+    smtpSecure: data.smtpSecure,
+    smtpUser: data.smtpUser ?? null,
+    smtpPassword,
+    fromName: data.fromName ?? null,
+    fromEmail: data.fromEmail ?? null,
+    replyTo: data.replyTo ?? null,
+    updatedByEmail: admin.email ?? null,
+  };
+
+  try {
+    await prisma.emailSettings.upsert({
+      where: { id: EMAIL_SETTINGS_ID },
+      create: { id: EMAIL_SETTINGS_ID, ...values },
+      update: values,
+    });
+  } catch (err) {
+    console.error("[updateEmailSettings] error:", err);
+    return { ok: false, message: "Грешка при запазване. Опитай отново." };
+  }
+
+  // Host, port and user are operational detail; the password never appears.
+  console.log(
+    `[admin-audit] updateEmailSettings by=${admin.id} smtp=${
+      data.smtpEnabled ? "on" : "off"
+    } host=${data.smtpHost ?? "—"}:${data.smtpPort ?? "—"}`,
+  );
+
+  revalidatePath("/admin/settings");
+
+  return {
+    ok: true,
+    message: data.smtpEnabled
+      ? "Настройките са запазени. Изпрати тестов имейл, за да потвърдиш връзката."
+      : "Настройките са запазени. Имейлите продължават през Resend.",
+  };
+}
+
+/**
+ * „Изпрати тестов имейл" — proves the saved SMTP actually accepts our mail.
+ *
+ * Deliberately without the Resend fallback: a test that quietly succeeded
+ * through Resend would report a working SMTP that isn't.
+ */
+export async function sendTestEmailAction(
+  input: TestEmailInput,
+): Promise<EmailSettingsResult> {
+  const admin = await getAdminUser();
+  if (!admin) {
+    return { ok: false, message: "Нямаш достъп до тази функция." };
+  }
+  if (admin.role !== Role.super_admin) {
+    return {
+      ok: false,
+      message: "Само super admin може да изпраща тестови имейли.",
+    };
+  }
+
+  const parsed = testEmailSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, message: "Невалиден имейл адрес." };
+  }
+
+  const sentAt = formatSofiaDateTime(new Date());
+  const result = await deliverEmail({
+    to: parsed.data.to,
+    subject: "Тестов имейл от FitLab Varna",
+    html: `
+      <div style="font-family:system-ui,Segoe UI,Roboto,sans-serif;color:#2a0e2e;max-width:480px">
+        <h2 style="color:#c2158a;margin:0 0 12px">Изпращането работи</h2>
+        <p style="font-size:14px;line-height:1.6">
+          Този имейл е изпратен от админ панела на FitLab Varna, за да провери
+          настройките за изпращане.
+        </p>
+        <p style="font-size:13px;color:#6b476f;line-height:1.6">
+          Изпратен на ${sentAt} от ${admin.email ?? "админ"}.
+        </p>
+      </div>
+    `,
+    tag: "test-email",
+    allowFallback: false,
+  });
+
+  console.log(
+    `[admin-audit] sendTestEmail by=${admin.id} to=${parsed.data.to} ok=${result.ok} via=${result.via ?? "—"}`,
+  );
+
+  if (!result.ok) {
+    return {
+      ok: false,
+      message: `Изпращането не успя (${result.via ?? "без транспорт"}): ${
+        result.error ?? "неизвестна грешка"
+      }`,
+    };
+  }
+
+  return {
+    ok: true,
+    message:
+      result.via === "smtp"
+        ? `Тестовият имейл е изпратен през SMTP до ${parsed.data.to}.`
+        : `Тестовият имейл е изпратен през Resend до ${parsed.data.to}. SMTP не е активен.`,
   };
 }

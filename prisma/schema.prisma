@@ -365,3 +365,40 @@ model Partner {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
+
+/// How the studio's OWN emails leave the building — booking confirmations,
+/// class reminders, the unfinished-deposit nudge, „освободи се място".
+///
+/// Single row (`id = "default"`), editable in Админ → Настройки → Системни
+/// настройки, so changing the mail provider does not need a deploy.
+///
+/// Login codes are NOT sent from here: those come from Supabase Auth, which
+/// has its own SMTP configured in the Supabase dashboard. Nothing in this
+/// table can affect a user's ability to sign in.
+model EmailSettings {
+  id String @id @default("default")
+
+  /// Off → our emails go out through the Resend API key in env, as before.
+  /// On → nodemailer over the SMTP below, with Resend as the fallback if the
+  /// SMTP server refuses or times out.
+  smtpEnabled Boolean @default(false)
+
+  smtpHost String?
+  smtpPort Int?
+  /// true = implicit TLS (port 465). false = STARTTLS (port 587).
+  smtpSecure Boolean @default(true)
+  smtpUser   String?
+  /// AES-256-GCM ciphertext of the SMTP password (lib/crypto/secretBox.ts),
+  /// keyed by SETTINGS_ENCRYPTION_KEY. Never sent to the browser — the admin
+  /// form is only ever told whether a password is set.
+  smtpPassword String?
+
+  /// Envelope sender. "FitLab Varna" <info@fitlabvarna.com>
+  fromName  String?
+  fromEmail String?
+  replyTo   String?
+
+  updatedAt      DateTime @updatedAt
+  /// Who last saved this, for the [admin-audit] trail.
+  updatedByEmail String?
+}
