@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { BookingStatus, PaymentStatus } from "@/lib/generated/prisma/enums";
 import { sendBookingConfirmationEmail } from "@/lib/email/sendBookingConfirmationEmail";
 import { notifyTrainersNewBooking } from "@/lib/notifications/notifyTrainersNewBooking";
+import { notifyAdminsCardPayment } from "@/lib/notifications/notifyAdminsCardPayment";
 import { getTransactionResult } from "./client";
 import { formatResultCode } from "./responseCodes";
 
@@ -97,9 +98,17 @@ export async function settleEcommPaymentForBooking(args: {
     ]);
 
     if (!alreadyPaid) {
-      // Receipt + trainer ping happen once, on the transition only.
+      // Receipt + trainer ping + studio notification happen once, on the
+      // transition only. The admins are told here rather than at booking time:
+      // until the bank confirmed, there was no payment to report.
       await sendBookingConfirmationEmail(booking.id);
       await notifyTrainersNewBooking(booking.id);
+      try {
+        await notifyAdminsCardPayment(booking.id);
+      } catch (err) {
+        // Best-effort: the money is settled either way.
+        console.error("[ecomm] notifyAdminsCardPayment failed", booking.id, err);
+      }
     }
     return { ok: true, status: "paid", bookingId: booking.id };
   }

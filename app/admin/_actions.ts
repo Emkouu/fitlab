@@ -17,10 +17,6 @@ import {
 import { getAdminUser } from "@/lib/auth/getAdminUser";
 import { deliverEmail } from "@/lib/email/deliver";
 import { EMAIL_SETTINGS_ID } from "@/lib/email/settings";
-import {
-  encryptSecret,
-  MissingEncryptionKeyError,
-} from "@/lib/crypto/secretBox";
 import { formatSofiaDateTime } from "@/lib/format";
 import {
   emailSettingsSchema,
@@ -2129,12 +2125,17 @@ export async function refundTransactionAction(
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   Системни настройки → Изпращане на имейли (SMTP)
+   Системни настройки → Изпращане на имейли
 
-   Applies to the emails THIS app composes: booking confirmations, class
-   reminders, the unfinished-deposit nudge, staff notifications. Login codes
-   are sent by Supabase Auth and are untouched by anything here — no setting on
-   this screen can stop a client from signing in.
+   Every email THIS app composes goes out through Resend: booking
+   confirmations, class reminders to clients and to trainers, the
+   unfinished-deposit nudge, the new-booking and card-payment notifications to
+   the studio. The only thing editable here is the sender identity, so changing
+   it needs no deploy.
+
+   Login codes are sent by Supabase Auth (over its own Resend SMTP) and are
+   untouched by anything here — no setting on this screen can stop a client
+   from signing in.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 export type EmailSettingsResult = { ok: boolean; message: string };
@@ -2163,50 +2164,17 @@ export async function updateEmailSettingsAction(
   }
   const data = parsed.data;
 
-  const existing = await prisma.emailSettings
-    .findUnique({
-      where: { id: EMAIL_SETTINGS_ID },
-      select: { smtpPassword: true },
-    })
-    .catch(() => null);
-
-  // An empty password field means „keep the stored one" — the browser is never
-  // given the current value, so it has nothing to send back.
-  let smtpPassword = existing?.smtpPassword ?? null;
-  const typed = input.smtpPassword?.trim();
-  if (typed) {
-    try {
-      smtpPassword = encryptSecret(typed);
-    } catch (err) {
-      if (err instanceof MissingEncryptionKeyError) {
-        return {
-          ok: false,
-          message:
-            "Липсва SETTINGS_ENCRYPTION_KEY на сървъра — паролата не може да бъде запазена шифрована.",
-        };
-      }
-      console.error("[updateEmailSettings] encrypt failed:", err);
-      return { ok: false, message: "Грешка при шифроване на паролата." };
-    }
-  }
-
-  if (data.smtpEnabled && !smtpPassword) {
-    return {
-      ok: false,
-      message: "За включен SMTP е нужна парола.",
-    };
-  }
-
   const values = {
-    smtpEnabled: data.smtpEnabled,
-    smtpHost: data.smtpHost ?? null,
-    smtpPort: data.smtpPort ?? null,
-    smtpSecure: data.smtpSecure,
-    smtpUser: data.smtpUser ?? null,
-    smtpPassword,
     fromName: data.fromName ?? null,
     fromEmail: data.fromEmail ?? null,
     replyTo: data.replyTo ?? null,
+    // The studio-SMTP route is gone; clear anything a previous version stored
+    // so no stale host — and no stale password ciphertext — is left behind.
+    smtpEnabled: false,
+    smtpHost: null,
+    smtpPort: null,
+    smtpUser: null,
+    smtpPassword: null,
     updatedByEmail: admin.email ?? null,
   };
 
@@ -2221,28 +2189,25 @@ export async function updateEmailSettingsAction(
     return { ok: false, message: "Грешка при запазване. Опитай отново." };
   }
 
-  // Host, port and user are operational detail; the password never appears.
   console.log(
-    `[admin-audit] updateEmailSettings by=${admin.id} smtp=${
-      data.smtpEnabled ? "on" : "off"
-    } host=${data.smtpHost ?? "—"}:${data.smtpPort ?? "—"}`,
+    `[admin-audit] updateEmailSettings by=${admin.id} from=${
+      data.fromEmail ?? "—"
+    } replyTo=${data.replyTo ?? "—"}`,
   );
 
   revalidatePath("/admin/settings");
 
   return {
     ok: true,
-    message: data.smtpEnabled
-      ? "Настройките са запазени. Изпрати тестов имейл, за да потвърдиш връзката."
-      : "Настройките са запазени. Имейлите продължават през Resend.",
+    message:
+      "Настройките са запазени. Имейлите излизат през Resend с този изпращач.",
   };
 }
 
 /**
- * „Изпрати тестов имейл" — proves the saved SMTP actually accepts our mail.
- *
- * Deliberately without the Resend fallback: a test that quietly succeeded
- * through Resend would report a working SMTP that isn't.
+ * „Изпрати тестов имейл" — proves Resend accepts our mail with the saved
+ * sender. An unverified From domain fails here rather than silently on a
+ * client's booking confirmation.
  */
 export async function sendTestEmailAction(
   input: TestEmailInput,
@@ -2271,8 +2236,8 @@ export async function sendTestEmailAction(
       <div style="font-family:system-ui,Segoe UI,Roboto,sans-serif;color:#2a0e2e;max-width:480px">
         <h2 style="color:#c2158a;margin:0 0 12px">Изпращането работи</h2>
         <p style="font-size:14px;line-height:1.6">
-          Този имейл е изпратен от админ панела на FitLab Varna, за да провери
-          настройките за изпращане.
+          Този имейл е изпратен през Resend от админ панела на FitLab Varna, за
+          да провери настройките за изпращане.
         </p>
         <p style="font-size:13px;color:#6b476f;line-height:1.6">
           Изпратен на ${sentAt} от ${admin.email ?? "админ"}.
@@ -2280,27 +2245,21 @@ export async function sendTestEmailAction(
       </div>
     `,
     tag: "test-email",
-    allowFallback: false,
   });
 
   console.log(
-    `[admin-audit] sendTestEmail by=${admin.id} to=${parsed.data.to} ok=${result.ok} via=${result.via ?? "—"}`,
+    `[admin-audit] sendTestEmail by=${admin.id} to=${parsed.data.to} ok=${result.ok}`,
   );
 
   if (!result.ok) {
     return {
       ok: false,
-      message: `Изпращането не успя (${result.via ?? "без транспорт"}): ${
-        result.error ?? "неизвестна грешка"
-      }`,
+      message: `Изпращането не успя: ${result.error ?? "неизвестна грешка"}`,
     };
   }
 
   return {
     ok: true,
-    message:
-      result.via === "smtp"
-        ? `Тестовият имейл е изпратен през SMTP до ${parsed.data.to}.`
-        : `Тестовият имейл е изпратен през Resend до ${parsed.data.to}. SMTP не е активен.`,
+    message: `Тестовият имейл е изпратен през Resend до ${parsed.data.to}.`,
   };
 }

@@ -1,18 +1,12 @@
 import { describe, it, expect } from "vitest";
 import {
   resolveMailTransport,
-  smtpGaps,
+  resolveFromAddress,
   formatFromAddress,
-  type SmtpSettingsRow,
+  type MailSenderRow,
 } from "./transport";
 
-const full: SmtpSettingsRow = {
-  smtpEnabled: true,
-  smtpHost: "smtp.fitlabvarna.com",
-  smtpPort: 465,
-  smtpSecure: true,
-  smtpUser: "info@fitlabvarna.com",
-  smtpPassword: "v1.iv.tag.data",
+const saved: MailSenderRow = {
   fromName: "FitLab Varna",
   fromEmail: "info@fitlabvarna.com",
   replyTo: null,
@@ -28,61 +22,53 @@ describe("formatFromAddress", () => {
   });
 });
 
-describe("smtpGaps", () => {
-  it("is empty for a complete row", () => {
-    expect(smtpGaps(full)).toEqual([]);
+describe("resolveFromAddress", () => {
+  it("prefers the address saved in the panel", () => {
+    expect(resolveFromAddress(saved, { resendFrom: "env@b.bg" })).toBe(
+      "FitLab Varna <info@fitlabvarna.com>",
+    );
   });
 
-  it("names every missing piece", () => {
-    expect(
-      smtpGaps({ ...full, smtpHost: "", smtpPort: null, smtpPassword: null }),
-    ).toEqual(["хост", "порт", "парола"]);
+  it("falls back to RESEND_FROM, then to Resend's test sender", () => {
+    expect(resolveFromAddress(null, { resendFrom: "FitLab <r@b.bg>" })).toBe(
+      "FitLab <r@b.bg>",
+    );
+    expect(resolveFromAddress({ ...saved, fromEmail: "  " }, {})).toBe(
+      "FitLab Varna <onboarding@resend.dev>",
+    );
   });
 });
 
 describe("resolveMailTransport", () => {
-  it("uses SMTP when it is on and complete", () => {
-    const t = resolveMailTransport(full, { resendApiKey: "re_1" });
-    expect(t.kind).toBe("smtp");
-    if (t.kind !== "smtp") return;
-    expect(t.host).toBe("smtp.fitlabvarna.com");
-    expect(t.from).toBe("FitLab Varna <info@fitlabvarna.com>");
-    expect(t.fallback).toEqual({ kind: "resend", from: "FitLab Varna <onboarding@resend.dev>" });
+  it("is always Resend when the key is there", () => {
+    const t = resolveMailTransport(saved, { resendApiKey: "re_1" });
+    expect(t).toEqual({
+      kind: "resend",
+      from: "FitLab Varna <info@fitlabvarna.com>",
+      replyTo: null,
+    });
   });
 
-  it("has no fallback when Resend is not configured", () => {
-    const t = resolveMailTransport(full, {});
-    expect(t.kind === "smtp" && t.fallback).toBe(null);
-  });
-
-  it("falls back to Resend when SMTP is switched off", () => {
+  it("carries the saved reply-to", () => {
     const t = resolveMailTransport(
-      { ...full, smtpEnabled: false },
-      { resendApiKey: "re_1", resendFrom: "FitLab <r@fitlabvarna.com>" },
+      { ...saved, replyTo: " studio@fitlabvarna.com " },
+      { resendApiKey: "re_1" },
     );
-    expect(t).toEqual({ kind: "resend", from: "FitLab <r@fitlabvarna.com>" });
+    expect(t.kind === "resend" && t.replyTo).toBe("studio@fitlabvarna.com");
   });
 
-  it("falls back to Resend when SMTP is on but incomplete", () => {
-    const t = resolveMailTransport({ ...full, smtpPassword: null }, { resendApiKey: "re_1" });
-    expect(t.kind).toBe("resend");
+  it("works with no saved settings at all", () => {
+    const t = resolveMailTransport(null, {
+      resendApiKey: "re_1",
+      resendFrom: "FitLab <r@b.bg>",
+    });
+    expect(t).toEqual({ kind: "resend", from: "FitLab <r@b.bg>", replyTo: null });
   });
 
-  it("uses Resend when there are no settings at all", () => {
-    expect(resolveMailTransport(null, { resendApiKey: "re_1" }).kind).toBe("resend");
-  });
-
-  it("reports „none\" with a reason when nothing is configured", () => {
-    const t = resolveMailTransport(null, {});
+  it("reports „none\" with a reason when the key is missing", () => {
+    const t = resolveMailTransport(saved, { resendApiKey: "  " });
     expect(t.kind).toBe("none");
     if (t.kind !== "none") return;
-    expect(t.reason).toMatch(/нито SMTP/);
-  });
-
-  it("says what is missing when SMTP is on, incomplete and Resend is absent", () => {
-    const t = resolveMailTransport({ ...full, smtpHost: null }, {});
-    expect(t.kind).toBe("none");
-    if (t.kind !== "none") return;
-    expect(t.reason).toMatch(/хост/);
+    expect(t.reason).toMatch(/RESEND_API_KEY/);
   });
 });

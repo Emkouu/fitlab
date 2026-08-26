@@ -111,6 +111,7 @@ A stored **0 is a real amount** (a class needing no guarantee), not „unset"; o
 - **`RESULT` is the only field that decides success** (manual §4.2); `RESULT_CODE` and `3DSECURE` are informational. Every returned field is preserved on `Payment.ecomm*`, and a retry after a decline archives the superseded attempt into `Payment.ecommHistory` (append-only) before reusing the row — the manual requires every response to survive, and ECOMM refuses a second attempt on a spent `trans_id`, so retries always mean a fresh transaction.
 - The return URLs are registered with the bank verbatim and **must never carry query parameters**. The booking is identified by the `ecomm_booking` cookie (`SameSite=None; Secure`, since the bank POSTs cross-site) with the `booking_id` form field as fallback.
 - The card charge is the deposit resolved by **`depositAmountMinor()`** for that class (see „Deposit amount" below) — the same number quoted in the booking modal and on `/pay`. Never charge anything else.
+- A settled payment tells the studio: `settleEcommPaymentForBooking` calls `notifyAdminsCardPayment()` on the `paid` transition only (bell + one email with amount, card mask, `TrnID`, RRN, approval code). The other client paths notify at booking time; the card path deliberately waits for the bank, so an admin never hears about a payment that was refused.
 - Refunds go back **only** to the same card (`lib/payments/refundCardPayment.ts`, `command=k`). Payments with no `ecommTransId` (rows left from the removed Stripe integration) are reported as `unsupported` rather than silently marked refunded.
 - **Stripe is gone** — `lib/stripe.ts`, `createCheckoutForBooking.ts`, `/api/stripe/webhook` and the `stripe` dependency were deleted. Its `Payment.stripe*` columns stay for historical rows. Never reintroduce a module that throws at import over a missing key: that is what broke the production build.
 - **Neither gateway carries a certificate for the public host we dial**, and both chain to the bank's private CA. So `client.ts` does two things, never `rejectUnauthorized: false`:
@@ -208,31 +209,31 @@ Implication: the refund logic lives in `lib/payments/refundCardPayment.ts` and g
 
 ## Изпращане на имейли (mail transport)
 
-Every email **this app composes** — booking confirmation, class reminders, the
-unfinished-deposit nudge, „освободи се място", staff notifications — goes through
-one door: `deliverEmail()` in `lib/email/deliver.ts`. No sender talks to a
-provider directly any more.
+Every email **this app composes** — booking confirmation, class reminders to
+clients *and* to trainers, the unfinished-deposit nudge, „освободи се място",
+the new-booking and card-payment notifications to admins — goes through one
+door: `deliverEmail()` in `lib/email/deliver.ts`, and out through **Resend**.
+No sender talks to a provider directly, and there is no second route.
 
 - **Login codes are not ours.** The OTP / magic link is sent by Supabase Auth
   with its own SMTP configured in the Supabase dashboard (today: Resend).
   Nothing on the admin screen can affect a client's ability to sign in.
-- **Which way out** is decided by the pure, tested `resolveMailTransport()` in
-  `lib/email/transport.ts`: the studio's own SMTP when it is switched on **and**
-  complete (host, port, user, password, from-address), otherwise Resend, and
-  `none` — logged, not thrown — when neither exists. `smtpGaps()` names what is
-  missing, so „включено, но не работи" is never silent.
-- **Fallback.** A refused or timed-out SMTP handover is retried through Resend
-  when a key is configured, and the SMTP error is logged. „Изпрати тестов имейл"
-  passes `allowFallback: false` — a test that quietly succeeded through Resend
-  would report a working SMTP that isn't.
-- **Settings live in the DB** (`EmailSettings`, single row `id = "default"`),
-  editable in Админ → Настройки → **Системни настройки** (collapsed accordion,
-  super_admin only), so changing the mail provider needs no deploy. The password
-  is stored as AES-256-GCM ciphertext (`lib/crypto/secretBox.ts`) keyed by
-  **`SETTINGS_ENCRYPTION_KEY`** (32 bytes, hex or base64) and is never sent to
-  the browser — the form is only told whether one is set, and an empty password
-  field means „keep the stored one". Rotating the key makes the stored password
-  unreadable; retype it in the panel.
+- **One provider, on purpose.** The studio-SMTP option was removed: with two
+  routes an email could leave by the one nobody was watching, and a half-filled
+  SMTP form was a silent way to lose mail. `resolveMailTransport()` in
+  `lib/email/transport.ts` (pure, tested) now returns `resend` whenever
+  `RESEND_API_KEY` is set and `none` — logged, never thrown — when it is not.
+  Do **not** reintroduce a second transport.
+- **The sender is configurable, the route is not.** `resolveFromAddress()`
+  picks the address saved in Админ → Настройки → **Системни настройки**
+  (`EmailSettings`, single row `id = "default"`, super_admin only), else
+  `RESEND_FROM`, else Resend's test sender; `replyTo` rides along when saved.
+  Whatever is saved must be on a domain verified in Resend — „Изпрати тестов
+  имейл" is there to prove it, and it has no fallback to hide behind.
+- The row's `smtp*` columns are retired and unread; a save clears them,
+  password ciphertext included. `lib/crypto/secretBox.ts` +
+  `SETTINGS_ENCRYPTION_KEY` are consequently unused by any live code path (the
+  module and its tests stay for the next stored secret).
 
 ## Email reminders
 
@@ -240,6 +241,7 @@ provider directly any more.
 - **Vercel Cron** runs `/api/cron/reminders` every **15 minutes** (configured in `vercel.json`). The route is guarded by `Authorization: Bearer ${CRON_SECRET}`.
 - **Abandoned card deposits** get one nudge from the same cron: `emails/DepositReminder.tsx` + `lib/email/sendDepositReminder.ts`, for card holds older than **30 min** with no paid `Payment`, class still ahead and not cancelled. Idempotent through `Booking.depositReminderSentAt`; the sender re-checks `isUnfinishedCardDeposit()` before hitting Resend, so a client who paid in the meantime is never told to pay. The button links to `/pay/<bookingId>`, which either resumes the transaction or sends them back to pick a method if the attempt is spent.
 - Two reminders per booking: **24h** and **2h** before `scheduledClass.startAt`, with a ±15min window so each booking is caught once per mark. Idempotency: `Booking.reminder24hSentAt` / `Booking.reminder2hSentAt` (set only after a successful send).
+- **Trainers get the same two marks**, one letter each with the roster — who is coming, spots left, „депозит на място" / „първо посещение" flags — from `lib/email/sendTrainerReminder.ts`. Only trainers with a linked account email are reachable, and a trainer only ever hears about classes they teach. The claim sits on the **class** (`ScheduledClass.trainerReminder24hSentAt` / `trainerReminder2hSentAt`), not on a booking, because the reminder is about the class; an empty class is still worth knowing about, so it is sent with „няма записани" rather than skipped. Cancelled classes and classes with no trainer are never swept.
 - Reminders are only sent for active bookings (`booked | pending_deposit | paid`) on classes that aren't `cancelledAt`. The send helper re-checks status before hitting Resend.
 
 ## Hard rules

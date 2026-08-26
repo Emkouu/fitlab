@@ -14,7 +14,6 @@ export const metadata = { title: "FitLab Varna — Настройки" };
 
 /** Collapsed-state hint, so the accordion says where mail goes без да се отваря. */
 const TRANSPORT_NOTE: Record<string, string> = {
-  smtp: "наш SMTP",
   resend: "Resend",
   none: "не е настроено",
 };
@@ -82,25 +81,16 @@ export default async function AdminSettingsPage() {
           summaryNote={`Изпращане на имейли · ${TRANSPORT_NOTE[email.activeTransport]}`}
         >
           <h2 className="mb-4 font-display text-base font-bold text-[color:var(--brand-purple)]">
-            Изпращане на имейли (SMTP)
+            Изпращане на имейли
           </h2>
           <EmailSettingsForm
             initialData={{
-              smtpEnabled: email.smtpEnabled,
-              smtpHost: email.smtpHost || undefined,
-              smtpPort: email.smtpPort,
-              smtpSecure: email.smtpSecure,
-              smtpUser: email.smtpUser || undefined,
-              smtpPassword: "",
               fromName: email.fromName || undefined,
               fromEmail: email.fromEmail || undefined,
               replyTo: email.replyTo || undefined,
             }}
-            hasPassword={email.hasPassword}
-            gaps={email.gaps}
-            savedEnabled={email.smtpEnabled}
             activeTransport={email.activeTransport}
-            encryptionKeyPresent={email.encryptionKeyPresent}
+            effectiveFrom={email.effectiveFrom}
             resendConfigured={email.resendConfigured}
             updatedAtText={
               email.updatedAt ? formatSofiaDateTime(email.updatedAt) : null

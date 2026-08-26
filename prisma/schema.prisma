@@ -59,26 +59,26 @@ enum NotificationType {
 // ─── Core ──────────────────────────────────────────────────────────────────────
 
 model Studio {
-  id                 String @id @default(cuid())
-  name               String
-  slug               String @unique
+  id                  String  @id @default(cuid())
+  name                String
+  slug                String  @unique
   /// Hours before class start within which a cancellation forfeits the deposit (SPEC §5.4).
-  cancelWindowHours  Int    @default(4)
+  cancelWindowHours   Int     @default(4)
   /// Studio contact + social info, surfaced on the landing page and sticky CTA.
-  address            String?
-  phone              String?
-  facebookUrl        String?
-  instagramUrl       String?
+  address             String?
+  phone               String?
+  facebookUrl         String?
+  instagramUrl        String?
   /// The deposit required to reserve online (minor units / EUR cents), set in
   /// Админ → Настройки. Applies to every class unless that class carries its
   /// own `ScheduledClass.depositAmount`. Resolve ONLY through
   /// `depositAmountMinor()` in lib/deposit.ts.
-  defaultDeposit     Int    @default(1000)
+  defaultDeposit      Int     @default(1000)
   /// Final price of one group class (minor units / EUR cents), settled on site.
   /// Shown on the schedule and in the booking modal — the acquirer requires the
   /// end price of the service to be visible (Fibank instruction §I.8/§I.9).
   /// A Practice may override it via `Practice.priceMinor`.
-  defaultClassPrice  Int    @default(1000)
+  defaultClassPrice   Int     @default(1000)
   /// Admin kill-switch for the card deposit path. When false the booking UI
   /// hides „Плати с карта" and the server rejects source=card bookings.
   cardPaymentsEnabled Boolean @default(true)
@@ -100,26 +100,26 @@ model Practice {
   priceMinor  Int?
 
   classes  ScheduledClass[]
-  trainers Trainer[] @relation("TrainerSpecialties")
+  trainers Trainer[]        @relation("TrainerSpecialties")
 }
 
 model Trainer {
-  id          String   @id @default(cuid())
-  name        String
-  photoUrl    String?
-  bio         String?
+  id       String  @id @default(cuid())
+  name     String
+  photoUrl String?
+  bio      String?
 
   // Many-to-many with Practice for trainer specialties
   specialties Practice[] @relation("TrainerSpecialties")
 
   // A trainer MAY be linked to a login account (1:1, optional).
-  user        User?
+  user User?
 
   // Many-to-many: some classes have two trainers ("Даниил & Юна").
-  classes     ScheduledClass[] @relation("ClassTrainers")
+  classes ScheduledClass[] @relation("ClassTrainers")
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model ScheduledClass {
@@ -139,41 +139,48 @@ model ScheduledClass {
   /// Only meaningful for special events; NULL for regular classes.
   imageUrl        String?
 
-  practiceId      String
-  practice        Practice @relation(fields: [practiceId], references: [id])
+  practiceId String
+  practice   Practice @relation(fields: [practiceId], references: [id])
 
-  studioId        String
-  studio          Studio   @relation(fields: [studioId], references: [id])
+  studioId String
+  studio   Studio @relation(fields: [studioId], references: [id])
 
-  trainers        Trainer[] @relation("ClassTrainers")
-  bookings        Booking[]
-  waitlist        Waitlist[]
-  notifications   Notification[]
+  trainers      Trainer[]      @relation("ClassTrainers")
+  bookings      Booking[]
+  waitlist      Waitlist[]
+  notifications Notification[]
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  cancelledAt     DateTime?
+  /// When the trainers of THIS class were reminded by email that they are
+  /// teaching it. Per class, not per booking — a trainer gets one letter with
+  /// the roster, however many clients are enrolled. NULL = not yet sent; set by
+  /// /api/cron/reminders so a reminder is never sent twice.
+  trainerReminder24hSentAt DateTime?
+  trainerReminder2hSentAt  DateTime?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  cancelledAt DateTime?
 
   @@index([startAt])
   @@index([studioId, startAt])
 }
 
 model Booking {
-  id               String         @id @default(cuid())
-  userId           String
-  user             User           @relation(fields: [userId], references: [id])
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
 
   scheduledClassId String
   scheduledClass   ScheduledClass @relation(fields: [scheduledClassId], references: [id])
 
-  status           BookingStatus
-  source           BookingSource
+  status BookingStatus
+  source BookingSource
 
-  paymentId        String?        @unique
-  payment          Payment?       @relation(fields: [paymentId], references: [id])
+  paymentId String?  @unique
+  payment   Payment? @relation(fields: [paymentId], references: [id])
 
-  createdAt        DateTime       @default(now())
-  cancelledAt      DateTime?
+  createdAt   DateTime  @default(now())
+  cancelledAt DateTime?
 
   /// Timestamps for class-reminder emails. NULL = not yet sent. Set by the
   /// /api/cron/reminders job so a reminder is never sent twice.
@@ -194,7 +201,7 @@ model Booking {
   /// For on-site (`onsite_deposit`) bookings only: how the client pays at the
   /// desk — "cash" | "subscription" | "multisport". Captured from the booking
   /// modal, editable by staff in Attendance. NULL for card/balance bookings.
-  onsiteMethod String?
+  onsiteMethod     String?
   /// When staff marked the on-site deposit as settled ("Разплати" in
   /// Attendance). NULL = not yet collected. Orthogonal to attendance status —
   /// payment and attendance are independent axes.
@@ -210,10 +217,10 @@ model Booking {
   /// Proof that the client ticked „Приемам Общите условия" before the booking
   /// was created — the acquirer requires explicit consent before the client is
   /// ever redirected to the card-data page. NULL only for legacy rows.
-  termsAcceptedAt  DateTime?
+  termsAcceptedAt DateTime?
   /// Which revision of the terms was accepted (`POLICIES_LAST_UPDATED`), so a
   /// later edit of the terms can't silently rewrite what the client agreed to.
-  termsVersion     String?
+  termsVersion    String?
 
   /// Prevents double-booking the same class by the same user (SPEC §5.2).
   /// Only applies to active (non-cancelled) bookings, allowing re-booking after cancellation.
@@ -222,14 +229,14 @@ model Booking {
 }
 
 model Payment {
-  id                    String        @id @default(cuid())
+  id       String        @id @default(cuid())
   /// Minor units, mirrors ScheduledClass.depositAmount.
-  amount                Int
-  currency              String        @default("EUR") // ISO 4217; FitLab is EUR everywhere.
-  status                PaymentStatus
+  amount   Int
+  currency String        @default("EUR") // ISO 4217; FitLab is EUR everywhere.
+  status   PaymentStatus
 
-  stripePaymentIntentId String?       @unique
-  stripeCheckoutId      String?       @unique
+  stripePaymentIntentId String? @unique
+  stripeCheckoutId      String? @unique
 
   // ── Fibank ECOMM (виртуален ПОС) ────────────────────────────────────────
   // The live card provider. Card data is entered on the bank's own page; we
@@ -238,27 +245,27 @@ model Payment {
   // (integration manual §4.2).
   /// 28-char base64 identifier returned by `command=v`. The key we use to ask
   /// the bank for a result and to issue a refund against the same card.
-  ecommTransId          String?       @unique
+  ecommTransId      String? @unique
   /// RESULT (OK | FAILED | CREATED | PENDING | DECLINED | REVERSED | …).
-  ecommResult           String?
+  ecommResult       String?
   /// RESULT_CODE — 3-digit processing code, informative only.
-  ecommResultCode       String?
+  ecommResultCode   String?
   /// 3DSECURE authentication outcome, informative only.
-  ecomm3dSecure         String?
+  ecomm3dSecure     String?
   /// Retrieval reference number — lets the bank trace the transaction.
-  ecommRrn              String?
+  ecommRrn          String?
   /// Approval code (successful transactions only).
-  ecommApprovalCode     String?
+  ecommApprovalCode String?
   /// Masked card number as returned by the bank, e.g. "4***********6789".
   /// Never a full PAN — we neither receive nor store one.
-  ecommCardMask         String?
+  ecommCardMask     String?
 
   // ── Refund back to the same card (Fibank instruction §I.16) ─────────────
   /// Identifier of the refund transaction (`command=k` → REFUND_TRANS_ID).
-  ecommRefundTransId    String?
+  ecommRefundTransId String?
   /// How much was sent back, in minor units. May be less than `amount`.
-  refundedAmount        Int?
-  refundedAt            DateTime?
+  refundedAmount     Int?
+  refundedAt         DateTime?
 
   /// Append-only log of superseded attempts on this booking.
   ///
@@ -270,12 +277,12 @@ model Payment {
   ///
   /// Shape: array of `{ transId, result, resultCode, threeDSecure, rrn,
   /// approvalCode, cardMask, amount, supersededAt }`, oldest first.
-  ecommHistory          Json?
+  ecommHistory Json?
 
-  booking               Booking?
+  booking Booking?
 
-  createdAt             DateTime      @default(now())
-  updatedAt             DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model User {
@@ -293,18 +300,18 @@ model User {
   role            Role      @default(member)
 
   /// Optional 1:1 link to a Trainer record (a coach who also logs in).
-  trainerId       String?   @unique
-  trainer         Trainer?  @relation(fields: [trainerId], references: [id])
+  trainerId String?  @unique
+  trainer   Trainer? @relation(fields: [trainerId], references: [id])
 
   /// Deposit balance in minor units (EUR cents). Accumulated from refunded bookings.
-  depositBalance  Int       @default(0)
+  depositBalance Int @default(0)
 
-  bookings        Booking[]
-  waitlist        Waitlist[]
-  notifications   Notification[]
+  bookings      Booking[]
+  waitlist      Waitlist[]
+  notifications Notification[]
 
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // ─── Phase 2 stubs (table-ready, unused in MVP) ───────────────────────────────
@@ -366,31 +373,32 @@ model Partner {
   updatedAt   DateTime @updatedAt
 }
 
-/// How the studio's OWN emails leave the building — booking confirmations,
-/// class reminders, the unfinished-deposit nudge, „освободи се място".
+/// Who the studio's OWN emails come from — booking confirmations, class
+/// reminders to clients and to trainers, the unfinished-deposit nudge,
+/// „освободи се място", the notifications to admins. They all leave through
+/// **Resend**; only the sender identity is configurable here, so changing it
+/// needs no deploy.
 ///
 /// Single row (`id = "default"`), editable in Админ → Настройки → Системни
-/// настройки, so changing the mail provider does not need a deploy.
+/// настройки.
 ///
-/// Login codes are NOT sent from here: those come from Supabase Auth, which
-/// has its own SMTP configured in the Supabase dashboard. Nothing in this
+/// Login codes are NOT sent from here: those come from Supabase Auth, which has
+/// its own SMTP (Resend) configured in the Supabase dashboard. Nothing in this
 /// table can affect a user's ability to sign in.
 model EmailSettings {
   id String @id @default("default")
 
-  /// Off → our emails go out through the Resend API key in env, as before.
-  /// On → nodemailer over the SMTP below, with Resend as the fallback if the
-  /// SMTP server refuses or times out.
-  smtpEnabled Boolean @default(false)
-
-  smtpHost String?
-  smtpPort Int?
-  /// true = implicit TLS (port 465). false = STARTTLS (port 587).
-  smtpSecure Boolean @default(true)
-  smtpUser   String?
-  /// AES-256-GCM ciphertext of the SMTP password (lib/crypto/secretBox.ts),
-  /// keyed by SETTINGS_ENCRYPTION_KEY. Never sent to the browser — the admin
-  /// form is only ever told whether a password is set.
+  // ── Retired: the studio-SMTP route ──────────────────────────────────────
+  // No code path reads or writes these any more. Resend is the single way out
+  // (lib/email/transport.ts); the SMTP option was removed so an email can never
+  // leave by a route nobody is watching. Kept only so the removal needed no
+  // destructive migration — `updateEmailSettingsAction` clears them, password
+  // ciphertext included, on the next save.
+  smtpEnabled  Boolean @default(false)
+  smtpHost     String?
+  smtpPort     Int?
+  smtpSecure   Boolean @default(true)
+  smtpUser     String?
   smtpPassword String?
 
   /// Envelope sender. "FitLab Varna" <info@fitlabvarna.com>

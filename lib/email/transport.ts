@@ -1,20 +1,18 @@
 /**
- * Which way out do our emails go? Pure decision, so the rule is testable and
- * lives in one place — the sending machinery in `deliver.ts` only executes it.
+ * Which way out do our emails go? One answer: **Resend**.
  *
- * „Our emails" means the ones this app composes: booking confirmations, class
- * reminders, the unfinished-deposit nudge, „освободи се място". Login codes are
- * sent by Supabase Auth and never pass through here.
+ * „Our emails" means everything this app composes — booking confirmations,
+ * class reminders (clients and trainers), the unfinished-deposit nudge,
+ * „освободи се място", the studio notifications to admins. Login codes are sent
+ * by Supabase Auth (whose own SMTP is Resend) and never pass through here.
+ *
+ * The decision is pure so it stays testable and lives in one place; the sending
+ * machinery in `deliver.ts` only executes it. The studio's own SMTP option was
+ * removed deliberately: one provider means an email can never quietly leave the
+ * building by a route nobody is watching.
  */
 
-export type SmtpSettingsRow = {
-  smtpEnabled: boolean;
-  smtpHost: string | null;
-  smtpPort: number | null;
-  smtpSecure: boolean;
-  smtpUser: string | null;
-  /** Ciphertext, as stored. Decrypted only at send time. */
-  smtpPassword: string | null;
+export type MailSenderRow = {
   fromName: string | null;
   fromEmail: string | null;
   replyTo: string | null;
@@ -26,19 +24,7 @@ export type MailEnv = {
 };
 
 export type MailTransport =
-  | {
-      kind: "smtp";
-      host: string;
-      port: number;
-      secure: boolean;
-      user: string;
-      passwordCipher: string;
-      from: string;
-      replyTo: string | null;
-      /** Where to go if the SMTP server refuses. */
-      fallback: MailTransport | null;
-    }
-  | { kind: "resend"; from: string }
+  | { kind: "resend"; from: string; replyTo: string | null }
   | { kind: "none"; reason: string };
 
 const RESEND_DEFAULT_FROM = "FitLab Varna <onboarding@resend.dev>";
@@ -53,51 +39,36 @@ export function formatFromAddress(
 }
 
 /**
- * What's missing before SMTP can be used? Empty array = ready. Surfaced in the
- * admin panel so „включено, но не работи" is never a silent state.
+ * The sender Resend is asked to use: the address saved in Админ → Настройки
+ * when there is one, otherwise `RESEND_FROM`, otherwise Resend's own test
+ * sender — so an email always has a From line.
+ *
+ * Whichever address is used must belong to a domain verified in Resend; that is
+ * why the panel's help text says so next to the field.
  */
-export function smtpGaps(row: SmtpSettingsRow | null): string[] {
-  if (!row) return ["настройки"];
-  const gaps: string[] = [];
-  if (!row.smtpHost?.trim()) gaps.push("хост");
-  if (!row.smtpPort) gaps.push("порт");
-  if (!row.smtpUser?.trim()) gaps.push("потребител");
-  if (!row.smtpPassword?.trim()) gaps.push("парола");
-  if (!row.fromEmail?.trim()) gaps.push("имейл на изпращача");
-  return gaps;
+export function resolveFromAddress(
+  row: MailSenderRow | null,
+  env: MailEnv,
+): string {
+  const email = row?.fromEmail?.trim();
+  if (email) return formatFromAddress(row?.fromName, email);
+  return env.resendFrom?.trim() || RESEND_DEFAULT_FROM;
 }
 
 export function resolveMailTransport(
-  row: SmtpSettingsRow | null,
+  row: MailSenderRow | null,
   env: MailEnv,
 ): MailTransport {
-  const resend: MailTransport | null = env.resendApiKey?.trim()
-    ? { kind: "resend", from: env.resendFrom?.trim() || RESEND_DEFAULT_FROM }
-    : null;
-
-  if (row?.smtpEnabled && smtpGaps(row).length === 0) {
+  if (!env.resendApiKey?.trim()) {
     return {
-      kind: "smtp",
-      host: row.smtpHost!.trim(),
-      port: row.smtpPort!,
-      secure: row.smtpSecure,
-      user: row.smtpUser!.trim(),
-      passwordCipher: row.smtpPassword!,
-      from: formatFromAddress(row.fromName, row.fromEmail!.trim()),
-      replyTo: row.replyTo?.trim() || null,
-      // Configured by the operator: a refused SMTP handover still gets the
-      // client their confirmation, and the failure shows up in the log.
-      fallback: resend,
+      kind: "none",
+      reason: "RESEND_API_KEY не е зададен на сървъра — имейлите не се изпращат",
     };
   }
 
-  if (resend) return resend;
-
   return {
-    kind: "none",
-    reason:
-      row?.smtpEnabled && smtpGaps(row).length > 0
-        ? `SMTP е включен, но липсва: ${smtpGaps(row).join(", ")}; RESEND_API_KEY също не е зададен`
-        : "нито SMTP, нито RESEND_API_KEY са настроени",
+    kind: "resend",
+    from: resolveFromAddress(row, env),
+    replyTo: row?.replyTo?.trim() || null,
   };
 }
