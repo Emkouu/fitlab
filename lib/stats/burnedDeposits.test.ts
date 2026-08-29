@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { burnedDepositTotals } from "./burnedDeposits";
+import { burnedDepositTotals, burnReason } from "./burnedDeposits";
 
 const row = (depositBurnedMinor: number | null, classDayKey = "2026-08-13") => ({
   depositBurnedMinor,
@@ -53,5 +53,22 @@ describe("burnedDepositTotals", () => {
   it("never lets a day with no burn into the breakdown", () => {
     const r = burnedDepositTotals([row(null, "2026-08-01"), row(1000, "2026-08-02")]);
     expect(r.byDay.map((d) => d.dayKey)).toEqual(["2026-08-02"]);
+  });
+});
+
+describe("burnReason", () => {
+  it("reads a no-show off the status", () => {
+    expect(burnReason("no_show")).toBe("no_show");
+  });
+
+  it("treats a cancelled booking with a burn as a late cancel", () => {
+    // A timely cancel never burns, so money on a cancelled booking means the
+    // client cancelled inside the studio's window.
+    expect(burnReason("cancelled")).toBe("late_cancel");
+  });
+
+  it("does not guess for any other status", () => {
+    expect(burnReason("attended")).toBe("unknown");
+    expect(burnReason("booked")).toBe("unknown");
   });
 });

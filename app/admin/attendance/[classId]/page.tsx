@@ -99,6 +99,7 @@ export default async function AdminAttendanceClassPage({
         b.status === BookingStatus.paid),
     onsiteMethod: b.onsiteMethod,
     depositSettled: b.depositSettledAt !== null,
+    depositBurnedMinor: b.depositBurnedMinor ?? 0,
     isFirstVisit: b.isFirstVisit,
     // A card hold whose deposit never arrived. Kept out of „Записани" so the
     // number staff read is the number of people who actually booked.

@@ -35,6 +35,11 @@ export type AttendanceRow = {
   isFirstVisit?: boolean;
   /** Card hold whose deposit never arrived — listed apart from „Записани". */
   unfinishedDeposit?: boolean;
+  /** What a no-show actually took from this client, in EUR cents. 0 = nothing
+   *  was standing to take. Read from the booking, not guessed from the source:
+   *  a client who paid their deposit in cash at the desk holds a real one even
+   *  though the booking says „на място". */
+  depositBurnedMinor?: number;
 };
 
 export function AttendancePanel({
@@ -231,7 +236,12 @@ function AttendanceItem({
         <StatusChip status={row.status} />
       </div>
 
-      <MoneyNote status={row.status} source={row.source} cardPaid={row.cardPaid} />
+      <MoneyNote
+        status={row.status}
+        source={row.source}
+        cardPaid={row.cardPaid}
+        burnedMinor={row.depositBurnedMinor ?? 0}
+      />
 
       {/* Deposit management (admins only). Records that a client paid the
           deposit at the desk, or removes it. The amount granted comes from
@@ -458,18 +468,21 @@ function MoneyNote({
   status,
   source,
   cardPaid,
+  burnedMinor,
 }: {
   status: BookingStatus;
   source: BookingSource;
   cardPaid: boolean;
+  /** What the no-show actually took, EUR cents. */
+  burnedMinor: number;
 }) {
   // The deposit is a standing guarantee (lib/deposit.ts): „Дойде" leaves it
   // alone, „Не дойде" usvoyava it. Only the class fee moves at „Дойде".
   if (status === BookingStatus.no_show) {
     const text =
-      source === BookingSource.onsite_deposit
-        ? "Неявяване. Плащане на място."
-        : "Депозитът е усвоен. За нова резервация клиентът плаща нов депозит.";
+      burnedMinor > 0
+        ? `Депозитът е усвоен (${formatEurMinor(burnedMinor)}). За нова резервация клиентът плаща нов депозит.`
+        : "Неявяване. Нямаше депозит по профила, който да се усвои.";
     return (
       <p className="mt-2 px-5 pb-2 text-[11px] leading-relaxed text-[color:var(--brand-magenta)]">
         {text}

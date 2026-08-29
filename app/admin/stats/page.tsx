@@ -13,6 +13,10 @@ import {
 import { dailyStats, type DayStats } from "@/lib/stats/turnover";
 import { burnedDepositTotals } from "@/lib/stats/burnedDeposits";
 import {
+  receivedDepositTotals,
+  type DepositEntryMethodKey,
+} from "@/lib/stats/receivedDeposits";
+import {
   currentMonthKey,
   formatMonthKeyBg,
   isMonthKey,
@@ -25,6 +29,13 @@ import { MonthNav } from "../_components/MonthNav";
 export const metadata = { title: "FitLab Varna — Статистика" };
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** The order the desk thinks in: cash first, card second, corrections last. */
+const METHOD_ROWS: Array<{ key: DepositEntryMethodKey; label: string }> = [
+  { key: "cash", label: "В брой" },
+  { key: "card", label: "С карта" },
+  { key: "manual", label: "Ръчна корекция" },
+];
 
 export default async function AdminStatsPage({
   searchParams,
@@ -98,6 +109,21 @@ export default async function AdminStatsPage({
     })),
   );
 
+  // Deposits that reached the studio in the same month, however they were paid.
+  // Read from the movements ledger and not from `User.depositBalance`: the
+  // balance says what a client holds now, never that it arrived, so a deposit
+  // paid in cash at the desk had no month to belong to and showed up nowhere.
+  const depositEntries = await prisma.depositEntry.findMany({
+    where: { createdAt: { gte: monthRange.from, lt: monthRange.to } },
+    select: { amountMinor: true, method: true },
+  });
+  const received = receivedDepositTotals(
+    depositEntries.map((e) => ({
+      amountMinor: e.amountMinor,
+      method: e.method as DepositEntryMethodKey,
+    })),
+  );
+
   const todayKey = sofiaDateKey(now);
   const days = dailyStats(
     rows.map((b) => ({
@@ -148,8 +174,76 @@ export default async function AdminStatsPage({
         <TotalCard label="Присъствали" value={String(totalAttended)} />
       </div>
 
-      {/* Burned deposits — a month at a time, independent of the 30-day view
-          above, because this is the figure that closes a month. */}
+      {/* The month block — deposits in, and deposits kept. Independent of the
+          30-day view above, because this is the pair that closes a month. */}
+      <MonthNav monthKey={monthKey} basePath="/admin/stats" />
+
+      {/* Received deposits — cash at the desk counts exactly like card. */}
+      <section className="mb-8">
+        <h2 className="mb-1 font-display text-lg font-bold tracking-tight">
+          Приети депозити
+        </h2>
+        <p className="mb-3 text-xs leading-relaxed text-[color:var(--brand-purple)]/70">
+          Депозити, платени през {formatMonthKeyBg(monthKey)} — в брой на място
+          или с карта през сайта.
+        </p>
+
+        <div className="grid grid-cols-2 gap-3">
+          <TotalCard
+            label="Сума"
+            value={formatEurMinorCompact(received.receivedMinor)}
+            accent
+          />
+          <TotalCard label="Брой" value={String(received.receivedCount)} />
+        </div>
+
+        <ul className="mt-3 space-y-2">
+          {METHOD_ROWS.map(({ key, label }) => {
+            const m = received.receivedByMethod[key];
+            if (m.count === 0) return null;
+            return (
+              <li
+                key={key}
+                className="flex items-baseline justify-between gap-3 rounded-2xl bg-white px-4 py-3 shadow-[0_1px_2px_rgba(123,45,142,0.05),0_4px_16px_-8px_rgba(236,72,153,0.18)]"
+              >
+                <span className="font-mono text-[11px] uppercase tracking-wider text-[color:var(--brand-purple)]/60">
+                  {label}
+                </span>
+                <span className="flex items-baseline gap-3">
+                  <span className="text-[11px] text-[color:var(--brand-purple)]/60">
+                    {m.count} бр.
+                  </span>
+                  <span className="font-display text-base font-bold text-[color:var(--brand-purple)]">
+                    {formatEurMinor(m.totalMinor)}
+                  </span>
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+
+        {received.receivedCount === 0 && (
+          <p className="mt-3 rounded-2xl bg-white px-4 py-5 text-center text-sm text-[color:var(--brand-purple)]/70 shadow-[0_1px_2px_rgba(123,45,142,0.05),0_4px_16px_-8px_rgba(236,72,153,0.18)]">
+            През {formatMonthKeyBg(monthKey)} няма приети депозити.
+          </p>
+        )}
+
+        {received.returnedCount > 0 && (
+          <p className="mt-3 text-[11px] leading-relaxed text-[color:var(--brand-purple)]/55">
+            Върнати през месеца: {formatEurMinor(received.returnedMinor)} (
+            {received.returnedCount} бр.) — остават{" "}
+            {formatEurMinor(received.netMinor)}.
+          </p>
+        )}
+
+        <p className="mt-3 text-[11px] leading-relaxed text-[color:var(--brand-purple)]/55">
+          Броят се движението на депозита, а не резервациите с него: депозитът е
+          еднократна гаранция и стои по профила, докато не бъде усвоен или
+          върнат. Депозити, записани преди тази справка да съществува, не могат
+          да бъдат отнесени към месец и не се показват тук.
+        </p>
+      </section>
+
       <section className="mb-8">
         <h2 className="mb-1 font-display text-lg font-bold tracking-tight">
           Усвоени депозити
@@ -157,8 +251,6 @@ export default async function AdminStatsPage({
         <p className="mb-3 text-xs leading-relaxed text-[color:var(--brand-purple)]/70">
           Депозити, които остават за студиото — неявяване или отказ след срока.
         </p>
-
-        <MonthNav monthKey={monthKey} basePath="/admin/stats" />
 
         <div className="grid grid-cols-2 gap-3">
           <TotalCard label="Сума" value={formatEurMinorCompact(burned.totalMinor)} accent />
@@ -170,26 +262,43 @@ export default async function AdminStatsPage({
             През {formatMonthKeyBg(monthKey)} няма усвоени депозити.
           </p>
         ) : (
-          <ul className="mt-3 space-y-2">
-            {burned.byDay.map((d) => (
-              <li
-                key={d.dayKey}
-                className="flex items-baseline justify-between gap-3 rounded-2xl bg-white px-4 py-3 shadow-[0_1px_2px_rgba(123,45,142,0.05),0_4px_16px_-8px_rgba(236,72,153,0.18)]"
-              >
-                <span className="font-mono text-[11px] uppercase tracking-wider text-[color:var(--brand-purple)]/60">
-                  {formatSofiaDay(new Date(`${d.dayKey}T12:00:00+03:00`))}
-                </span>
-                <span className="flex items-baseline gap-3">
-                  <span className="text-[11px] text-[color:var(--brand-purple)]/60">
-                    {d.count} бр.
-                  </span>
-                  <span className="font-display text-base font-bold text-[color:var(--brand-magenta)]">
-                    {formatEurMinor(d.totalMinor)}
-                  </span>
-                </span>
-              </li>
-            ))}
-          </ul>
+          <>
+            <ul className="mt-3 space-y-2">
+              {burned.byDay.map((d) => (
+                <li key={d.dayKey}>
+                  {/* Each day opens the burns behind it — who, which class, and
+                      why — because „колко" is never the whole question when a
+                      client asks about their money. */}
+                  <Link
+                    href={`/admin/stats/burned?month=${monthKey}&day=${d.dayKey}`}
+                    className="flex items-baseline justify-between gap-3 rounded-2xl bg-white px-4 py-3 shadow-[0_1px_2px_rgba(123,45,142,0.05),0_4px_16px_-8px_rgba(236,72,153,0.18)] transition-colors hover:bg-[color:var(--brand-pink-soft)]/50"
+                  >
+                    <span className="font-mono text-[11px] uppercase tracking-wider text-[color:var(--brand-purple)]/60">
+                      {formatSofiaDay(new Date(`${d.dayKey}T12:00:00+03:00`))}
+                    </span>
+                    <span className="flex items-baseline gap-3">
+                      <span className="text-[11px] text-[color:var(--brand-purple)]/60">
+                        {d.count} бр.
+                      </span>
+                      <span className="font-display text-base font-bold text-[color:var(--brand-magenta)]">
+                        {formatEurMinor(d.totalMinor)}
+                      </span>
+                      <span aria-hidden className="text-[color:var(--brand-purple)]/40">
+                        ›
+                      </span>
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+
+            <Link
+              href={`/admin/stats/burned?month=${monthKey}`}
+              className="mt-3 inline-flex font-display text-xs font-bold text-[color:var(--brand-magenta)]"
+            >
+              Виж всички усвоени депозити за месеца →
+            </Link>
+          </>
         )}
 
         <p className="mt-3 text-[11px] leading-relaxed text-[color:var(--brand-purple)]/55">

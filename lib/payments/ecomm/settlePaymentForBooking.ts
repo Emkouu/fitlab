@@ -1,5 +1,11 @@
 import { prisma } from "@/lib/db";
-import { BookingStatus, PaymentStatus } from "@/lib/generated/prisma/enums";
+import {
+  BookingStatus,
+  DepositEntryKind,
+  DepositEntryMethod,
+  PaymentStatus,
+} from "@/lib/generated/prisma/enums";
+import { recordDepositEntry } from "@/lib/payments/depositLedger";
 import { sendBookingConfirmationEmail } from "@/lib/email/sendBookingConfirmationEmail";
 import { notifyTrainersNewBooking } from "@/lib/notifications/notifyTrainersNewBooking";
 import { notifyAdminsCardPayment } from "@/lib/notifications/notifyAdminsCardPayment";
@@ -98,6 +104,19 @@ export async function settleEcommPaymentForBooking(args: {
     ]);
 
     if (!alreadyPaid) {
+      // The deposit arrived — put it on the ledger next to the ones recorded at
+      // the desk, so Статистика counts card and cash the same way. On the
+      // transition only, for the same reason the receipt is: a replayed return
+      // POST must not book the money twice.
+      await recordDepositEntry({
+        userId: booking.userId,
+        amountMinor: payment.amount,
+        kind: DepositEntryKind.received,
+        method: DepositEntryMethod.card,
+        paymentId: payment.id,
+        note: "Платен с карта през сайта",
+      });
+
       // Receipt + trainer ping + studio notification happen once, on the
       // transition only. The admins are told here rather than at booking time:
       // until the bank confirmed, there was no payment to report.

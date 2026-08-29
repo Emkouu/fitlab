@@ -47,6 +47,23 @@ enum PaymentStatus {
   failed
 }
 
+/// How a standing deposit reached (or left) a client's profile.
+/// `received` = money in, `returned` = money back to the client,
+/// `correction` = an admin edited the balance by hand on the client form.
+enum DepositEntryKind {
+  received
+  returned
+  correction
+}
+
+/// Where the money physically moved. `manual` is a balance correction with no
+/// cash or card behind it.
+enum DepositEntryMethod {
+  cash
+  card
+  manual
+}
+
 enum NotificationType {
   spot_available
   class_cancelled
@@ -285,6 +302,47 @@ model Payment {
   updatedAt DateTime @updatedAt
 }
 
+/// Every time a standing deposit is taken from a client or given back.
+///
+/// The deposit lives as a single number on `User.depositBalance`, which says
+/// what the client holds right now but not that it ever arrived. A deposit paid
+/// in cash and recorded by an admin used to leave no trace at all: it never
+/// showed up in Статистика, and „усвоени депозити" could only report money the
+/// bank had confirmed. This table is that trace — one row per movement,
+/// append-only, so a month can be closed on what actually came in.
+///
+/// Burns are deliberately NOT recorded here: a burn is written on the booking
+/// (`Booking.depositBurnedMinor`), which is the only place that can also say
+/// which class was missed and why. Statistics read burns from there.
+model DepositEntry {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation("DepositEntries", fields: [userId], references: [id])
+
+  /// EUR cents, signed: positive when the studio received the deposit,
+  /// negative when it went back to the client (or an admin lowered it).
+  amountMinor Int
+  kind        DepositEntryKind
+  method      DepositEntryMethod
+
+  /// The admin who recorded it. NULL for a card payment the client made
+  /// themselves — nobody at the desk was involved.
+  recordedById String?
+  recordedBy   User?   @relation("DepositEntriesRecorded", fields: [recordedById], references: [id])
+
+  /// The card `Payment` behind a `card` entry, when there is one. Plain column,
+  /// not a relation: an entry outlives whatever row it points at.
+  paymentId String?
+
+  /// Free-text context for the desk („платен в брой на рецепцията").
+  note String?
+
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+}
+
 model User {
   id              String    @id @default(cuid())
   /// Link to the Supabase auth user. Set on first sign-in via the callback.
@@ -309,6 +367,10 @@ model User {
   bookings      Booking[]
   waitlist      Waitlist[]
   notifications Notification[]
+  /// Deposit movements on this profile, and the ones this user recorded for
+  /// somebody else (admins only).
+  depositEntries         DepositEntry[] @relation("DepositEntries")
+  depositEntriesRecorded DepositEntry[] @relation("DepositEntriesRecorded")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

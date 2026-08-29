@@ -11,6 +11,8 @@ import { settleEcommPaymentForBooking } from "@/lib/payments/ecomm/settlePayment
 import {
   BookingSource,
   BookingStatus,
+  DepositEntryKind,
+  DepositEntryMethod,
   PaymentStatus,
   Role,
 } from "@/lib/generated/prisma/enums";
@@ -27,6 +29,7 @@ import {
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   burnDeposit,
+  recordDepositEntry,
   studioDepositAmountMinor,
 } from "@/lib/payments/depositLedger";
 import { ACTIVE_BOOKING_STATUSES, cancelBooking } from "@/lib/booking";
@@ -986,6 +989,14 @@ export async function updateClientAction(
     return { ok: false, message: "Само super admin може да назначава super admin." };
   }
 
+  // Read the balance before the write so a hand correction can be recorded for
+  // what it is — money that appeared on (or left) a profile with neither cash
+  // nor a card behind it.
+  const before = await prisma.user.findUnique({
+    where: { id: data.userId },
+    select: { depositBalance: true },
+  });
+
   try {
     await prisma.user.update({
       where: { id: data.userId },
@@ -999,6 +1010,18 @@ export async function updateClientAction(
   } catch (err) {
     console.error("[updateClient] error:", err);
     return { ok: false, message: "Грешка при запазване. Опитай отново." };
+  }
+
+  if (before && before.depositBalance !== data.depositBalance) {
+    const delta = data.depositBalance - before.depositBalance;
+    await recordDepositEntry({
+      userId: data.userId,
+      amountMinor: delta,
+      kind: DepositEntryKind.correction,
+      method: DepositEntryMethod.manual,
+      recordedById: admin.id,
+      note: "Ръчна корекция на баланса",
+    });
   }
 
   console.log(
@@ -1576,6 +1599,18 @@ export async function adminAdjustClientDepositAction(input: {
     data: { depositBalance: next },
   });
 
+  // The desk movement, on the record. Without this row a deposit paid in cash
+  // only ever showed as a number on the profile — invisible to Статистика, and
+  // impossible to attribute to the month it was actually collected in.
+  await recordDepositEntry({
+    userId: user.id,
+    amountMinor: delta > 0 ? next : user.depositBalance,
+    kind: delta > 0 ? DepositEntryKind.received : DepositEntryKind.returned,
+    method: DepositEntryMethod.cash,
+    recordedById: admin.id,
+    note: delta > 0 ? "Записан на място" : "Свален от профила",
+  });
+
   console.log(
     `[admin-audit] adjustDeposit by=${admin.id} target=${user.id} from=${user.depositBalance} to=${next}`,
   );
@@ -1834,6 +1869,18 @@ export async function refundDepositAction(
   if (cleared.count === 0) {
     return { ok: false, message: "Депозитът вече е възстановен." };
   }
+
+  // Money leaving the studio, on the same record as money arriving — otherwise
+  // a month would report deposits it gave back.
+  await recordDepositEntry({
+    userId,
+    amountMinor: refundMinor,
+    kind: DepositEntryKind.returned,
+    method: method === "card" ? DepositEntryMethod.card : DepositEntryMethod.cash,
+    recordedById: admin.id,
+    paymentId: method === "card" ? paymentId ?? null : null,
+    note: method === "card" ? "Върнат по картата" : "Върнат в брой",
+  });
 
   console.log(
     `[admin-audit] refundDeposit by=${admin.id} user=${userId} method=${method} payment=${paymentId ?? "-"} amount=${refundMinor}`,
@@ -2103,6 +2150,15 @@ export async function refundTransactionAction(
         },
       });
     }
+    await recordDepositEntry({
+      userId: booking.userId,
+      amountMinor: refund.refundedAmount,
+      kind: DepositEntryKind.returned,
+      method: DepositEntryMethod.card,
+      recordedById: admin.id,
+      paymentId: payment.id,
+      note: "Върната картова транзакция",
+    });
   }
 
   console.log(

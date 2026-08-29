@@ -54,7 +54,7 @@ Pure tested functions in `/lib`, separate from API routes (reusable by RN + cron
    - Spot is held in all three cases.
    - The **class fee** is a separate thing, always settled on site. The client picks an intended method in the booking modal (`subscription | cash | multisport`, see `lib/payments/classFeeMethods.ts`), persisted on `Booking.onsiteMethod`; staff confirm or correct it in Attendance.
 4. **JIT abandoned-checkout sweep.** `createBooking` opportunistically cancels stale card holds on the same class inside the row-locked transaction: `source=card` AND `status=booked` AND no paid `Payment` AND `createdAt < now − 15min`. On-site and balance bookings are never swept.
-5. **Cancellation:** studio config `cancelWindowHours` (default **4** in MVP). Before (start − window) → cancel clean, **deposit stays** (nothing to refund — it was never debited). After → `cancelled` + **burn the deposit** via `burnDeposit()` (`card`/`balance` only; `onsite_deposit` never touches `depositBalance`). Admin can pass `overrideRefund` to skip the burn.
+5. **Cancellation:** studio config `cancelWindowHours` (default **4** in MVP). Before (start − window) → cancel clean, **deposit stays** (nothing to refund — it was never debited). After → `cancelled` + **burn the deposit** via `burnDeposit()`, whatever the source: the burn asks whether the client holds a standing deposit, not how the booking was made (a deposit paid in cash at the desk is just as real as a card one). A client with `depositBalance = 0` — the first-visit path — loses nothing. Admin can pass `overrideRefund` to skip the burn.
 6. **Attendance:** staff sets `attended` (with the class-fee method) or `no_show`.
    - `attended` → deposit **untouched**, stays for the next booking.
    - `no_show`  → burn the deposit, once (guarded on `previousStatus` + the ledger's own claim).
@@ -100,7 +100,7 @@ A stored **0 is a real amount** (a class needing no guarantee), not „unset"; o
 
 `User.depositBalance` holds **the amount the client actually paid**, in cents — deliberately not a count times a fixed unit, since with a configurable amount „two deposits" has no single value and a client who paid before a change still holds what they paid. So:
 
-- **Burn** (`burnDeposit` in `lib/payments/depositLedger.ts`) consumes the whole standing deposit and records it on `Booking.depositBurnedMinor`; **restore** gives back exactly that. Never subtract the class's amount — a client holding €10 against a class since raised to €20 would fail a `gte` guard and silently burn nothing.
+- **Burn** (`burnDeposit` in `lib/payments/depositLedger.ts`) consumes the whole standing deposit and records it on `Booking.depositBurnedMinor`; **restore** gives back exactly that. It does not look at `Booking.source` — only at whether the client has a deposit standing (see the verdict table below). Never subtract the class's amount — a client holding €10 against a class since raised to €20 would fail a `gte` guard and silently burn nothing.
 - Both are idempotent through the `depositBurnedMinor` claim, so a double tap or replayed action moves money once. The three callers (attendance, admin cancel, client cancel) go through the ledger; none of them does its own arithmetic.
 - The admin ± control records the studio-level amount (`studioDepositAmountMinor()`) or clears it. Admin screens show money, not a count.
 
@@ -180,13 +180,12 @@ The booking engine in `lib/booking/` returns booleans — `depositForfeited` fro
 
 Because the deposit is never debited at booking time, the only money action is the **burn** (and its undo):
 
-| `source`           | verdict = false (timely cancel / attended) | verdict = true (late cancel / no-show) |
+| standing deposit   | verdict = false (timely cancel / attended) | verdict = true (late cancel / no-show) |
 |--------------------|--------------------------------------------|----------------------------------------|
-| `card`             | nothing — deposit stays on the profile     | consume the standing deposit, recorded on the booking |
-| `balance`          | nothing — deposit stays on the profile     | consume the standing deposit, recorded on the booking |
-| `onsite_deposit`   | nothing (no recorded deposit)              | nothing (no recorded deposit)*         |
+| `depositBalance > 0` | nothing — deposit stays on the profile    | consume the standing deposit, recorded on the booking |
+| `depositBalance = 0` | nothing                                   | nothing — there was never a deposit to take |
 
-\* For on-site bookings no deposit was ever recorded, so "forfeit" is a non-event for us. Studio staff handles cash in the room; the engine's job is just to set the status correctly so reports stay consistent.
+`Booking.source` is **not** in this table any more, and `burnDeposit` no longer reads it. The old rule („`card`/`balance` only") was a proxy for „was a deposit ever recorded", true only while the card was the single way one could reach a profile. An admin recording a deposit paid in cash, and staff adding a walk-in from Attendance (which writes `onsite_deposit`), broke that pairing: the client held a real guarantee and a no-show quietly took nothing, so the money never reached „Усвоени депозити" either. The burn asks the honest question instead — does this client have a deposit standing? — and `depositBalance = 0` is what answers „no" for the „първо посещение" client. Cash for the class fee is still settled in the room; that is a separate thing.
 
 Burns are **idempotent by construction**: `markAttendanceAction` burns only when `previousStatus !== no_show`, restores when a `no_show` is corrected to `attended`, and `lib/payments/depositLedger.ts` claims `Booking.depositBurnedMinor` before any balance moves, so a replay is a no-op. A studio-side class cancellation never burns anything.
 
@@ -203,9 +202,40 @@ Implication: the refund logic lives in `lib/payments/refundCardPayment.ts` and g
 - **Card transactions are readable from the panel** — the acquirer asks, by `TrnID` and timestamp, what we recorded for a transaction. `/admin/payments` lists every ECOMM payment (admin only, no coaches) searchable by `TrnID` / RRN / approval code / card mask, and each client profile carries a „Картови транзакции" block. Both render the same pure flattening — `cardTransactionAttempts()` in `lib/payments/ecomm/transactionHistory.ts` (tested) — which lists the row's **current** attempt plus everything archived in `Payment.ecommHistory`, since the transaction the bank is asking about is often a superseded one.
 - **`recheckPaymentAction` („Провери в банката")** closes the gap where a client abandons the bank's card page: the result is normally written by the return leg, so a row stays `pending` with no `RESULT` even though the bank knows the outcome. Offered only for the current attempt with `RESULT` ∈ {none, `CREATED`, `PENDING`} (`isRecheckable()`). Active booking → the full `settleEcommPaymentForBooking` path (deposit + receipt stay idempotent). Cancelled booking → **record only**: every returned field is preserved and `Payment.status` set, but the booking and `depositBalance` are never touched, and an `OK` there tells staff to refund through the panel instead of resurrecting the spot.
 - **Месечни справки.** Sofia months, never UTC ones — `lib/stats/monthRange.ts` (`sofiaMonthRange`, `isMonthKey`, `shiftMonthKey`) + tests; the month rides in `?month=YYYY-MM` so the pages stay server components and a link is pasteable.
-  - **Усвоени депозити** (Админ → Статистика): `burnedDepositTotals()` in `lib/stats/burnedDeposits.ts` sums **`Booking.depositBurnedMinor`** and nothing else — never the current setting, since a client who paid €10 before a rise burned €10. A stored 0 is not a burn, so a corrected `no_show` drops out on its own.
+  - **Приети депозити** (Админ → Статистика): `receivedDepositTotals()` in `lib/stats/receivedDeposits.ts` sums the month's **`DepositEntry`** rows and splits them по начин (в брой / с карта / ръчна корекция). See „Deposit movements ledger" below for why the balance column could not answer this.
+  - **Усвоени депозити** (Админ → Статистика): `burnedDepositTotals()` in `lib/stats/burnedDeposits.ts` sums **`Booking.depositBurnedMinor`** and nothing else — never the current setting, since a client who paid €10 before a rise burned €10. A stored 0 is not a burn, so a corrected `no_show` drops out on its own. Every day in the summary opens **`/admin/stats/burned?month=…&day=…`** (admin only), which names the client, the class, the reason (`burnReason()` — `no_show` → „Неявяване", `cancelled` → „Отказ след срока", since a timely cancel never burns) and the exact amount taken. „Колко" is never the whole question when a client asks about their money.
   - **Отчет по инструктори** (`/admin/reports/trainers`, **super_admin only**, re-checked server-side): `trainerLedger()` / `classLedger()` in `lib/stats/trainerLedger.ts` share one counting function. Money is narrow on purpose — `cashMinor` is only `attended` + `onsiteMethod=cash` at `classPriceMinor()`; subscription and Multisport are counted, not valued. Two columns exist because they are where undeclared cash hides: **`unrecorded`** (attended, no method recorded) and **`unmarked`** (a past class's booking never resolved at all). A two-trainer class counts in full for both trainers — there is no split rule in the data — so per-trainer sums can exceed studio turnover, and the page says so.
 - **`refundTransactionAction` („Върни сумата")** returns one transaction's full amount to the same card, starting from the payment rather than from the client's balance — the acquirer asks for a refund of a named `TrnID`, while `refundDepositAction`'s control only exists while `depositBalance > 0`. Rendered exactly where money can still go back (current attempt, `status=paid`, no `ecommRefundTransId` — the tested `refundable` flag), two-tap confirm, **super_admin only**. After the bank confirms, `depositBalance` drops by the refunded amount floored at 0, so a profile never claims a guarantee it no longer paid; `refundCardPayment` keeps the whole thing idempotent.
+
+## Deposit movements ledger
+
+`User.depositBalance` is a **state**: it says what a client holds right now,
+never that it arrived, and least of all when. So a deposit paid in cash and
+recorded at the desk moved that number silently and belonged to no month —
+Статистика could only ever show card money, and only indirectly, through the
+bookings it paid for.
+
+`DepositEntry` is the arrival record: one signed row per movement (`amountMinor`
+positive in, negative out), with `kind` (`received | returned | correction`),
+`method` (`cash | card | manual`), the admin who recorded it, and the `Payment`
+behind a card entry. Written **only** through `recordDepositEntry()` in
+`lib/payments/depositLedger.ts`, which is best-effort by design — the caller has
+already moved real money, and a bookkeeping row that fails to insert must never
+undo a payment. The four writers:
+
+- `adminAdjustClientDepositAction` (the ± control) → `cash`,
+- `settleEcommPaymentForBooking`, on the `paid` transition only → `card`,
+- `refundDepositAction` / `refundTransactionAction` → `returned`,
+- `updateClientAction`, when the balance field actually changed → `correction`
+  + `manual`, so a hand edit is never mistaken for money that came in.
+
+**Burns are deliberately not entries.** A burn moves nothing between studio and
+client; it converts a deposit already received into money kept, and it lives on
+`Booking.depositBurnedMinor`, the only place that can also say which class was
+missed and why. Counting it here too would count the same euro twice.
+
+Deposits recorded before this table existed cannot be attributed to a month and
+simply do not appear — the summary says so rather than inventing a date.
 
 ## Изпращане на имейли (mail transport)
 

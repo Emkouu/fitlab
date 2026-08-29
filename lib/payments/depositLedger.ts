@@ -1,5 +1,8 @@
 import { prisma } from "@/lib/db";
-import { BookingSource } from "@/lib/generated/prisma/enums";
+import {
+  DepositEntryKind,
+  DepositEntryMethod,
+} from "@/lib/generated/prisma/enums";
 import { depositAmountMinor } from "@/lib/deposit";
 import { STUDIO_SLUG } from "@/lib/studio";
 
@@ -38,13 +41,72 @@ export async function studioDepositAmountMinor(): Promise<number> {
  * Both operations are idempotent by construction — `burnDeposit` writes
  * `depositBurnedMinor` only while it is still NULL, and `restoreDeposit` only
  * while it is set, so a double tap or a replayed action moves money once.
+ *
+ * A burn no longer looks at `Booking.source`. It used to refuse anything but
+ * `card`/`balance`, on the reasoning that an `onsite_deposit` booking had no
+ * recorded deposit behind it — true only while the card was the single way a
+ * deposit could reach a profile. An admin recording a deposit paid in cash, and
+ * staff adding a walk-in from Attendance (which writes `onsite_deposit`), break
+ * that pairing: the client really does hold a standing guarantee, and a no-show
+ * has to consume it. What the burn asks now is the honest question — does this
+ * client have a deposit standing? — and `depositBalance <= 0` answers „no" for
+ * the first-visit client who never paid one.
  */
 
-/** Sources that have a recorded deposit behind them at all. */
-export function sourceCarriesDeposit(source: BookingSource): boolean {
-  // `onsite_deposit` is cash handed over at the desk; nothing was ever recorded
-  // on the profile, so there is nothing to burn or give back.
-  return source === BookingSource.card || source === BookingSource.balance;
+/**
+ * Record that a standing deposit arrived, went back, or was corrected.
+ *
+ * The balance column alone cannot answer „колко депозити приехме този месец":
+ * it is a current state, not a history, and a deposit paid in cash at the desk
+ * used to move it silently. Every desk action and every settled card payment
+ * writes a row here instead, so the money is visible in Статистика whichever
+ * way it came in.
+ *
+ * Best-effort by design — the caller has already moved the money, and a
+ * bookkeeping row that fails to insert must never undo a real payment. A
+ * failure is logged, not thrown.
+ */
+export async function recordDepositEntry(input: {
+  userId: string;
+  /**
+   * EUR cents. For `received`/`returned` the sign is derived from the kind, so
+   * a plain amount is enough; a `correction` keeps the sign it is given, since
+   * a hand edit can go either way and is not a payment in either direction.
+   */
+  amountMinor: number;
+  kind: DepositEntryKind;
+  method: DepositEntryMethod;
+  /** The admin at the desk; omit for a card payment the client made alone. */
+  recordedById?: string | null;
+  paymentId?: string | null;
+  note?: string | null;
+}): Promise<void> {
+  const exact = Math.trunc(input.amountMinor);
+  const magnitude = Math.abs(exact);
+  if (magnitude === 0) return;
+
+  const signed =
+    input.kind === DepositEntryKind.correction
+      ? exact
+      : input.kind === DepositEntryKind.received
+        ? magnitude
+        : -magnitude;
+
+  try {
+    await prisma.depositEntry.create({
+      data: {
+        userId: input.userId,
+        amountMinor: signed,
+        kind: input.kind,
+        method: input.method,
+        recordedById: input.recordedById ?? null,
+        paymentId: input.paymentId ?? null,
+        note: input.note ?? null,
+      },
+    });
+  } catch (err) {
+    console.error("[depositLedger] recordDepositEntry failed", input, err);
+  }
 }
 
 /**
@@ -59,13 +121,11 @@ export async function burnDeposit(bookingId: string): Promise<number> {
     select: {
       id: true,
       userId: true,
-      source: true,
       depositBurnedMinor: true,
       user: { select: { depositBalance: true } },
     },
   });
   if (!booking) return 0;
-  if (!sourceCarriesDeposit(booking.source)) return 0;
   // Already burned by an earlier mark on this same booking.
   if (booking.depositBurnedMinor !== null) return 0;
 

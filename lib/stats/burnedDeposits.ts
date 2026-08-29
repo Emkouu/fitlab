@@ -64,3 +64,25 @@ export function burnedDepositTotals(
 
   return { totalMinor, count, byDay };
 }
+
+/**
+ * Why a deposit was kept, in the words the drill-down shows.
+ *
+ * The booking's own status is the whole answer: the two ways a deposit is
+ * burned are the two ways a spot goes unused. `cancelled` here always means a
+ * late cancel — a timely one never burns anything, so a cancelled booking with
+ * money on it was cancelled inside the studio's window.
+ */
+export type BurnReason = "no_show" | "late_cancel" | "unknown";
+
+export function burnReason(status: string): BurnReason {
+  if (status === "no_show") return "no_show";
+  if (status === "cancelled") return "late_cancel";
+  return "unknown";
+}
+
+export const BURN_REASON_LABEL: Record<BurnReason, string> = {
+  no_show: "Неявяване",
+  late_cancel: "Отказ след срока",
+  unknown: "Усвоен от администратор",
+};
