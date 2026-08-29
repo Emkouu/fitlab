@@ -43,11 +43,12 @@ describe("burnedDepositTotals", () => {
   });
 
   it("returns an empty report for a month with no burns", () => {
-    expect(burnedDepositTotals([])).toEqual({
-      totalMinor: 0,
-      count: 0,
-      byDay: [],
-    });
+    const empty = burnedDepositTotals([]);
+    expect(empty.totalMinor).toBe(0);
+    expect(empty.count).toBe(0);
+    expect(empty.byDay).toEqual([]);
+    expect(empty.pending).toEqual({ totalMinor: 0, count: 0 });
+    expect(empty.byOrigin.cash).toEqual({ totalMinor: 0, count: 0 });
   });
 
   it("never lets a day with no burn into the breakdown", () => {
@@ -70,5 +71,39 @@ describe("burnReason", () => {
   it("does not guess for any other status", () => {
     expect(burnReason("attended")).toBe("unknown");
     expect(burnReason("booked")).toBe("unknown");
+  });
+});
+
+describe("burnedDepositTotals — за касовия апарат", () => {
+  it("splits by how the client had originally paid", () => {
+    const t = burnedDepositTotals([
+      { depositBurnedMinor: 1000, classDayKey: "2026-08-03", method: "cash" },
+      { depositBurnedMinor: 2000, classDayKey: "2026-08-04", method: "card" },
+      { depositBurnedMinor: 1000, classDayKey: "2026-08-05", method: "cash" },
+    ]);
+    expect(t.byOrigin.cash).toEqual({ totalMinor: 2000, count: 2 });
+    expect(t.byOrigin.card).toEqual({ totalMinor: 2000, count: 1 });
+    expect(t.byOrigin.unknown).toEqual({ totalMinor: 0, count: 0 });
+  });
+
+  it("files a burn with no recorded origin under unknown rather than a key", () => {
+    // Deposits recorded before the movements ledger existed. Guessing a key
+    // would put the money in the wrong column on a fiscal receipt.
+    const t = burnedDepositTotals([
+      { depositBurnedMinor: 1000, classDayKey: "2026-08-03" },
+      { depositBurnedMinor: 1000, classDayKey: "2026-08-04", method: null },
+    ]);
+    expect(t.byOrigin.unknown).toEqual({ totalMinor: 2000, count: 2 });
+  });
+
+  it("separates what still has to be rung up from what already was", () => {
+    const t = burnedDepositTotals([
+      { depositBurnedMinor: 1000, classDayKey: "2026-08-03", fiscalized: true },
+      { depositBurnedMinor: 2000, classDayKey: "2026-08-04" },
+    ]);
+    expect(t.fiscalized).toEqual({ totalMinor: 1000, count: 1 });
+    expect(t.pending).toEqual({ totalMinor: 2000, count: 1 });
+    // Both are still burns — the fiscal state is a work list, not a filter.
+    expect(t.totalMinor).toBe(3000);
   });
 });

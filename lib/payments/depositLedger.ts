@@ -132,6 +132,18 @@ export async function burnDeposit(bookingId: string): Promise<number> {
   const amount = booking.user.depositBalance;
   if (amount <= 0) return 0;
 
+  // How the client paid the deposit we are about to consume. A burn is income
+  // and gets rung up on the касов апарат, where „в брой" and „с карта" are
+  // different keys — and the balance is one pot with no history of its own, so
+  // the origin has to be captured here, while the arrival record is still
+  // reachable. NULL for a deposit recorded before the ledger existed; the
+  // report says „неизвестен произход" rather than guessing a key.
+  const lastArrival = await prisma.depositEntry.findFirst({
+    where: { userId: booking.userId, kind: DepositEntryKind.received },
+    orderBy: { createdAt: "desc" },
+    select: { method: true },
+  });
+
   // Claim and debit in ONE transaction. The claim is what makes this idempotent
   // (two racing taps: only one sees `depositBurnedMinor: null`), and the debit's
   // `gte` guard is what keeps the balance from going negative if it moved
@@ -141,7 +153,10 @@ export async function burnDeposit(bookingId: string): Promise<number> {
     return await prisma.$transaction(async (tx) => {
       const claimed = await tx.booking.updateMany({
         where: { id: booking.id, depositBurnedMinor: null },
-        data: { depositBurnedMinor: amount },
+        data: {
+          depositBurnedMinor: amount,
+          depositBurnedMethod: lastArrival?.method ?? null,
+        },
       });
       if (claimed.count === 0) return 0;
 
@@ -184,7 +199,10 @@ export async function restoreDeposit(bookingId: string): Promise<number> {
   return prisma.$transaction(async (tx) => {
     const released = await tx.booking.updateMany({
       where: { id: booking.id, depositBurnedMinor: { not: null } },
-      data: { depositBurnedMinor: null },
+      // `depositFiscalized*` is deliberately left alone: if this burn was
+      // already rung up, the receipt exists whatever we do here, and the report
+      // has to keep asking for a сторно until staff say they issued one.
+      data: { depositBurnedMinor: null, depositBurnedMethod: null },
     });
     if (released.count === 0) return 0;
 

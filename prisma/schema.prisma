@@ -231,6 +231,27 @@ model Booking {
   /// setting happens to say now.
   depositBurnedMinor Int?
 
+  /// How the client had originally paid the deposit this burn consumed, taken
+  /// from the last `received` DepositEntry on their profile at the moment of
+  /// the burn. NULL for burns from before the ledger existed, and for a client
+  /// whose deposit has no recorded arrival.
+  ///
+  /// A burned deposit is income and gets rung up on the касов апарат, where
+  /// cash and card are different keys — so the origin has to survive the burn.
+  /// The client's balance is one pot with no history of its own, which is why
+  /// this is snapshotted here rather than looked up later.
+  depositBurnedMethod DepositEntryMethod?
+
+  /// When this burn was rung up on the касов апарат, and for how much.
+  ///
+  /// The amount is stored again rather than read from `depositBurnedMinor`,
+  /// because correcting a mis-tapped no_show clears that column while the
+  /// fiscal receipt stays printed: what is left behind is exactly what has to
+  /// be сторнирано, and /admin/stats/burned lists it separately until staff
+  /// confirm they have.
+  depositFiscalizedAt    DateTime?
+  depositFiscalizedMinor Int?
+
   /// Proof that the client ticked „Приемам Общите условия" before the booking
   /// was created — the acquirer requires explicit consent before the client is
   /// ever redirected to the card-data page. NULL only for legacy rows.

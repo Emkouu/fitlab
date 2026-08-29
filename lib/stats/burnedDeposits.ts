@@ -7,6 +7,11 @@
  * moment is recorded on `Booking.depositBurnedMinor` by
  * `lib/payments/depositLedger.ts`.
  *
+ * A burn is also the only moment a deposit becomes **income**: the studio rings
+ * it up on the касов апарат, where „в брой" and „с карта" are different keys.
+ * That is why the totals split by origin (`Booking.depositBurnedMethod`,
+ * snapshotted at burn time) and by whether it has been rung up yet.
+ *
  * Read that column and nothing else. The deposit amount is configurable, so a
  * client who paid €10 before a rise to €20 burned €10 — recomputing from
  * today's setting would invent money that never changed hands. A correction of
@@ -14,12 +19,21 @@
  * the total on its own.
  */
 
+/** Where the burned deposit originally came from — which key on the register. */
+export type BurnOriginKey = "cash" | "card" | "manual" | "unknown";
+
 export type BurnedDepositRow = {
   /** `Booking.depositBurnedMinor` — NULL when nothing was ever burned. */
   depositBurnedMinor: number | null;
   /** Sofia day key of the class this booking was for. */
   classDayKey: string;
+  /** `Booking.depositBurnedMethod` — how the client had paid it. */
+  method?: BurnOriginKey | null;
+  /** Whether this burn has already been rung up on the касов апарат. */
+  fiscalized?: boolean;
 };
+
+export type BurnedGroup = { totalMinor: number; count: number };
 
 export type BurnedDepositTotals = {
   /** Sum of everything burned, in EUR cents. */
@@ -28,7 +42,23 @@ export type BurnedDepositTotals = {
   count: number;
   /** Per Sofia day, ascending. Only days with a burn appear. */
   byDay: Array<{ dayKey: string; totalMinor: number; count: number }>;
+  /**
+   * Split by how the client originally paid, because that is the split the
+   * касов апарат needs: cash and card are rung up on different keys.
+   */
+  byOrigin: Record<BurnOriginKey, BurnedGroup>;
+  /** Still to be rung up. */
+  pending: BurnedGroup;
+  /** Already rung up. */
+  fiscalized: BurnedGroup;
 };
+
+const EMPTY_ORIGINS = (): Record<BurnOriginKey, BurnedGroup> => ({
+  cash: { totalMinor: 0, count: 0 },
+  card: { totalMinor: 0, count: 0 },
+  manual: { totalMinor: 0, count: 0 },
+  unknown: { totalMinor: 0, count: 0 },
+});
 
 /**
  * Total burned across the given bookings, plus a per-day breakdown.
@@ -42,6 +72,9 @@ export function burnedDepositTotals(
   rows: readonly BurnedDepositRow[],
 ): BurnedDepositTotals {
   const perDay = new Map<string, { totalMinor: number; count: number }>();
+  const byOrigin = EMPTY_ORIGINS();
+  const pending: BurnedGroup = { totalMinor: 0, count: 0 };
+  const fiscalized: BurnedGroup = { totalMinor: 0, count: 0 };
   let totalMinor = 0;
   let count = 0;
 
@@ -56,13 +89,21 @@ export function burnedDepositTotals(
     day.totalMinor += burned;
     day.count += 1;
     perDay.set(row.classDayKey, day);
+
+    const origin = byOrigin[row.method ?? "unknown"];
+    origin.totalMinor += burned;
+    origin.count += 1;
+
+    const bucket = row.fiscalized ? fiscalized : pending;
+    bucket.totalMinor += burned;
+    bucket.count += 1;
   }
 
   const byDay = Array.from(perDay.entries())
     .map(([dayKey, v]) => ({ dayKey, ...v }))
     .sort((a, b) => a.dayKey.localeCompare(b.dayKey));
 
-  return { totalMinor, count, byDay };
+  return { totalMinor, count, byDay, byOrigin, pending, fiscalized };
 }
 
 /**

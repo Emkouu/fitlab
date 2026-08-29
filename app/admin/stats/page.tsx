@@ -11,7 +11,10 @@ import {
   sofiaDateKey,
 } from "@/lib/format";
 import { dailyStats, type DayStats } from "@/lib/stats/turnover";
-import { burnedDepositTotals } from "@/lib/stats/burnedDeposits";
+import {
+  burnedDepositTotals,
+  type BurnOriginKey,
+} from "@/lib/stats/burnedDeposits";
 import {
   receivedDepositTotals,
   type DepositEntryMethodKey,
@@ -29,6 +32,14 @@ import { MonthNav } from "../_components/MonthNav";
 export const metadata = { title: "FitLab Varna — Статистика" };
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** Which key on the касов апарат a burned deposit has to be rung up on. */
+const BURN_ORIGIN_ROWS: Array<{ key: BurnOriginKey; label: string }> = [
+  { key: "cash", label: "Платен в брой" },
+  { key: "card", label: "Платен с карта" },
+  { key: "manual", label: "Ръчна корекция" },
+  { key: "unknown", label: "Неизвестен произход" },
+];
 
 /** The order the desk thinks in: cash first, card second, corrections last. */
 const METHOD_ROWS: Array<{ key: DepositEntryMethodKey; label: string }> = [
@@ -99,6 +110,8 @@ export default async function AdminStatsPage({
     },
     select: {
       depositBurnedMinor: true,
+      depositBurnedMethod: true,
+      depositFiscalizedAt: true,
       scheduledClass: { select: { startAt: true } },
     },
   });
@@ -106,8 +119,25 @@ export default async function AdminStatsPage({
     burnedRows.map((b) => ({
       depositBurnedMinor: b.depositBurnedMinor,
       classDayKey: sofiaDateKey(b.scheduledClass.startAt),
+      method: (b.depositBurnedMethod ?? "unknown") as BurnOriginKey,
+      fiscalized: b.depositFiscalizedAt !== null,
     })),
   );
+
+  // The register queue is NOT a monthly figure: a burn from last month that was
+  // never rung up must not fall off the bottom when the month rolls over. So it
+  // is counted across all time and linked to its own view.
+  const pendingBurns = await prisma.booking.aggregate({
+    where: {
+      depositBurnedMinor: { not: null },
+      depositFiscalizedAt: null,
+      scheduledClass: { studioId: studio.id },
+    },
+    _sum: { depositBurnedMinor: true },
+    _count: true,
+  });
+  const pendingCount = pendingBurns._count;
+  const pendingMinor = pendingBurns._sum.depositBurnedMinor ?? 0;
 
   // Deposits that reached the studio in the same month, however they were paid.
   // Read from the movements ledger and not from `User.depositBalance`: the
@@ -257,6 +287,53 @@ export default async function AdminStatsPage({
           <TotalCard label="Брой" value={String(burned.count)} />
         </div>
 
+        {/* The register split — cash and card are different keys on the касов
+            апарат, so the month's burns are shown the way they get rung up. */}
+        {burned.count > 0 && (
+          <ul className="mt-3 space-y-1.5 rounded-2xl bg-white px-4 py-3 shadow-[0_1px_2px_rgba(123,45,142,0.05),0_4px_16px_-8px_rgba(236,72,153,0.18)]">
+            {BURN_ORIGIN_ROWS.map(({ key, label }) => {
+              const g = burned.byOrigin[key];
+              if (g.count === 0) return null;
+              return (
+                <li key={key} className="flex items-baseline justify-between gap-3">
+                  <span className="font-mono text-[11px] uppercase tracking-wider text-[color:var(--brand-purple)]/60">
+                    {label}
+                  </span>
+                  <span className="flex items-baseline gap-3">
+                    <span className="text-[11px] text-[color:var(--brand-purple)]/60">
+                      {g.count} бр.
+                    </span>
+                    <span className="font-display text-sm font-bold text-[color:var(--brand-purple)]">
+                      {formatEurMinor(g.totalMinor)}
+                    </span>
+                  </span>
+                </li>
+              );
+            })}
+            <li className="mt-1.5 flex items-baseline justify-between gap-3 border-t border-[color:var(--brand-pink)] pt-1.5 text-[11px] text-[color:var(--brand-purple)]/60">
+              <span>чукнати на касата</span>
+              <span>
+                {formatEurMinor(burned.fiscalized.totalMinor)} от{" "}
+                {formatEurMinor(burned.totalMinor)}
+              </span>
+            </li>
+          </ul>
+        )}
+
+        {pendingCount > 0 && (
+          <Link
+            href="/admin/stats/burned?pending=1"
+            className="mt-3 flex items-center justify-between gap-3 rounded-2xl bg-[color:var(--brand-magenta)] px-4 py-3 text-white transition-opacity hover:opacity-90"
+          >
+            <span className="font-display text-xs font-bold uppercase tracking-wider">
+              За касовия апарат
+            </span>
+            <span className="font-display text-sm font-bold">
+              {pendingCount} бр. · {formatEurMinor(pendingMinor)} →
+            </span>
+          </Link>
+        )}
+
         {burned.byDay.length === 0 ? (
           <p className="mt-3 rounded-2xl bg-white px-4 py-5 text-center text-sm text-[color:var(--brand-purple)]/70 shadow-[0_1px_2px_rgba(123,45,142,0.05),0_4px_16px_-8px_rgba(236,72,153,0.18)]">
             През {formatMonthKeyBg(monthKey)} няма усвоени депозити.
@@ -302,9 +379,10 @@ export default async function AdminStatsPage({
         )}
 
         <p className="mt-3 text-[11px] leading-relaxed text-[color:var(--brand-purple)]/55">
-          Сумата е това, което клиентът реално е платил и е изгубил — записва се
-          на резервацията в момента на усвояването. Поправено „не дойде" връща
-          депозита и той отпада от справката.
+          Усвоеният депозит е приход и се чука на касовия апарат — по начина, по
+          който клиентът го е платил. Сумата е това, което реално е платил и е
+          изгубил, записано на резервацията в момента на усвояването. Поправено
+          „не дойде" връща депозита и той отпада от справката.
         </p>
       </section>
 

@@ -203,7 +203,7 @@ Implication: the refund logic lives in `lib/payments/refundCardPayment.ts` and g
 - **`recheckPaymentAction` („Провери в банката")** closes the gap where a client abandons the bank's card page: the result is normally written by the return leg, so a row stays `pending` with no `RESULT` even though the bank knows the outcome. Offered only for the current attempt with `RESULT` ∈ {none, `CREATED`, `PENDING`} (`isRecheckable()`). Active booking → the full `settleEcommPaymentForBooking` path (deposit + receipt stay idempotent). Cancelled booking → **record only**: every returned field is preserved and `Payment.status` set, but the booking and `depositBalance` are never touched, and an `OK` there tells staff to refund through the panel instead of resurrecting the spot.
 - **Месечни справки.** Sofia months, never UTC ones — `lib/stats/monthRange.ts` (`sofiaMonthRange`, `isMonthKey`, `shiftMonthKey`) + tests; the month rides in `?month=YYYY-MM` so the pages stay server components and a link is pasteable.
   - **Приети депозити** (Админ → Статистика): `receivedDepositTotals()` in `lib/stats/receivedDeposits.ts` sums the month's **`DepositEntry`** rows and splits them по начин (в брой / с карта / ръчна корекция). See „Deposit movements ledger" below for why the balance column could not answer this.
-  - **Усвоени депозити** (Админ → Статистика): `burnedDepositTotals()` in `lib/stats/burnedDeposits.ts` sums **`Booking.depositBurnedMinor`** and nothing else — never the current setting, since a client who paid €10 before a rise burned €10. A stored 0 is not a burn, so a corrected `no_show` drops out on its own. Every day in the summary opens **`/admin/stats/burned?month=…&day=…`** (admin only), which names the client, the class, the reason (`burnReason()` — `no_show` → „Неявяване", `cancelled` → „Отказ след срока", since a timely cancel never burns) and the exact amount taken. „Колко" is never the whole question when a client asks about their money.
+  - **Усвоени депозити** (Админ → Статистика): `burnedDepositTotals()` in `lib/stats/burnedDeposits.ts` sums **`Booking.depositBurnedMinor`** and nothing else — never the current setting, since a client who paid €10 before a rise burned €10. A stored 0 is not a burn, so a corrected `no_show` drops out on its own. The totals also split `byOrigin` and by whether each burn has been rung up — see „Усвоеният депозит е приход" below. Every day in the summary opens **`/admin/stats/burned`** (admin only), which names the client, the class, the reason (`burnReason()` — `no_show` → „Неявяване", `cancelled` → „Отказ след срока", since a timely cancel never burns) and the exact amount taken. „Колко" is never the whole question when a client asks about their money.
   - **Отчет по инструктори** (`/admin/reports/trainers`, **super_admin only**, re-checked server-side): `trainerLedger()` / `classLedger()` in `lib/stats/trainerLedger.ts` share one counting function. Money is narrow on purpose — `cashMinor` is only `attended` + `onsiteMethod=cash` at `classPriceMinor()`; subscription and Multisport are counted, not valued. Two columns exist because they are where undeclared cash hides: **`unrecorded`** (attended, no method recorded) and **`unmarked`** (a past class's booking never resolved at all). A two-trainer class counts in full for both trainers — there is no split rule in the data — so per-trainer sums can exceed studio turnover, and the page says so.
 - **`refundTransactionAction` („Върни сумата")** returns one transaction's full amount to the same card, starting from the payment rather than from the client's balance — the acquirer asks for a refund of a named `TrnID`, while `refundDepositAction`'s control only exists while `depositBalance > 0`. Rendered exactly where money can still go back (current attempt, `status=paid`, no `ecommRefundTransId` — the tested `refundable` flag), two-tap confirm, **super_admin only**. After the bank confirms, `depositBalance` drops by the refunded amount floored at 0, so a profile never claims a guarantee it no longer paid; `refundCardPayment` keeps the whole thing idempotent.
 
@@ -236,6 +236,34 @@ missed and why. Counting it here too would count the same euro twice.
 
 Deposits recorded before this table existed cannot be attributed to a month and
 simply do not appear — the summary says so rather than inventing a date.
+
+## Усвоеният депозит е приход — касовият апарат
+
+A deposit sitting on a profile is a guarantee, not revenue. The moment it is
+**burned** it becomes the studio's income, and income goes through the касов
+апарат — where „в брой" and „с карта" are **different keys**. That is the whole
+reason the burn has to remember where the money came from.
+
+- `Booking.depositBurnedMethod` — snapshotted by `burnDeposit()` from the last
+  `received` `DepositEntry` on that profile. The balance is one pot with no
+  history of its own, so the origin has to be captured at the moment of the
+  burn or it is gone. NULL for burns of deposits recorded before the ledger
+  existed; those show as **„неизвестен произход"** and the page tells staff to
+  check the profile rather than guessing a key.
+- `Booking.depositFiscalizedAt` / `depositFiscalizedMinor` — the record that it
+  was rung up, written by `markDepositFiscalizedAction` (admin only). Ringing up
+  is a physical act on the device; the mark only stops the same €10 being rung
+  twice or missed at month end.
+- **`/admin/stats/burned`** is the work list: „За касовия апарат" splits the
+  queue per key, each row has „Чукнат на касата", and `?pending=1` drops the
+  month filter — the queue is not a monthly report, and a burn from last month
+  must not fall off the bottom when the month rolls over. /admin/stats carries
+  the same all-time count as a link.
+- The amount is stored **again** on fiscalization rather than read back from
+  `depositBurnedMinor`: correcting a mis-tapped `no_show` clears the burn while
+  the fiscal receipt stays printed. `restoreDeposit` therefore never touches the
+  fiscal columns, and such a row appears under **„Чакат сторно"** until staff
+  confirm they issued one.
 
 ## Изпращане на имейли (mail transport)
 
