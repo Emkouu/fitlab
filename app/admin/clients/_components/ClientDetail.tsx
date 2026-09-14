@@ -28,6 +28,8 @@ type UserView = {
   role: Role;
   depositBalance: number;
   createdAt: string;
+  /** Linked to a Supabase auth account — that address wins on next sign-in. */
+  hasAuthAccount: boolean;
 };
 
 type BookingView = {
@@ -119,6 +121,7 @@ function ProfileForm({
   const [pending, startTransition] = useTransition();
 
   const [fullName, setFullName] = useState(user.fullName ?? "");
+  const [email, setEmail] = useState(user.email ?? "");
   const [phone, setPhone] = useState(user.phone ?? "");
   const [role, setRole] = useState<Role>(user.role);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -129,6 +132,7 @@ function ProfileForm({
       const r = await updateClientAction({
         userId: user.id,
         fullName: fullName.trim() || null,
+        email: email.trim() || null,
         phone: phone.trim() || null,
         role,
         // Deposits are managed by DepositControl; pass the current value
@@ -156,14 +160,22 @@ function ProfileForm({
           />
         </Field>
 
-        <Field label="Имейл (само за четене)">
+        <Field label="Имейл">
           <input
             type="email"
-            value={user.email ?? ""}
-            readOnly
-            disabled
-            className="w-full rounded-xl border border-[color:var(--brand-pink)]/20 bg-gray-50 px-3 py-2 text-sm text-[color:var(--brand-purple)]/60"
+            inputMode="email"
+            autoComplete="off"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="ivan@example.com"
+            className="w-full rounded-xl border border-[color:var(--brand-pink)]/40 bg-white px-3 py-2 text-sm focus:border-[color:var(--brand-magenta)] focus:outline-none"
           />
+          {user.hasAuthAccount && (
+            <p className="mt-1 text-[11px] text-[color:var(--brand-purple)]/60">
+              Клиентът вече има акаунт за вход — при следващото влизане имейлът
+              се връща към този в акаунта.
+            </p>
+          )}
         </Field>
 
         <Field label="Телефон">

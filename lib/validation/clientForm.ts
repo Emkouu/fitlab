@@ -2,13 +2,26 @@ import { z } from "zod";
 import { Role } from "@/lib/generated/prisma/enums";
 
 /**
- * Admin client-profile edit. Email is intentionally NOT editable — it's
- * the Supabase auth identifier and lives in another system.
+ * Admin client-profile edit.
+ *
+ * Email is editable: staff create client rows by hand (`addClientSchema`), and
+ * a typo there — or a client who simply gives their address later — otherwise
+ * left the row permanently unreachable by magic link. For a profile already
+ * linked to a Supabase account the address there stays authoritative:
+ * `syncUserFromSupabase` writes it back on the next sign-in.
  */
 export const updateClientSchema = z.object({
   userId: z.string().min(1),
   fullName: z.string().trim().max(120).optional().nullable(),
   phone: z.string().trim().max(32).optional().nullable(),
+  /** Empty string means „no email" — the column is a sparse unique. */
+  email: z
+    .union([
+      z.string().trim().toLowerCase().email("Невалиден имейл").max(200),
+      z.literal(""),
+    ])
+    .optional()
+    .nullable(),
   role: z.nativeEnum(Role),
   // Cents. Non-negative. Admin override of User.depositBalance.
   depositBalance: z.number().int().min(0).max(100_000_00),

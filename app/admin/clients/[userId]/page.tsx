@@ -138,6 +138,7 @@ export default async function AdminClientDetailPage({
           role: user.role,
           depositBalance: user.depositBalance,
           createdAt: user.createdAt.toISOString(),
+          hasAuthAccount: user.supabaseUserId !== null,
         }}
         callerIsSelf={user.id === admin.id}
         callerIsSuperAdmin={admin.role === "super_admin"}

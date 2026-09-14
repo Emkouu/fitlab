@@ -16,6 +16,7 @@ import {
   PaymentStatus,
   Role,
 } from "@/lib/generated/prisma/enums";
+import { Prisma } from "@/lib/generated/prisma/client";
 import { getAdminUser } from "@/lib/auth/getAdminUser";
 import { deliverEmail } from "@/lib/email/deliver";
 import { EMAIL_SETTINGS_ID } from "@/lib/email/settings";
@@ -997,17 +998,57 @@ export async function updateClientAction(
     select: { depositBalance: true },
   });
 
+  // Blank → null: `User.email` and `User.phone` are sparse uniques, and two
+  // empty strings would collide where two missing addresses must not. An
+  // *omitted* email means „leave it alone" — only a present field, blank
+  // included, is an instruction about the address.
+  const editsEmail = data.email !== undefined;
+  const email = data.email?.trim() ? data.email.trim().toLowerCase() : null;
+  const phone = data.phone?.trim() ? data.phone.trim() : null;
+
+  // Friendly duplicate check before the write (the unique indexes below are the
+  // backstop). Only another row matters — saving a profile unchanged is fine.
+  if ((editsEmail && email) || phone) {
+    const clash = await prisma.user.findFirst({
+      where: {
+        id: { not: data.userId },
+        OR: [
+          ...(editsEmail && email ? [{ email }] : []),
+          ...(phone ? [{ phone }] : []),
+        ],
+      },
+      select: { email: true, phone: true, fullName: true },
+    });
+    if (clash) {
+      const what = clash.email === email ? "имейл" : "телефон";
+      return {
+        ok: false,
+        message: `Друг клиент вече използва този ${what}${clash.fullName ? ` (${clash.fullName})` : ""}.`,
+      };
+    }
+  }
+
   try {
     await prisma.user.update({
       where: { id: data.userId },
       data: {
         fullName: data.fullName ?? null,
-        phone: data.phone ?? null,
+        phone,
+        ...(editsEmail ? { email } : {}),
         role: data.role,
         depositBalance: data.depositBalance,
       },
     });
   } catch (err) {
+    if (
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === "P2002"
+    ) {
+      return {
+        ok: false,
+        message: "Този имейл или телефон вече се използва от друг клиент.",
+      };
+    }
     console.error("[updateClient] error:", err);
     return { ok: false, message: "Грешка при запазване. Опитай отново." };
   }
@@ -1025,7 +1066,7 @@ export async function updateClientAction(
   }
 
   console.log(
-    `[admin-audit] updateClient by=${admin.id} target=${data.userId} role=${data.role} balance=${data.depositBalance}`,
+    `[admin-audit] updateClient by=${admin.id} target=${data.userId} role=${data.role} balance=${data.depositBalance}${editsEmail ? ` email=${email ?? "—"}` : ""}`,
   );
 
   revalidatePath(`/admin/clients/${data.userId}`);
