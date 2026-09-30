@@ -125,20 +125,9 @@ export default async function AdminStatsPage({
     })),
   );
 
-  // The register queue is NOT a monthly figure: a burn from last month that was
-  // never rung up must not fall off the bottom when the month rolls over. So it
-  // is counted across all time and linked to its own view.
-  const pendingBurns = await prisma.booking.aggregate({
-    where: {
-      depositBurnedMinor: { not: null },
-      depositFiscalizedAt: null,
-      scheduledClass: { studioId: studio.id },
-    },
-    _sum: { depositBurnedMinor: true },
-    _count: true,
-  });
-  const pendingCount = pendingBurns._count;
-  const pendingMinor = pendingBurns._sum.depositBurnedMinor ?? 0;
+  // The register queue for the chosen month only — earlier months are history.
+  const pendingCount = burned.pending.count;
+  const pendingMinor = burned.pending.totalMinor;
 
   // Deposits that reached the studio in the same month, however they were paid.
   // Read from the movements ledger and not from `User.depositBalance`: the
@@ -338,11 +327,11 @@ export default async function AdminStatsPage({
 
         {pendingCount > 0 && (
           <Link
-            href="/admin/stats/burned?pending=1"
+            href={`/admin/stats/burned?month=${monthKey}&pending=1`}
             className="mt-3 flex items-center justify-between gap-3 rounded-2xl bg-[color:var(--brand-magenta)] px-4 py-3 text-white transition-opacity hover:opacity-90"
           >
             <span className="font-display text-xs font-bold uppercase tracking-wider">
-              Списък за чукане · всички месеци
+              Списък за чукане
             </span>
             <span className="font-display text-sm font-bold">
               {pendingCount} бр. · {formatEurMinor(pendingMinor)} →

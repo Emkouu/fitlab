@@ -61,8 +61,9 @@ function isDayKey(v: string | undefined): v is string {
  * at month end. Three states: чака, чукнат, and — when a mis-tapped no_show was
  * corrected after the receipt was printed — чака сторно.
  *
- * `?pending=1` drops the month filter: the queue is not a monthly report, and a
- * burn from last month that was never rung up must not fall off the bottom.
+ * `?pending=1` narrows the chosen month to what is still to be rung up (plus
+ * the last day's marks, so a wrong tap can be undone). The studio only works
+ * the current month; earlier months are history, not a queue.
  * Admin only — this is money.
  */
 export default async function BurnedDepositsPage({
@@ -95,7 +96,7 @@ export default async function BurnedDepositsPage({
       ],
       scheduledClass: {
         studioId: studio.id,
-        ...(pendingOnly ? {} : { startAt: { gte: from, lt: to } }),
+        startAt: { gte: from, lt: to },
       },
     },
     select: {
@@ -169,7 +170,7 @@ export default async function BurnedDepositsPage({
   const doneTotal = done.reduce((s, b) => s + b.burnedMinor, 0);
 
   const scopeLabel = pendingOnly
-    ? "всички неотчетени"
+    ? `нечукнати · ${formatMonthKeyBg(monthKey)}`
     : dayKey
       ? formatSofiaDay(new Date(`${dayKey}T12:00:00+03:00`))
       : formatMonthKeyBg(monthKey);
@@ -217,7 +218,7 @@ export default async function BurnedDepositsPage({
 
         {queue.length === 0 ? (
           <p className="mt-3 text-sm text-[color:var(--brand-purple)]/70">
-            Няма нечукнати усвоени депозити{pendingOnly ? "" : " за този период"}.
+            Няма нечукнати усвоени депозити за този период.
           </p>
         ) : (
           <ul className="mt-3 space-y-1.5">
@@ -271,17 +272,17 @@ export default async function BurnedDepositsPage({
               href={`/admin/stats/burned?month=${monthKey}`}
               className="rounded-full bg-[color:var(--brand-pink-soft)] px-3 py-1.5 font-display text-[11px] font-bold text-[color:var(--brand-purple)]"
             >
-              Виж по месеци
+              Покажи и чукнатите
             </Link>
           ) : (
             <Link
-              href="/admin/stats/burned?pending=1"
+              href={`/admin/stats/burned?month=${monthKey}&pending=1`}
               className="rounded-full bg-[color:var(--brand-pink-soft)] px-3 py-1.5 font-display text-[11px] font-bold text-[color:var(--brand-purple)]"
             >
-              Всички нечукнати (всички месеци)
+              Само нечукнатите
             </Link>
           )}
-          {!pendingOnly && (
+          {!dayKey && (
             <a
               href={`/admin/stats/burned/pdf?month=${monthKey}`}
               download

@@ -258,10 +258,11 @@ reason the burn has to remember where the money came from.
   is a physical act on the device; the mark only stops the same €10 being rung
   twice or missed at month end.
 - **`/admin/stats/burned`** is the work list: „За касовия апарат" splits the
-  queue per key, each row has „Чукнат на касата", and `?pending=1` drops the
-  month filter — the queue is not a monthly report, and a burn from last month
-  must not fall off the bottom when the month rolls over. /admin/stats carries
-  the same all-time count as a link.
+  queue per key, each row has „Чукнат на касата", and `?pending=1` narrows the
+  chosen month to what is still to be rung up (plus the last 24h of marks, so a
+  wrong tap can be undone there). **Month-scoped on purpose** — the studio only
+  works the current month; earlier months are history. /admin/stats links the
+  same month's queue.
 - **PDF за счетоводителя** — „Изтегли PDF" on /admin/stats and
   /admin/stats/burned → `GET /admin/stats/burned/pdf?month=YYYY-MM` (admin
   only). Numbers from `buildBurnedReport()` (`lib/stats/burnedReport.ts`,
