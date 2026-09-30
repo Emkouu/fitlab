@@ -259,6 +259,12 @@ reason the burn has to remember where the money came from.
   month filter — the queue is not a monthly report, and a burn from last month
   must not fall off the bottom when the month rolls over. /admin/stats carries
   the same all-time count as a link.
+- **PDF за счетоводителя** — „Изтегли PDF" on /admin/stats and
+  /admin/stats/burned → `GET /admin/stats/burned/pdf?month=YYYY-MM` (admin
+  only). Numbers from `buildBurnedReport()` (`lib/stats/burnedReport.ts`,
+  tested), layout in `burnedReportPdf.ts` (pdfmake + its bundled Roboto for
+  Cyrillic). Same scope as the page: by the class's Sofia month. `pdfmake` is in
+  `serverExternalPackages` so its font paths resolve — don't bundle it.
 - The amount is stored **again** on fiscalization rather than read back from
   `depositBurnedMinor`: correcting a mis-tapped `no_show` clears the burn while
   the fiscal receipt stays printed. `restoreDeposit` therefore never touches the

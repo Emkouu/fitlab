@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import { FileDown } from "lucide-react";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { getAdminUser } from "@/lib/auth/getAdminUser";
@@ -272,6 +273,16 @@ export default async function BurnedDepositsPage({
             >
               Всички нечукнати (всички месеци)
             </Link>
+          )}
+          {!pendingOnly && (
+            <a
+              href={`/admin/stats/burned/pdf?month=${monthKey}`}
+              download
+              className="inline-flex items-center gap-1.5 rounded-full bg-[color:var(--brand-magenta)] px-3 py-1.5 font-display text-[11px] font-bold text-white"
+            >
+              <FileDown aria-hidden className="h-3.5 w-3.5" />
+              PDF за {formatMonthKeyBg(monthKey)}
+            </a>
           )}
           {dayKey && (
             <Link

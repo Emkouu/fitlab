@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import { FileDown } from "lucide-react";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { getAdminUser } from "@/lib/auth/getAdminUser";
@@ -377,6 +378,16 @@ export default async function AdminStatsPage({
             </Link>
           </>
         )}
+
+        {/* The month for the accountant — a plain download, not a navigation. */}
+        <a
+          href={`/admin/stats/burned/pdf?month=${monthKey}`}
+          download
+          className="mt-3 flex items-center justify-center gap-2 rounded-2xl border border-[color:var(--brand-pink)] bg-white px-4 py-3 font-display text-xs font-bold text-[color:var(--brand-purple)] transition-colors hover:bg-[color:var(--brand-pink-soft)]/50"
+        >
+          <FileDown aria-hidden className="h-4 w-4" />
+          Изтегли PDF за счетоводителя · {formatMonthKeyBg(monthKey)}
+        </a>
 
         <p className="mt-3 text-[11px] leading-relaxed text-[color:var(--brand-purple)]/55">
           Усвоеният депозит е приход и се чука на касовия апарат — по начина, по
