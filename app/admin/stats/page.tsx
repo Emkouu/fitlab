@@ -4,14 +4,14 @@ import { FileDown } from "lucide-react";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { getAdminUser } from "@/lib/auth/getAdminUser";
-import { BookingStatus } from "@/lib/generated/prisma/enums";
+import { BookingStatus, DepositEntryKind } from "@/lib/generated/prisma/enums";
 import {
   formatEurMinor,
   formatEurMinorCompact,
   formatSofiaDay,
   sofiaDateKey,
 } from "@/lib/format";
-import { dailyStats, type DayStats } from "@/lib/stats/turnover";
+import { dailyStats, sumDays, type DayStats } from "@/lib/stats/turnover";
 import {
   burnedDepositTotals,
   type BurnOriginKey,
@@ -26,13 +26,12 @@ import {
   isMonthKey,
   sofiaMonthRange,
 } from "@/lib/stats/monthRange";
-import { depositAmountMinor } from "@/lib/deposit";
+import { classPriceMinor } from "@/lib/pricing";
 import { AdminBreadcrumb } from "../_components/AdminBreadcrumb";
 import { MonthNav } from "../_components/MonthNav";
+import { ShowMore } from "./_components/ShowMore";
 
 export const metadata = { title: "FitLab Varna — Статистика" };
-
-const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** Which key on the касов апарат a burned deposit has to be rung up on. */
 const BURN_ORIGIN_ROWS: Array<{ key: BurnOriginKey; label: string }> = [
@@ -70,28 +69,26 @@ export default async function AdminStatsPage({
     throw new Error("Studio not found");
   }
 
-  // Last 30 days incl. today (queried in UTC with a day of slack; the pure
-  // helper groups by Sofia-local class day).
+  // The chosen Sofia month's bookings — for counts and for the class fees paid
+  // in cash, which are the only class money the app sees.
   const now = new Date();
+  const monthRange = sofiaMonthRange(monthKey);
   const rows = await prisma.booking.findMany({
     where: {
       status: { not: BookingStatus.cancelled },
       scheduledClass: {
         studioId: studio.id,
-        startAt: {
-          gte: new Date(Date.now() - THIRTY_DAYS_MS - 26 * 60 * 60 * 1000),
-          lte: now,
-        },
+        startAt: { gte: monthRange.from, lt: monthRange.to },
       },
     },
     select: {
       status: true,
-      source: true,
+      onsiteMethod: true,
       scheduledClass: {
         select: {
           startAt: true,
-          depositAmount: true,
-          studio: { select: { defaultDeposit: true } },
+          practice: { select: { priceMinor: true } },
+          studio: { select: { defaultClassPrice: true } },
         },
       },
     },
@@ -100,7 +97,6 @@ export default async function AdminStatsPage({
   // Burned deposits for the chosen Sofia month — money the studio kept because
   // the client no-showed or cancelled late. Grouped by the day of the class
   // that was missed, which is the day staff will remember.
-  const monthRange = sofiaMonthRange(monthKey);
   const burnedRows = await prisma.booking.findMany({
     where: {
       depositBurnedMinor: { not: null },
@@ -135,7 +131,7 @@ export default async function AdminStatsPage({
   // paid in cash at the desk had no month to belong to and showed up nowhere.
   const depositEntries = await prisma.depositEntry.findMany({
     where: { createdAt: { gte: monthRange.from, lt: monthRange.to } },
-    select: { amountMinor: true, method: true },
+    select: { amountMinor: true, method: true, kind: true, createdAt: true },
   });
   const received = receivedDepositTotals(
     depositEntries.map((e) => ({
@@ -144,19 +140,22 @@ export default async function AdminStatsPage({
     })),
   );
 
+  // Turnover = deposits in (minus deposits given back) + class fees in cash.
+  // Manual corrections are bookkeeping, not money, and stay out.
   const todayKey = sofiaDateKey(now);
   const days = dailyStats(
     rows.map((b) => ({
       status: b.status,
-      source: b.source,
-      depositMinor: depositAmountMinor(b.scheduledClass, b.scheduledClass.studio),
+      onsiteMethod: b.onsiteMethod,
+      priceMinor: classPriceMinor(b.scheduledClass.practice, b.scheduledClass.studio),
       classStartAt: b.scheduledClass.startAt,
     })),
+    depositEntries
+      .filter((e) => e.kind !== DepositEntryKind.correction)
+      .map((e) => ({ amountMinor: e.amountMinor, createdAt: e.createdAt })),
   ).filter((d) => d.dayKey <= todayKey);
 
-  const totalTurnover = days.reduce((s, d) => s + d.turnoverMinor, 0);
-  const totalBookings = days.reduce((s, d) => s + d.bookings, 0);
-  const totalAttended = days.reduce((s, d) => s + d.attended, 0);
+  const total = sumDays(days);
   const maxTurnover = Math.max(1, ...days.map((d) => d.turnoverMinor));
 
   return (
@@ -178,25 +177,38 @@ export default async function AdminStatsPage({
 
       <AdminBreadcrumb parentLabel="Admin" parentHref="/admin" />
 
-      <div className="mb-6">
+      <div className="mb-4">
         <h1 className="font-display text-2xl font-bold tracking-tight">
           Статистика
         </h1>
-        <p className="mt-1 text-xs text-[color:var(--brand-purple)]/70">
-          Оборот по дни · последните 30 дни
-        </p>
       </div>
 
-      {/* Period totals */}
-      <div className="mb-6 grid grid-cols-3 gap-3">
-        <TotalCard label="Оборот" value={formatEurMinorCompact(totalTurnover)} accent />
-        <TotalCard label="Записвания" value={String(totalBookings)} />
-        <TotalCard label="Присъствали" value={String(totalAttended)} />
-      </div>
-
-      {/* The month block — deposits in, and deposits kept. Independent of the
-          30-day view above, because this is the pair that closes a month. */}
+      {/* Everything below follows this month. */}
       <MonthNav monthKey={monthKey} basePath="/admin/stats" />
+
+      <div className="grid grid-cols-3 gap-3">
+        <TotalCard label="Оборот" value={formatEurMinorCompact(total.turnoverMinor)} accent />
+        <TotalCard label="Записвания" value={String(total.bookings)} />
+        <TotalCard label="Присъствали" value={String(total.attended)} />
+      </div>
+
+      {/* What the turnover is made of, so the number can be checked. */}
+      <ul className="mb-8 mt-3 space-y-1.5 rounded-2xl bg-white px-4 py-3 text-sm shadow-[0_1px_2px_rgba(123,45,142,0.05),0_4px_16px_-8px_rgba(236,72,153,0.18)]">
+        <li className="flex items-baseline justify-between gap-3">
+          <span>Депозити (приети − върнати)</span>
+          <span className="font-display font-bold">{formatEurMinor(total.depositsMinor)}</span>
+        </li>
+        <li className="flex items-baseline justify-between gap-3">
+          <span>Тренировки в брой</span>
+          <span className="font-display font-bold">{formatEurMinor(total.cashFeesMinor)}</span>
+        </li>
+        <li className="flex items-baseline justify-between gap-3 border-t border-[color:var(--brand-pink)] pt-1.5 text-[11px] text-[color:var(--brand-purple)]/70">
+          <span>Абонаментна карта · Multisport</span>
+          <span>
+            {total.subscription} бр. · {total.multisport} бр.
+          </span>
+        </li>
+      </ul>
 
       {/* Received deposits — cash at the desk counts exactly like card. */}
       <section className="mb-8">
@@ -401,31 +413,34 @@ export default async function AdminStatsPage({
         </p>
       </section>
 
-      {/* Per-day rows */}
-      {days.length === 0 ? (
-        <div className="rounded-2xl border border-[color:var(--brand-pink)] bg-white px-5 py-8 text-center">
-          <p className="font-display text-base font-semibold">Няма данни</p>
-          <p className="mt-2 text-sm leading-relaxed text-[color:var(--brand-purple)]/70">
-            През последните 30 дни няма записвания.
+      {/* Per-day rows — newest first, a week at a time. */}
+      <section>
+        <h2 className="mb-3 font-display text-lg font-bold tracking-tight">
+          По дни
+        </h2>
+        {days.length === 0 ? (
+          <p className="rounded-2xl bg-white px-4 py-5 text-center text-sm text-[color:var(--brand-purple)]/70 shadow-[0_1px_2px_rgba(123,45,142,0.05),0_4px_16px_-8px_rgba(236,72,153,0.18)]">
+            През {formatMonthKeyBg(monthKey)} няма записвания.
           </p>
-        </div>
-      ) : (
-        <ul className="space-y-2.5">
-          {days.map((d) => (
-            <DayRow
-              key={d.dayKey}
-              day={d}
-              isToday={d.dayKey === todayKey}
-              maxTurnover={maxTurnover}
-            />
-          ))}
-        </ul>
-      )}
+        ) : (
+          <ShowMore step={7}>
+            {days.map((d) => (
+              <DayRow
+                key={d.dayKey}
+                day={d}
+                isToday={d.dayKey === todayKey}
+                maxTurnover={maxTurnover}
+              />
+            ))}
+          </ShowMore>
+        )}
+      </section>
 
       <p className="mt-6 text-[11px] leading-relaxed text-[color:var(--brand-purple)]/55">
-        Оборотът включва получени депозити: платени с карта, използван баланс и
-        депозити на място при отчетено присъствие/неявяване. Незавършени картови
-        плащания и неплатени „на място" резервации не се броят.
+        Оборотът е парите, които реално са влезли: приетите депозити (в брой и с
+        карта, минус върнатите) плюс таксите за тренировки, платени в брой.
+        Абонаментна карта и Multisport се броят, но не се остойностяват — тези
+        пари не минават през системата. Самото записване не е пари.
       </p>
     </main>
   );
@@ -465,7 +480,7 @@ function DayRow({
   isToday: boolean;
   maxTurnover: number;
 }) {
-  const barPct = Math.round((day.turnoverMinor / maxTurnover) * 100);
+  const barPct = Math.max(0, Math.round((day.turnoverMinor / maxTurnover) * 100));
   // "четвъртък, 16.07.2026" from the day key (noon avoids TZ edge cases).
   const label = formatSofiaDay(new Date(`${day.dayKey}T12:00:00+03:00`));
 
@@ -493,7 +508,14 @@ function DayRow({
         />
       </div>
 
-      <div className="mt-2 flex gap-4 text-[11px] text-[color:var(--brand-purple)]/70">
+      {day.turnoverMinor !== 0 && (
+        <p className="mt-2 text-[11px] text-[color:var(--brand-purple)]/70">
+          депозити {formatEurMinor(day.depositsMinor)} · в брой{" "}
+          {formatEurMinor(day.cashFeesMinor)}
+        </p>
+      )}
+
+      <div className="mt-1 flex flex-wrap gap-x-4 text-[11px] text-[color:var(--brand-purple)]/70">
         <span>{day.bookings} записвания</span>
         <span>{day.attended} присъствали</span>
         {day.noShows > 0 && (

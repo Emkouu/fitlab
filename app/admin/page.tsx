@@ -4,10 +4,10 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { getStaffUser } from "@/lib/auth/getStaffUser";
 import { ACTIVE_BOOKING_STATUSES } from "@/lib/booking";
-import { BookingStatus, Role } from "@/lib/generated/prisma/enums";
+import { BookingStatus, DepositEntryKind, Role } from "@/lib/generated/prisma/enums";
 import { formatEurMinorCompact, sofiaDateKey } from "@/lib/format";
 import { dailyStats } from "@/lib/stats/turnover";
-import { depositAmountMinor } from "@/lib/deposit";
+import { classPriceMinor } from "@/lib/pricing";
 import { AdminActions } from "./_components/AdminActions";
 
 export const metadata = { title: "FitLab Varna — Админ панел" };
@@ -84,41 +84,48 @@ export default async function AdminPage() {
     },
   });
 
-  // ─── KPI: Today's turnover — settled deposits on today's classes ────────
-  // Bounded query: today (Sofia) spans at most [now−26h, now+26h] in UTC, so
-  // fetch that window and let the pure helper pick the Sofia-local day.
+  // ─── KPI: Today's turnover — deposits in today + class fees paid in cash ─
+  // Same rule as Статистика (`lib/stats/turnover.ts`): a booking alone is not
+  // money. Bounded query: today (Sofia) spans at most [now−26h, now+26h] in
+  // UTC, so fetch that window and let the pure helper pick the Sofia day.
   const DAY_WINDOW_MS = 26 * 60 * 60 * 1000;
   const todayKey = sofiaDateKey(now);
-  const todayBookings = await prisma.booking.findMany({
-    where: {
-      status: { not: BookingStatus.cancelled },
-      scheduledClass: {
-        studioId,
-        startAt: {
-          gte: new Date(Date.now() - DAY_WINDOW_MS),
-          lte: new Date(Date.now() + DAY_WINDOW_MS),
+  const windowFrom = new Date(Date.now() - DAY_WINDOW_MS);
+  const windowTo = new Date(Date.now() + DAY_WINDOW_MS);
+  const [todayBookings, todayDeposits] = await Promise.all([
+    prisma.booking.findMany({
+      where: {
+        status: { not: BookingStatus.cancelled },
+        scheduledClass: { studioId, startAt: { gte: windowFrom, lte: windowTo } },
+      },
+      select: {
+        status: true,
+        onsiteMethod: true,
+        scheduledClass: {
+          select: {
+            startAt: true,
+            practice: { select: { priceMinor: true } },
+            studio: { select: { defaultClassPrice: true } },
+          },
         },
       },
-    },
-    select: {
-      status: true,
-      source: true,
-      scheduledClass: {
-        select: {
-          startAt: true,
-          depositAmount: true,
-          studio: { select: { defaultDeposit: true } },
-        },
+    }),
+    prisma.depositEntry.findMany({
+      where: {
+        kind: { not: DepositEntryKind.correction },
+        createdAt: { gte: windowFrom, lte: windowTo },
       },
-    },
-  });
+      select: { amountMinor: true, createdAt: true },
+    }),
+  ]);
   const todayStats = dailyStats(
     todayBookings.map((b) => ({
       status: b.status,
-      source: b.source,
-      depositMinor: depositAmountMinor(b.scheduledClass, b.scheduledClass.studio),
+      onsiteMethod: b.onsiteMethod,
+      priceMinor: classPriceMinor(b.scheduledClass.practice, b.scheduledClass.studio),
       classStartAt: b.scheduledClass.startAt,
     })),
+    todayDeposits,
   ).find((d) => d.dayKey === todayKey);
   const todayTurnover = todayStats?.turnoverMinor ?? 0;
 
