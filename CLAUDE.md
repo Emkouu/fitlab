@@ -247,9 +247,12 @@ reason the burn has to remember where the money came from.
 - `Booking.depositBurnedMethod` — snapshotted by `burnDeposit()` from the last
   `received` `DepositEntry` on that profile. The balance is one pot with no
   history of its own, so the origin has to be captured at the moment of the
-  burn or it is gone. NULL for burns of deposits recorded before the ledger
-  existed; those show as **„неизвестен произход"** and the page tells staff to
-  check the profile rather than guessing a key.
+  burn or it is gone. A deposit from before the ledger (30.08.2026) has no
+  `received` entry; before the ledger one could only arrive by card (a paid
+  `Payment`) or as cash at the desk, so `burnDeposit()` falls back to `card` if
+  the client has a paid payment, else `cash`. Migration
+  `20260930200000_backfill_burn_origin` applied the same rule to the old NULL
+  rows, so „неизвестен произход" should no longer appear.
 - `Booking.depositFiscalizedAt` / `depositFiscalizedMinor` — the record that it
   was rung up, written by `markDepositFiscalizedAction` (admin only). Ringing up
   is a physical act on the device; the mark only stops the same €10 being rung

@@ -106,4 +106,15 @@ describe("burnedDepositTotals — за касовия апарат", () => {
     // Both are still burns — the fiscal state is a work list, not a filter.
     expect(t.totalMinor).toBe(3000);
   });
+
+  it("splits what is still to be rung up per key", () => {
+    const r = burnedDepositTotals([
+      { depositBurnedMinor: 1000, classDayKey: "2026-09-01", method: "cash" },
+      { depositBurnedMinor: 2000, classDayKey: "2026-09-02", method: "cash", fiscalized: true },
+      { depositBurnedMinor: 1000, classDayKey: "2026-09-03", method: "card" },
+    ]);
+    expect(r.pendingByOrigin.cash).toEqual({ totalMinor: 1000, count: 1 });
+    expect(r.pendingByOrigin.card).toEqual({ totalMinor: 1000, count: 1 });
+    expect(r.fiscalized).toEqual({ totalMinor: 2000, count: 1 });
+  });
 });

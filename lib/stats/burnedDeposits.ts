@@ -49,6 +49,8 @@ export type BurnedDepositTotals = {
   byOrigin: Record<BurnOriginKey, BurnedGroup>;
   /** Still to be rung up. */
   pending: BurnedGroup;
+  /** Still to be rung up, per key — what the desk actually has to press. */
+  pendingByOrigin: Record<BurnOriginKey, BurnedGroup>;
   /** Already rung up. */
   fiscalized: BurnedGroup;
 };
@@ -73,6 +75,7 @@ export function burnedDepositTotals(
 ): BurnedDepositTotals {
   const perDay = new Map<string, { totalMinor: number; count: number }>();
   const byOrigin = EMPTY_ORIGINS();
+  const pendingByOrigin = EMPTY_ORIGINS();
   const pending: BurnedGroup = { totalMinor: 0, count: 0 };
   const fiscalized: BurnedGroup = { totalMinor: 0, count: 0 };
   let totalMinor = 0;
@@ -97,13 +100,18 @@ export function burnedDepositTotals(
     const bucket = row.fiscalized ? fiscalized : pending;
     bucket.totalMinor += burned;
     bucket.count += 1;
+    if (!row.fiscalized) {
+      const p = pendingByOrigin[row.method ?? "unknown"];
+      p.totalMinor += burned;
+      p.count += 1;
+    }
   }
 
   const byDay = Array.from(perDay.entries())
     .map(([dayKey, v]) => ({ dayKey, ...v }))
     .sort((a, b) => a.dayKey.localeCompare(b.dayKey));
 
-  return { totalMinor, count, byDay, byOrigin, pending, fiscalized };
+  return { totalMinor, count, byDay, byOrigin, pending, pendingByOrigin, fiscalized };
 }
 
 /**

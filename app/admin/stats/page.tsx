@@ -36,8 +36,8 @@ const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** Which key on the касов апарат a burned deposit has to be rung up on. */
 const BURN_ORIGIN_ROWS: Array<{ key: BurnOriginKey; label: string }> = [
-  { key: "cash", label: "Платен в брой" },
-  { key: "card", label: "Платен с карта" },
+  { key: "cash", label: "В брой" },
+  { key: "card", label: "С карта" },
   { key: "manual", label: "Ръчна корекция" },
   { key: "unknown", label: "Неизвестен произход" },
 ];
@@ -283,43 +283,58 @@ export default async function AdminStatsPage({
           Депозити, които остават за студиото — неявяване или отказ след срока.
         </p>
 
-        <div className="grid grid-cols-2 gap-3">
-          <TotalCard label="Сума" value={formatEurMinorCompact(burned.totalMinor)} accent />
-          <TotalCard label="Брой" value={String(burned.count)} />
-        </div>
-
-        {/* The register split — cash and card are different keys on the касов
-            апарат, so the month's burns are shown the way they get rung up. */}
-        {burned.count > 0 && (
-          <ul className="mt-3 space-y-1.5 rounded-2xl bg-white px-4 py-3 shadow-[0_1px_2px_rgba(123,45,142,0.05),0_4px_16px_-8px_rgba(236,72,153,0.18)]">
-            {BURN_ORIGIN_ROWS.map(({ key, label }) => {
-              const g = burned.byOrigin[key];
-              if (g.count === 0) return null;
-              return (
-                <li key={key} className="flex items-baseline justify-between gap-3">
-                  <span className="font-mono text-[11px] uppercase tracking-wider text-[color:var(--brand-purple)]/60">
-                    {label}
-                  </span>
-                  <span className="flex items-baseline gap-3">
-                    <span className="text-[11px] text-[color:var(--brand-purple)]/60">
-                      {g.count} бр.
-                    </span>
-                    <span className="font-display text-sm font-bold text-[color:var(--brand-purple)]">
-                      {formatEurMinor(g.totalMinor)}
-                    </span>
-                  </span>
-                </li>
-              );
-            })}
-            <li className="mt-1.5 flex items-baseline justify-between gap-3 border-t border-[color:var(--brand-pink)] pt-1.5 text-[11px] text-[color:var(--brand-purple)]/60">
-              <span>чукнати на касата</span>
-              <span>
-                {formatEurMinor(burned.fiscalized.totalMinor)} от{" "}
+        {/* One card, in the order the desk works: the month's total, then only
+            what still has to be rung up — per key, because cash and card are
+            different keys on the касов апарат — then what already has been. */}
+        <div className="rounded-2xl bg-white px-4 py-4 shadow-[0_1px_2px_rgba(123,45,142,0.05),0_4px_16px_-8px_rgba(236,72,153,0.18)]">
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="font-display text-sm font-bold">
+              Общо за {formatMonthKeyBg(monthKey)}
+            </span>
+            <span className="flex items-baseline gap-2">
+              <span className="font-display text-xl font-bold text-[color:var(--brand-magenta)]">
                 {formatEurMinor(burned.totalMinor)}
               </span>
-            </li>
-          </ul>
-        )}
+              <span className="text-[11px] text-[color:var(--brand-purple)]/60">
+                ({burned.count} бр.)
+              </span>
+            </span>
+          </div>
+
+          {burned.count > 0 && (
+            <>
+              <p className="mt-4 font-mono text-[10px] uppercase tracking-wider text-[color:var(--brand-purple)]/60">
+                За чукане на касата
+              </p>
+              {burned.pending.count === 0 ? (
+                <p className="mt-1.5 text-sm text-[color:var(--brand-purple)]/70">
+                  Всичко е чукнато ✓
+                </p>
+              ) : (
+                <ul className="mt-1.5 space-y-1.5">
+                  {BURN_ORIGIN_ROWS.map(({ key, label }) => {
+                    const g = burned.pendingByOrigin[key];
+                    if (g.count === 0) return null;
+                    return (
+                      <li key={key} className="flex items-baseline justify-between gap-3">
+                        <span className="text-sm">{label}</span>
+                        <span className="font-display text-base font-bold">
+                          {formatEurMinor(g.totalMinor)}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              <div className="mt-3 flex items-baseline justify-between gap-3 border-t border-[color:var(--brand-pink)] pt-2.5 text-sm text-[color:var(--brand-purple)]/70">
+                <span>Вече чукнати</span>
+                <span className="font-display font-bold">
+                  {formatEurMinor(burned.fiscalized.totalMinor)}
+                </span>
+              </div>
+            </>
+          )}
+        </div>
 
         {pendingCount > 0 && (
           <Link
@@ -327,7 +342,7 @@ export default async function AdminStatsPage({
             className="mt-3 flex items-center justify-between gap-3 rounded-2xl bg-[color:var(--brand-magenta)] px-4 py-3 text-white transition-opacity hover:opacity-90"
           >
             <span className="font-display text-xs font-bold uppercase tracking-wider">
-              За касовия апарат
+              Списък за чукане · всички месеци
             </span>
             <span className="font-display text-sm font-bold">
               {pendingCount} бр. · {formatEurMinor(pendingMinor)} →

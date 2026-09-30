@@ -33,7 +33,7 @@ const ORIGIN_LABEL: Record<BurnOriginKey, string> = {
   cash: "В брой",
   card: "С карта",
   manual: "Ръчна корекция",
-  unknown: "Неизвестен произход",
+  unknown: "Неизвестен",
 };
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -142,7 +142,14 @@ export default async function BurnedDepositsPage({
   const burns = all.filter((b) => !b.stornoNeeded);
   const queue = burns.filter((b) => !b.fiscalized);
   const done = burns.filter((b) => b.fiscalized);
-  const shown = pendingOnly ? queue : [...queue, ...done];
+  // The queue view drops a row the moment it is marked, which also drops its
+  // „Свали отметката". Keep the last day's marks visible there, so a wrong tap
+  // can be taken back from the same screen.
+  const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+  const recentlyDone = done.filter(
+    (b) => b.depositFiscalizedAt && b.depositFiscalizedAt.getTime() > dayAgo,
+  );
+  const shown = pendingOnly ? [...queue, ...recentlyDone] : [...queue, ...done];
 
   // The register split: what is still waiting, per key.
   const queueByOrigin = queue.reduce<Record<BurnOriginKey, { totalMinor: number; count: number }>>(

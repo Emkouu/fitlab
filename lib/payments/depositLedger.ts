@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import {
   DepositEntryKind,
   DepositEntryMethod,
+  PaymentStatus,
 } from "@/lib/generated/prisma/enums";
 import { depositAmountMinor } from "@/lib/deposit";
 import { STUDIO_SLUG } from "@/lib/studio";
@@ -136,13 +137,23 @@ export async function burnDeposit(bookingId: string): Promise<number> {
   // and gets rung up on the касов апарат, where „в брой" and „с карта" are
   // different keys — and the balance is one pot with no history of its own, so
   // the origin has to be captured here, while the arrival record is still
-  // reachable. NULL for a deposit recorded before the ledger existed; the
-  // report says „неизвестен произход" rather than guessing a key.
+  // reachable.
   const lastArrival = await prisma.depositEntry.findFirst({
     where: { userId: booking.userId, kind: DepositEntryKind.received },
     orderBy: { createdAt: "desc" },
     select: { method: true },
   });
+  // No arrival record → a deposit from before the ledger (30.08.2026). Back then
+  // it could only have come from a card payment or cash entered at the desk, so
+  // a paid payment on the account means card. Same rule as the backfill
+  // migration `20260930200000_backfill_burn_origin`.
+  const method =
+    lastArrival?.method ??
+    ((await prisma.payment.count({
+      where: { status: PaymentStatus.paid, booking: { is: { userId: booking.userId } } },
+    })) > 0
+      ? DepositEntryMethod.card
+      : DepositEntryMethod.cash);
 
   // Claim and debit in ONE transaction. The claim is what makes this idempotent
   // (two racing taps: only one sees `depositBurnedMinor: null`), and the debit's
@@ -155,7 +166,7 @@ export async function burnDeposit(bookingId: string): Promise<number> {
         where: { id: booking.id, depositBurnedMinor: null },
         data: {
           depositBurnedMinor: amount,
-          depositBurnedMethod: lastArrival?.method ?? null,
+          depositBurnedMethod: method,
         },
       });
       if (claimed.count === 0) return 0;
