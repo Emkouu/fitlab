@@ -4,7 +4,12 @@ import robotoFonts from "pdfmake/fonts/Roboto";
 import { COMPANY } from "@/lib/legal/company";
 import { formatEurMinor, formatSofiaDateTime } from "@/lib/format";
 import { BURN_REASON_LABEL, type BurnOriginKey } from "./burnedDeposits";
-import { ORIGIN_ORDER, type BurnedReport, type BurnedReportLine } from "./burnedReport";
+import {
+  ORIGIN_ORDER,
+  type BurnOriginFilter,
+  type BurnedReport,
+  type BurnedReportLine,
+} from "./burnedReport";
 import { formatMonthKeyBg } from "./monthRange";
 
 /**
@@ -22,6 +27,12 @@ const ORIGIN_LABEL: Record<BurnOriginKey, string> = {
   card: "С карта",
   manual: "Ръчна корекция",
   unknown: "Неизвестен произход",
+};
+
+/** The subtitle line for a report narrowed to one register key. */
+const FILTER_LABEL: Record<BurnOriginFilter, string> = {
+  card: "само депозити, платени с карта (по банка — виртуален ПОС)",
+  cash: "само депозити, платени в брой",
 };
 
 const DATE = new Intl.DateTimeFormat("bg-BG", {
@@ -89,8 +100,9 @@ function detailTable(lines: BurnedReportLine[], storno = false) {
 export async function renderBurnedReportPdf(
   report: BurnedReport,
   monthKey: string,
-  generatedAt: Date = new Date(),
+  opts: { origin?: BurnOriginFilter | null; generatedAt?: Date } = {},
 ): Promise<Buffer> {
+  const { origin = null, generatedAt = new Date() } = opts;
   pdfmake.setFonts(robotoFonts);
   // Only the bundled fonts may be read from disk, and nothing from the network.
   const fontFiles = new Set(Object.values(robotoFonts).flatMap((f) => Object.values(f)));
@@ -109,7 +121,15 @@ export async function renderBurnedReportPdf(
     { text: `${COMPANY.legalName} · ЕИК ${COMPANY.eik}`, style: "company" },
     { text: `${COMPANY.brand} · ${COMPANY.seat}`, style: "muted" },
     { text: "Справка за усвоени депозити", style: "title" },
-    { text: `за месец ${monthLabel} г.`, style: "subtitle" },
+    origin
+      ? {
+          stack: [
+            { text: `за месец ${monthLabel} г.` },
+            { text: FILTER_LABEL[origin], bold: true, color: INK },
+          ],
+          style: "subtitle",
+        }
+      : { text: `за месец ${monthLabel} г.`, style: "subtitle" },
     {
       text:
         "Усвоеният депозит е приход на студиото (неявяване или отказ след срока) и се маркира " +
@@ -121,7 +141,10 @@ export async function renderBurnedReportPdf(
   ];
 
   if (report.count === 0) {
-    content.push({ text: `През ${monthLabel} г. няма усвоени депозити.`, margin: [0, 2, 0, 10] });
+    content.push({
+      text: `През ${monthLabel} г. няма усвоени депозити${origin ? ` (${FILTER_LABEL[origin]})` : ""}.`,
+      margin: [0, 2, 0, 10],
+    });
   } else {
     content.push({
       table: {
@@ -195,7 +218,7 @@ export async function renderBurnedReportPdf(
     pageSize: "A4",
     pageMargins: [36, 40, 36, 44],
     info: {
-      title: `Усвоени депозити — ${monthLabel}`,
+      title: `Усвоени депозити — ${monthLabel}${origin === "card" ? " — с карта" : origin === "cash" ? " — в брой" : ""}`,
       author: COMPANY.legalName,
     },
     defaultStyle: { font: "Roboto", fontSize: 9, color: INK, lineHeight: 1.15 },

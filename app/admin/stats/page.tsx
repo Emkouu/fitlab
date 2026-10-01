@@ -404,6 +404,15 @@ export default async function AdminStatsPage({
           <FileDown aria-hidden className="h-4 w-4" />
           Изтегли PDF за счетоводителя · {formatMonthKeyBg(monthKey)}
         </a>
+        <a
+          href={`/admin/stats/burned/pdf?month=${monthKey}&origin=card`}
+          download
+          className="mt-2 flex items-center justify-center gap-2 rounded-2xl border border-[color:var(--brand-pink)] bg-white px-4 py-2.5 font-display text-[11px] font-bold text-[color:var(--brand-purple)] transition-colors hover:bg-[color:var(--brand-pink-soft)]/50"
+        >
+          <FileDown aria-hidden className="h-3.5 w-3.5" />
+          PDF само с карта (по банка) · {burned.byOrigin.card.count} бр. ·{" "}
+          {formatEurMinor(burned.byOrigin.card.totalMinor)}
+        </a>
 
         <p className="mt-3 text-[11px] leading-relaxed text-[color:var(--brand-purple)]/55">
           Усвоеният депозит е приход и се чука на касовия апарат — по начина, по

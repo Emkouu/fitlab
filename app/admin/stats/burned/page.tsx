@@ -16,6 +16,7 @@ import {
   burnReason,
   type BurnOriginKey,
 } from "@/lib/stats/burnedDeposits";
+import { isBurnOriginFilter, type BurnOriginFilter } from "@/lib/stats/burnedReport";
 import {
   currentMonthKey,
   formatMonthKeyBg,
@@ -42,6 +43,13 @@ const SOURCE_LABEL: Record<string, string> = {
   onsite_deposit: "депозит на място",
 };
 
+/** The „Плащане" filter chips — „С карта" is the money that came in through the bank. */
+const ORIGIN_FILTERS: { key: BurnOriginFilter | null; label: string }[] = [
+  { key: null, label: "Всички" },
+  { key: "card", label: "С карта (банка)" },
+  { key: "cash", label: "В брой" },
+];
+
 /** "2026-08-13" — the day keys the summary links with. */
 function isDayKey(v: string | undefined): v is string {
   return typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
@@ -63,21 +71,35 @@ function isDayKey(v: string | undefined): v is string {
  *
  * `?pending=1` narrows the chosen month to what is still to be rung up (plus
  * the last day's marks, so a wrong tap can be undone). The studio only works
- * the current month; earlier months are history, not a queue.
+ * the current month; earlier months are history, not a queue. `?origin=card`
+ * (paid through the bank) or `?origin=cash` narrows everything — the list, the
+ * totals and the PDF link — to one register key.
  * Admin only — this is money.
  */
 export default async function BurnedDepositsPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ month?: string; day?: string; pending?: string }>;
+  searchParams?: Promise<{ month?: string; day?: string; pending?: string; origin?: string }>;
 }) {
   const admin = await getAdminUser();
   if (!admin) redirect("/schedule");
 
-  const { month, day, pending } = searchParams ? await searchParams : {};
+  const { month, day, pending, origin } = searchParams ? await searchParams : {};
   const monthKey = isMonthKey(month) ? month : currentMonthKey();
   const dayKey = isDayKey(day) ? day : null;
   const pendingOnly = pending === "1";
+  const originFilter = isBurnOriginFilter(origin) ? origin : null;
+  // Every link on the page keeps the chosen filters, so narrowing never resets.
+  const href = (over: { day?: string | null; pending?: boolean; origin?: BurnOriginFilter | null } = {}) => {
+    const q = new URLSearchParams({ month: monthKey });
+    const d = over.day === undefined ? dayKey : over.day;
+    const p = over.pending === undefined ? pendingOnly : over.pending;
+    const o = over.origin === undefined ? originFilter : over.origin;
+    if (d) q.set("day", d);
+    if (p) q.set("pending", "1");
+    if (o) q.set("origin", o);
+    return `/admin/stats/burned?${q}`;
+  };
   const { from, to } = sofiaMonthRange(monthKey);
 
   const studio = await prisma.studio.findUnique({
@@ -137,7 +159,8 @@ export default async function BurnedDepositsPage({
       };
     })
     .filter((b) => b.burnedMinor > 0 || b.stornoNeeded)
-    .filter((b) => (dayKey ? b.dayKey === dayKey : true));
+    .filter((b) => (dayKey ? b.dayKey === dayKey : true))
+    .filter((b) => (originFilter ? b.origin === originFilter : true));
 
   const storno = all.filter((b) => b.stornoNeeded);
   const burns = all.filter((b) => !b.stornoNeeded);
@@ -169,6 +192,8 @@ export default async function BurnedDepositsPage({
   const queueTotal = queue.reduce((s, b) => s + b.burnedMinor, 0);
   const doneTotal = done.reduce((s, b) => s + b.burnedMinor, 0);
 
+  const originLabel =
+    originFilter === "card" ? " · само с карта" : originFilter === "cash" ? " · само в брой" : "";
   const scopeLabel = pendingOnly
     ? `нечукнати · ${formatMonthKeyBg(monthKey)}`
     : dayKey
@@ -202,9 +227,31 @@ export default async function BurnedDepositsPage({
           Усвоени депозити
         </h1>
         <p className="mt-1 text-xs text-[color:var(--brand-purple)]/70">
-          {scopeLabel} · {shown.length} бр.
+          {scopeLabel}
+          {originLabel} · {shown.length} бр.
         </p>
       </div>
+
+      {/* Плащане — „С карта" is what came in through the bank (виртуален ПОС). */}
+      <nav aria-label="Начин на плащане" className="mb-5 flex flex-wrap gap-2">
+        {ORIGIN_FILTERS.map((f) => {
+          const active = f.key === originFilter;
+          return (
+            <Link
+              key={f.label}
+              href={href({ origin: f.key })}
+              aria-current={active ? "page" : undefined}
+              className={`rounded-full px-3 py-1.5 font-display text-[11px] font-bold ${
+                active
+                  ? "bg-[color:var(--brand-purple)] text-white"
+                  : "bg-white text-[color:var(--brand-purple)] shadow-[0_1px_2px_rgba(123,45,142,0.08)]"
+              }`}
+            >
+              {f.label}
+            </Link>
+          );
+        })}
+      </nav>
 
       {/* За касовия апарат — the split that decides which key is pressed. */}
       <section className="mb-6 rounded-2xl bg-white px-4 py-4 shadow-[0_1px_2px_rgba(123,45,142,0.05),0_4px_16px_-8px_rgba(236,72,153,0.18)]">
@@ -269,14 +316,14 @@ export default async function BurnedDepositsPage({
         <div className="mt-3 flex flex-wrap gap-2">
           {pendingOnly ? (
             <Link
-              href={`/admin/stats/burned?month=${monthKey}`}
+              href={href({ pending: false })}
               className="rounded-full bg-[color:var(--brand-pink-soft)] px-3 py-1.5 font-display text-[11px] font-bold text-[color:var(--brand-purple)]"
             >
               Покажи и чукнатите
             </Link>
           ) : (
             <Link
-              href={`/admin/stats/burned?month=${monthKey}&pending=1`}
+              href={href({ pending: true })}
               className="rounded-full bg-[color:var(--brand-pink-soft)] px-3 py-1.5 font-display text-[11px] font-bold text-[color:var(--brand-purple)]"
             >
               Само нечукнатите
@@ -284,17 +331,18 @@ export default async function BurnedDepositsPage({
           )}
           {!dayKey && (
             <a
-              href={`/admin/stats/burned/pdf?month=${monthKey}`}
+              href={`/admin/stats/burned/pdf?month=${monthKey}${originFilter ? `&origin=${originFilter}` : ""}`}
               download
               className="inline-flex items-center gap-1.5 rounded-full bg-[color:var(--brand-magenta)] px-3 py-1.5 font-display text-[11px] font-bold text-white"
             >
               <FileDown aria-hidden className="h-3.5 w-3.5" />
               PDF за {formatMonthKeyBg(monthKey)}
+              {originFilter === "card" ? " · с карта" : originFilter === "cash" ? " · в брой" : ""}
             </a>
           )}
           {dayKey && (
             <Link
-              href={`/admin/stats/burned?month=${monthKey}`}
+              href={href({ day: null })}
               className="rounded-full bg-[color:var(--brand-pink-soft)] px-3 py-1.5 font-display text-[11px] font-bold text-[color:var(--brand-purple)]"
             >
               Виж целия месец

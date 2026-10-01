@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import { getAdminUser } from "@/lib/auth/getAdminUser";
-import { buildBurnedReport } from "@/lib/stats/burnedReport";
+import { buildBurnedReport, isBurnOriginFilter } from "@/lib/stats/burnedReport";
 import { renderBurnedReportPdf } from "@/lib/stats/burnedReportPdf";
 import type { BurnOriginKey } from "@/lib/stats/burnedDeposits";
 import { currentMonthKey, isMonthKey, sofiaMonthRange } from "@/lib/stats/monthRange";
@@ -9,13 +9,17 @@ import { STUDIO_SLUG } from "@/lib/studio";
 /**
  * GET /admin/stats/burned/pdf?month=YYYY-MM — the month's burned deposits as a
  * PDF for the accountant. Same scope as `/admin/stats/burned?month=…` (by the
- * class's Sofia month). Admin only — this is money.
+ * class's Sofia month). `&origin=card` (paid through the bank) or `&origin=cash`
+ * narrows it to one register key. Admin only — this is money.
  */
 export async function GET(request: Request) {
   const admin = await getAdminUser();
   if (!admin) return new Response("Forbidden", { status: 403 });
 
-  const month = new URL(request.url).searchParams.get("month");
+  const params = new URL(request.url).searchParams;
+  const month = params.get("month");
+  const originParam = params.get("origin");
+  const origin = isBurnOriginFilter(originParam) ? originParam : null;
   const monthKey = isMonthKey(month) ? month : currentMonthKey();
   const { from, to } = sofiaMonthRange(monthKey);
 
@@ -59,14 +63,16 @@ export async function GET(request: Request) {
       practiceName: b.scheduledClass.practice.name,
       classStartAt: b.scheduledClass.startAt,
     })),
+    { origin },
   );
 
-  const pdf = await renderBurnedReportPdf(report, monthKey);
+  const pdf = await renderBurnedReportPdf(report, monthKey, { origin });
+  const suffix = origin ? `-${origin === "card" ? "karta" : "v-broi"}` : "";
 
   return new Response(new Uint8Array(pdf), {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="usvoeni-depoziti-${monthKey}.pdf"`,
+      "Content-Disposition": `attachment; filename="usvoeni-depoziti-${monthKey}${suffix}.pdf"`,
       "Cache-Control": "private, no-store",
     },
   });

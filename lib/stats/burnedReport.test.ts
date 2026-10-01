@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildBurnedReport, type BurnedReportInput } from "./burnedReport";
+import { buildBurnedReport, isBurnOriginFilter, type BurnedReportInput } from "./burnedReport";
 
 let seq = 0;
 const row = (over: Partial<BurnedReportInput> = {}): BurnedReportInput => ({
@@ -74,5 +74,34 @@ describe("buildBurnedReport", () => {
     const r = buildBurnedReport([row({ status: "cancelled", clientName: "  " })]);
     expect(r.lines[0].reason).toBe("late_cancel");
     expect(r.lines[0].clientName).toBe("Без име");
+  });
+
+  it("narrows to one register key, сторно included", () => {
+    const rows = [
+      row({ id: "cash", depositBurnedMethod: "cash" }),
+      row({ id: "card", depositBurnedMethod: "card", depositBurnedMinor: 2000 }),
+      row({ id: "old", depositBurnedMethod: null }),
+      row({
+        id: "card-storno",
+        depositBurnedMethod: "card",
+        depositBurnedMinor: null,
+        depositFiscalizedAt: new Date(),
+        depositFiscalizedMinor: 1000,
+      }),
+    ];
+    const r = buildBurnedReport(rows, { origin: "card" });
+    expect(r.lines.map((l) => l.id)).toEqual(["card"]);
+    expect(r.storno.map((l) => l.id)).toEqual(["card-storno"]);
+    expect(r.totalMinor).toBe(2000);
+    expect(r.byOrigin.cash.count).toBe(0);
+
+    expect(buildBurnedReport(rows, { origin: null }).count).toBe(3);
+  });
+
+  it("accepts only card or cash as a filter", () => {
+    expect(isBurnOriginFilter("card")).toBe(true);
+    expect(isBurnOriginFilter("cash")).toBe(true);
+    expect(isBurnOriginFilter("manual")).toBe(false);
+    expect(isBurnOriginFilter(null)).toBe(false);
   });
 });

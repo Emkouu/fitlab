@@ -55,11 +55,26 @@ export type BurnedReport = {
 
 export const ORIGIN_ORDER: readonly BurnOriginKey[] = ["cash", "card", "manual", "unknown"];
 
-export function buildBurnedReport(rows: readonly BurnedReportInput[]): BurnedReport {
+/**
+ * „Само с карта" / „само в брой" — the report narrowed to one register key.
+ * `card` is the money that came in through the bank (the Fibank virtual POS),
+ * which is what the accountant reconciles against the bank statement.
+ */
+export type BurnOriginFilter = "card" | "cash";
+
+export function isBurnOriginFilter(v: unknown): v is BurnOriginFilter {
+  return v === "card" || v === "cash";
+}
+
+export function buildBurnedReport(
+  rows: readonly BurnedReportInput[],
+  opts: { origin?: BurnOriginFilter | null } = {},
+): BurnedReport {
   const lines: BurnedReportLine[] = [];
   const storno: BurnedReportLine[] = [];
 
   for (const r of rows) {
+    if (opts.origin && r.depositBurnedMethod !== opts.origin) continue;
     const burned = r.depositBurnedMinor ?? 0;
     const base = {
       id: r.id,
