@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { deliverEmail } from "@/lib/email/deliver";
 import { formatSofiaDay, formatSofiaTime } from "@/lib/format";
 import type { ReminderType } from "@/lib/email/sendReminder";
+import { describeChildPickup } from "@/lib/booking/child";
 
 /** Same set as the client reminder: the statuses that hold a spot. */
 const ACTIVE_STATUSES = ["booked", "pending_deposit", "paid"] as const;
@@ -37,6 +38,9 @@ export async function sendTrainerClassReminder(
         select: {
           status: true,
           isFirstVisit: true,
+          childName: true,
+          childPickup: true,
+          childPickupName: true,
           user: { select: { fullName: true, phone: true, email: true } },
         },
       },
@@ -83,14 +87,20 @@ export async function sendTrainerClassReminder(
       ? `<p style="font-size:14px;color:#6b476f;margin:0">Няма записани клиенти.</p>`
       : `<ol style="font-size:14px;line-height:1.7;margin:0;padding-left:20px">${cls.bookings
           .map((b) => {
-            const who =
+            const parent =
               b.user.fullName ?? b.user.phone ?? b.user.email ?? "Клиент";
+            // Children's class: the child is who comes; the parent is the
+            // contact. Both are typed by clients, so escaped before HTML.
+            const who = b.childName
+              ? `${escapeHtml(b.childName)} <span style="color:#6b476f">(родител: ${escapeHtml(parent)})</span>`
+              : escapeHtml(parent);
             const notes = [
               b.status === "pending_deposit" ? "депозит на място" : null,
               b.isFirstVisit ? "първо посещение" : null,
+              describeChildPickup(b.childPickup, b.childPickupName),
             ].filter(Boolean);
             const suffix = notes.length
-              ? ` <span style="color:#7b2d8e">· ${notes.join(" · ")}</span>`
+              ? ` <span style="color:#7b2d8e">· ${escapeHtml(notes.join(" · "))}</span>`
               : "";
             return `<li>${who}${suffix}</li>`;
           })
@@ -134,4 +144,12 @@ export async function sendTrainerClassReminder(
   }
 
   return { ok: allOk };
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }

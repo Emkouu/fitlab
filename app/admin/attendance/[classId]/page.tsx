@@ -15,6 +15,7 @@ import {
   type ClientOption,
 } from "../_components/AddClientToClass";
 import { isUnfinishedCardDeposit } from "@/lib/booking/unfinishedDeposit";
+import { describeChildPickup } from "@/lib/booking/child";
 import { AdminBreadcrumb } from "../../_components/AdminBreadcrumb";
 
 export const dynamic = "force-dynamic";
@@ -101,6 +102,8 @@ export default async function AdminAttendanceClassPage({
     depositSettled: b.depositSettledAt !== null,
     depositBurnedMinor: b.depositBurnedMinor ?? 0,
     isFirstVisit: b.isFirstVisit,
+    childName: b.childName,
+    childPickup: describeChildPickup(b.childPickup, b.childPickupName),
     // A card hold whose deposit never arrived. Kept out of „Записани" so the
     // number staff read is the number of people who actually booked.
     unfinishedDeposit: isUnfinishedCardDeposit({

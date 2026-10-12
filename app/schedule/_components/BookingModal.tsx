@@ -12,6 +12,12 @@ import {
   CLASS_FEE_METHOD_LABEL,
   type ClassFeeMethod,
 } from "@/lib/payments/classFeeMethods";
+import {
+  CHILD_PICKUPS,
+  CHILD_PICKUP_LABEL,
+  childBookingSchema,
+  type ChildPickupOption,
+} from "@/lib/booking/child";
 import { bookClassAction } from "../_actions";
 import { Spinner } from "@/app/_components/Spinner";
 import type { ClassCardRow } from "./ClassCard";
@@ -52,6 +58,7 @@ export function BookingModal({
   onClose,
   userBalance = 0,
   isFirstTimeVisitor = false,
+  knownChildren = [],
 }: {
   row: ClassCardRow | null;
   onClose: () => void;
@@ -60,6 +67,8 @@ export function BookingModal({
   /** True when this client has never booked anything — they get the one
    *  „първо посещение" reservation, without paying a deposit first. */
   isFirstTimeVisitor?: boolean;
+  /** Children this parent has booked before, offered as suggestions. */
+  knownChildren?: string[];
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const router = useRouter();
@@ -72,7 +81,21 @@ export function BookingModal({
   // „Идвам за първи път" — hold the spot without a deposit. Never pre-ticked:
   // it changes what happens with money, so it has to be a deliberate tap.
   const [firstVisit, setFirstVisit] = useState(false);
+  // Children's class: who comes, and who takes them home afterwards.
+  const [childName, setChildName] = useState("");
+  const [pickup, setPickup] = useState<ChildPickupOption | "">("");
+  const [pickupName, setPickupName] = useState("");
   const [, startTransition] = useTransition();
+
+  const isChildrenClass = row?.practice.isForChildren ?? false;
+  const childInput = {
+    childName,
+    pickup: pickup === "" ? undefined : pickup,
+    pickupName,
+  };
+  // Same schema the server runs — Потвърди stays disabled until it passes.
+  const childReady =
+    !isChildrenClass || childBookingSchema.safeParse(childInput).success;
 
   // What this class asks for: the studio setting unless the class overrides it.
   const depositRequired = depositAmountMinor(row, row?.studio);
@@ -96,6 +119,9 @@ export function BookingModal({
       setMethod("");
       setTermsAccepted(false);
       setFirstVisit(false);
+      setChildName("");
+      setPickup("");
+      setPickupName("");
       setPhase({ kind: "form" });
       d.showModal();
     } else if (!row && d.open) {
@@ -138,6 +164,7 @@ export function BookingModal({
         method: method === "" ? undefined : method,
         acceptTerms: termsAccepted,
         firstVisit: source === "onsite_deposit" ? true : undefined,
+        child: isChildrenClass ? childInput : undefined,
       });
       if (result.ok) {
         if (result.redirectTo) {
@@ -198,7 +225,7 @@ export function BookingModal({
           {/* Body */}
           <div className="max-h-[70vh] overflow-y-auto px-5 py-5">
             {phase.kind === "success" ? (
-              <SuccessState row={row} />
+              <SuccessState row={row} childName={isChildrenClass ? childName.trim() : null} />
             ) : (
               <>
                 <ClassSummary row={row} />
@@ -214,6 +241,19 @@ export function BookingModal({
                       Класът е пълен. Не можеш да се запишеш.
                     </p>
                   </motion.div>
+                )}
+
+                {isChildrenClass && (
+                  <ChildSection
+                    childName={childName}
+                    onChildName={setChildName}
+                    pickup={pickup}
+                    onPickup={setPickup}
+                    pickupName={pickupName}
+                    onPickupName={setPickupName}
+                    knownChildren={knownChildren}
+                    disabled={phase.kind === "submitting" || full}
+                  />
                 )}
 
                 {/* Price of the service itself. Shown to everyone, always —
@@ -416,7 +456,11 @@ export function BookingModal({
                   type="button"
                   onClick={() => handleConfirm("balance")}
                   disabled={
-                    phase.kind === "submitting" || full || method === "" || !termsAccepted
+                    phase.kind === "submitting" ||
+                    full ||
+                    method === "" ||
+                    !termsAccepted ||
+                    !childReady
                   }
                   className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[color:var(--brand-magenta)] px-5 py-3.5 font-display text-sm font-bold uppercase tracking-wider text-white transition-colors hover:bg-[color:var(--brand-purple)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--brand-magenta)] focus-visible:ring-offset-2 disabled:opacity-60"
                 >
@@ -442,7 +486,9 @@ export function BookingModal({
                 <button
                   type="button"
                   onClick={() => handleConfirm("card")}
-                  disabled={phase.kind === "submitting" || full || !termsAccepted}
+                  disabled={
+                    phase.kind === "submitting" || full || !termsAccepted || !childReady
+                  }
                   className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[color:var(--brand-magenta)] px-5 py-3.5 font-display text-sm font-bold uppercase tracking-wider text-white transition-colors hover:bg-[color:var(--brand-purple)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--brand-magenta)] focus-visible:ring-offset-2 disabled:opacity-60"
                 >
                   {phase.kind === "submitting" ? (
@@ -467,7 +513,11 @@ export function BookingModal({
                   type="button"
                   onClick={() => handleConfirm("onsite_deposit")}
                   disabled={
-                    phase.kind === "submitting" || full || method === "" || !termsAccepted
+                    phase.kind === "submitting" ||
+                    full ||
+                    method === "" ||
+                    !termsAccepted ||
+                    !childReady
                   }
                   className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-5 py-3.5 font-display text-sm font-bold uppercase tracking-wider text-white transition-colors hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 disabled:opacity-60"
                 >
@@ -493,6 +543,13 @@ export function BookingModal({
                 </p>
               )}
 
+              {!childReady &&
+                (hasDeposit || canPayDepositByCard || canBookAsFirstVisit) && (
+                  <p className="text-center text-[11px] text-[color:var(--brand-purple)]/60">
+                    Попълни името на детето и кой ще го вземе.
+                  </p>
+                )}
+
               {!termsAccepted &&
                 (hasDeposit || canPayDepositByCard || canBookAsFirstVisit) && (
                   <p className="text-center text-[11px] text-[color:var(--brand-purple)]/60">
@@ -508,6 +565,126 @@ export function BookingModal({
 }
 
 /* ─── helpers ─── */
+
+/**
+ * Children's class: the parent books, the child comes. Staff hand the child
+ * over after class, so they need a name for the child and an answer to „кой ще
+ * го вземе" — and, when it is someone else, that person's name.
+ */
+function ChildSection({
+  childName,
+  onChildName,
+  pickup,
+  onPickup,
+  pickupName,
+  onPickupName,
+  knownChildren,
+  disabled,
+}: {
+  childName: string;
+  onChildName: (v: string) => void;
+  pickup: ChildPickupOption | "";
+  onPickup: (v: ChildPickupOption) => void;
+  pickupName: string;
+  onPickupName: (v: string) => void;
+  knownChildren: string[];
+  disabled: boolean;
+}) {
+  const inputClass =
+    "block w-full rounded-2xl border border-[color:var(--brand-pink)]/70 bg-white px-3.5 py-3 text-sm font-medium text-[color:var(--brand-ink)] placeholder-[color:var(--brand-purple)]/40 focus:border-[color:var(--brand-magenta)] focus:outline-none focus:ring-2 focus:ring-[color:var(--brand-magenta)]/30 disabled:opacity-60";
+  return (
+    <Section title="Детска тренировка">
+      <p className="mb-3 text-[13px] leading-relaxed text-[color:var(--brand-purple)]/80">
+        Записваш дете. Мястото се пази на твоя профил — депозитът и
+        контактите са твоите.
+      </p>
+
+      <label
+        htmlFor="booking-child-name"
+        className="mb-1.5 block text-[13px] font-semibold text-[color:var(--brand-ink)]"
+      >
+        Име и фамилия на детето
+      </label>
+      {knownChildren.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-1.5">
+          {knownChildren.map((name) => (
+            <button
+              key={name}
+              type="button"
+              onClick={() => onChildName(name)}
+              disabled={disabled}
+              className={`rounded-full border px-3 py-1 text-[12px] font-medium transition-colors disabled:opacity-60 ${
+                name === childName
+                  ? "border-[color:var(--brand-magenta)] bg-[color:var(--brand-magenta)] text-white"
+                  : "border-[color:var(--brand-pink)]/70 bg-white text-[color:var(--brand-purple)] hover:bg-[color:var(--brand-pink-soft)]"
+              }`}
+            >
+              {name}
+            </button>
+          ))}
+        </div>
+      )}
+      <input
+        id="booking-child-name"
+        type="text"
+        value={childName}
+        onChange={(e) => onChildName(e.target.value)}
+        disabled={disabled}
+        maxLength={100}
+        autoComplete="off"
+        placeholder="напр. Мария Иванова"
+        className={inputClass}
+      />
+
+      <fieldset className="mt-4">
+        <legend className="mb-1.5 text-[13px] font-semibold text-[color:var(--brand-ink)]">
+          Кой ще вземе детето след тренировката?
+        </legend>
+        <div className="space-y-2">
+          {CHILD_PICKUPS.map((p) => (
+            <label
+              key={p}
+              className="flex cursor-pointer items-center gap-3 rounded-2xl border border-[color:var(--brand-pink)]/70 bg-white px-3.5 py-3 text-[13px] text-[color:var(--brand-ink)] transition-colors hover:bg-[color:var(--brand-pink-soft)]/40 has-[:checked]:border-[color:var(--brand-magenta)] has-[:checked]:bg-[color:var(--brand-pink-soft)]/50"
+            >
+              <input
+                type="radio"
+                name="booking-child-pickup"
+                value={p}
+                checked={pickup === p}
+                onChange={() => onPickup(p)}
+                disabled={disabled}
+                className="h-[18px] w-[18px] shrink-0 accent-[color:var(--brand-magenta)]"
+              />
+              {CHILD_PICKUP_LABEL[p]}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
+      {pickup === "other" && (
+        <div className="mt-3">
+          <label
+            htmlFor="booking-child-pickup-name"
+            className="mb-1.5 block text-[13px] font-semibold text-[color:var(--brand-ink)]"
+          >
+            Име на човека, който ще вземе детето
+          </label>
+          <input
+            id="booking-child-pickup-name"
+            type="text"
+            value={pickupName}
+            onChange={(e) => onPickupName(e.target.value)}
+            disabled={disabled}
+            maxLength={100}
+            autoComplete="off"
+            placeholder="напр. Петя Георгиева (баба)"
+            className={inputClass}
+          />
+        </div>
+      )}
+    </Section>
+  );
+}
 
 function ClassSummary({ row }: { row: ClassCardRow }) {
   const startAt = typeof row.startAt === "string" ? new Date(row.startAt) : row.startAt;
@@ -594,7 +771,13 @@ function Section({
   );
 }
 
-function SuccessState({ row }: { row: ClassCardRow }) {
+function SuccessState({
+  row,
+  childName,
+}: {
+  row: ClassCardRow;
+  childName: string | null;
+}) {
   return (
     <div className="py-6 text-center">
       <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-[color:var(--brand-pink-soft)]">
@@ -602,7 +785,16 @@ function SuccessState({ row }: { row: ClassCardRow }) {
       </div>
       <h3 className="font-display text-lg font-bold">Готово</h3>
       <p className="mt-2 text-sm leading-relaxed text-[color:var(--brand-purple)]/75">
-        Записан/а за <strong>{row.practice.name}</strong>.
+        {childName ? (
+          <>
+            <strong>{childName}</strong> е записан/а за{" "}
+            <strong>{row.practice.name}</strong>.
+          </>
+        ) : (
+          <>
+            Записан/а за <strong>{row.practice.name}</strong>.
+          </>
+        )}
       </p>
       <p className="mt-1 text-[12px] text-[color:var(--brand-purple)]/55">
         Депозитът ти остава по профила. Таксата за тренировката се плаща на

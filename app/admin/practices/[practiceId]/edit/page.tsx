@@ -70,6 +70,7 @@ export default async function AdminPracticesEditPage({ params }: EditPageProps) 
           slug: practice.slug,
           description: practice.description,
           priceMinor: practice.priceMinor,
+          isForChildren: practice.isForChildren,
         }}
       />
     </main>

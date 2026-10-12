@@ -35,6 +35,7 @@ export default async function AdminPracticesPage({
     name: p.name,
     slug: p.slug,
     classCount: p._count.classes,
+    isForChildren: p.isForChildren,
   }));
 
   return (

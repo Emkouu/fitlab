@@ -34,6 +34,7 @@ export function ScheduleSurface({
   windowEndKey,
   deepLinkRow = null,
   isFirstTimeVisitor = false,
+  knownChildren = [],
 }: {
   agendaDays: DayBucket[];
   monthYear: number;
@@ -54,6 +55,9 @@ export function ScheduleSurface({
   /** Client has never booked anything — eligible for the one deposit-free
    *  „първо посещение" reservation. */
   isFirstTimeVisitor?: boolean;
+  /** Children this parent has booked before — offered as suggestions in the
+   *  booking modal of a children's class. */
+  knownChildren?: string[];
 }) {
   const bookedSet = new Set(bookedClassIds);
   const waitlistedSet = new Set(waitlistedClassIds);
@@ -226,6 +230,7 @@ export function ScheduleSurface({
         onClose={() => setOpenClass(null)}
         userBalance={userBalance}
         isFirstTimeVisitor={isFirstTimeVisitor}
+        knownChildren={knownChildren}
       />
       <ClassInfoModal
         row={infoClass}

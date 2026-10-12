@@ -18,7 +18,12 @@ export type ClassCardRow = {
   depositAmount: number | null;
   cancelledAt: Date | string | null;
   practiceId: string;
-  practice: { name: string; description: string | null; priceMinor: number | null };
+  practice: {
+    name: string;
+    description: string | null;
+    priceMinor: number | null;
+    isForChildren: boolean;
+  };
   trainers: { name: string }[];
   studio: {
     name: string;
@@ -123,6 +128,11 @@ export function ClassCard({
               }`}
             >
               {row.practice.name}
+              {row.practice.isForChildren && (
+                <span className="ml-1.5 inline-flex translate-y-[-1px] rounded-full bg-sky-50 px-2 py-0.5 align-middle font-display text-[10px] font-bold uppercase tracking-wider text-sky-700">
+                  Детска
+                </span>
+              )}
             </h3>
             <p
               className={`mt-1 truncate text-sm ${
@@ -169,6 +179,15 @@ export function ClassCard({
       ) : isPast ? (
         <div className="flex w-full items-center justify-center gap-2 bg-[color:var(--brand-pink-soft)]/60 px-5 py-3 font-display text-[11px] font-bold uppercase tracking-wider text-[color:var(--brand-purple)]/55">
           Класът приключи
+        </div>
+      ) : isBooked && row.practice.isForChildren && !full ? (
+        // A parent may bring more than one child — keep the class bookable,
+        // but say that someone is already on the list.
+        <div>
+          <p className="bg-emerald-50 px-5 py-2 text-center font-display text-[11px] font-bold uppercase tracking-wider text-emerald-700">
+            Записано дете ✓
+          </p>
+          <BookButton onClick={() => onBook(row)} label="Запиши още дете" />
         </div>
       ) : isBooked ? (
         <div className="flex min-h-12 w-full items-center justify-center gap-2 bg-emerald-50 px-5 py-3.5 font-display text-sm font-bold uppercase tracking-wider text-emerald-700">

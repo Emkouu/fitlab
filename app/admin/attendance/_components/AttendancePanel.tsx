@@ -7,6 +7,7 @@ import { BookingStatus, BookingSource } from "@/lib/generated/prisma/enums";
 import { adminAdjustClientDepositAction } from "@/app/admin/_actions";
 import { markAttendanceAction, setPaymentMethodAction } from "../_actions";
 import { matchesClientQuery } from "@/lib/search/matchClient";
+import { CHILD_PICKUP_SHORT_LABEL } from "@/lib/booking/child";
 import {
   CLASS_FEE_METHODS,
   CLASS_FEE_METHOD_LABEL,
@@ -33,6 +34,10 @@ export type AttendanceRow = {
   /** Reserved through the „първо посещение" path — no deposit paid yet, and
    *  staff have to explain it and collect it at the desk. */
   isFirstVisit?: boolean;
+  /** Children's class: the child who comes (the account is the parent's), and
+   *  who takes them home — „прибира се само", „взима го Иван Петров"… */
+  childName?: string | null;
+  childPickup?: string | null;
   /** Card hold whose deposit never arrived — listed apart from „Записани". */
   unfinishedDeposit?: boolean;
   /** What a no-show actually took from this client, in EUR cents. 0 = nothing
@@ -58,7 +63,8 @@ export function AttendancePanel({
   const shown = useMemo(
     () =>
       rows.filter((r) =>
-        matchesClientQuery({ name: r.who, phone: r.phone, email: r.email }, q),
+        matchesClientQuery({ name: r.who, phone: r.phone, email: r.email }, q) ||
+        (r.childName != null && matchesClientQuery({ name: r.childName }, q)),
       ),
     [rows, q],
   );
@@ -211,9 +217,20 @@ function AttendanceItem({
     <li className="overflow-hidden rounded-2xl bg-white shadow-[0_1px_2px_rgba(123,45,142,0.05),0_4px_16px_-8px_rgba(236,72,153,0.18)]">
       <div className="flex items-start justify-between gap-3 px-5 pt-4">
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-[color:var(--brand-ink)]">
-            {row.who}
-          </p>
+          {row.childName ? (
+            <>
+              <p className="truncate text-sm font-medium text-[color:var(--brand-ink)]">
+                {row.childName}
+              </p>
+              <p className="mt-0.5 truncate text-[11px] text-[color:var(--brand-purple)]/70">
+                Родител: {row.who}
+              </p>
+            </>
+          ) : (
+            <p className="truncate text-sm font-medium text-[color:var(--brand-ink)]">
+              {row.who}
+            </p>
+          )}
           {contact !== null && (
             <p className="mt-0.5 truncate text-[11px] text-[color:var(--brand-purple)]/60">
               {contact}
@@ -227,6 +244,18 @@ function AttendanceItem({
           </p>
           {/* First time here — reserved without a deposit, so somebody has to
               explain it and take it at the desk. */}
+          {/* Whom to hand the child to — the one thing staff must not guess. */}
+          {row.childPickup && (
+            <p
+              className={`mt-1 inline-flex rounded-full px-2 py-0.5 font-display text-[10px] font-bold uppercase tracking-wider ${
+                row.childPickup === CHILD_PICKUP_SHORT_LABEL.alone
+                  ? "bg-amber-50 text-amber-800"
+                  : "bg-sky-50 text-sky-700"
+              }`}
+            >
+              {row.childPickup}
+            </p>
+          )}
           {row.isFirstVisit && (
             <p className="mt-1 inline-flex rounded-full bg-emerald-50 px-2 py-0.5 font-display text-[10px] font-bold uppercase tracking-wider text-emerald-700">
               Първо посещение

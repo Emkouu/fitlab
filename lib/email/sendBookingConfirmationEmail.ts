@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { describeChildPickup } from "@/lib/booking/child";
 import { deliverEmail } from "@/lib/email/deliver";
 import { BookingConfirmation } from "@/emails/BookingConfirmation";
 import {
@@ -88,6 +89,8 @@ export async function sendBookingConfirmationEmail(
   const reactNode = BookingConfirmation({
     greetingName: booking.user.fullName,
     practiceName: cls.practice.name,
+    childName: booking.childName,
+    childPickupText: describeChildPickup(booking.childPickup, booking.childPickupName),
     dateText,
     timeText: `${timeText} ч.`,
     durationMinutes: cls.durationMinutes,

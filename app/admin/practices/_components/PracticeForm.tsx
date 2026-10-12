@@ -20,6 +20,7 @@ export type PracticeFormProps = {
     slug: string;
     description: string | null;
     priceMinor: number | null;
+    isForChildren: boolean;
   };
 };
 
@@ -47,8 +48,15 @@ export function PracticeForm({ mode, initialData }: PracticeFormProps) {
               initialData.priceMinor === null
                 ? ""
                 : (initialData.priceMinor / 100).toFixed(2),
+            isForChildren: initialData.isForChildren,
           }
-        : { name: "", slug: "", description: "", priceEur: "" },
+        : {
+            name: "",
+            slug: "",
+            description: "",
+            priceEur: "",
+            isForChildren: false,
+          },
     mode: "onChange",
   });
 
@@ -194,6 +202,33 @@ export function PracticeForm({ mode, initialData }: PracticeFormProps) {
           <p className="mt-1 text-xs text-red-600">{errors.priceEur.message}</p>
         )}
       </div>
+
+      <Controller
+        name="isForChildren"
+        control={control}
+        render={({ field }) => (
+          <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-[color:var(--brand-purple)]/20 px-3 py-3 transition-colors hover:bg-[color:var(--brand-pink-soft)]/40">
+            <input
+              type="checkbox"
+              checked={field.value === true}
+              onChange={(e) => field.onChange(e.target.checked)}
+              onBlur={field.onBlur}
+              className="mt-0.5 h-[18px] w-[18px] shrink-0 accent-[color:var(--brand-magenta)]"
+              disabled={isPending}
+            />
+            <span>
+              <span className="block text-sm font-semibold text-[color:var(--brand-ink)]">
+                Детска тренировка
+              </span>
+              <span className="mt-0.5 block text-xs text-[color:var(--brand-purple)]/60">
+                Родителят записва детето: при записване се попълват името на
+                детето и кой ще го вземе след тренировката (родителят, детето се
+                прибира само, или друг човек — с име).
+              </span>
+            </span>
+          </label>
+        )}
+      />
 
       {submitError && (
         <div className="rounded-lg bg-red-50 px-4 py-3 text-xs text-red-700">

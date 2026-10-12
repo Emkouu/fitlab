@@ -42,6 +42,9 @@ export type BookingConfirmationProps = {
   receiptUrl: string;
   /** Masked card number, when the deposit was paid by card. */
   cardMask?: string | null;
+  /** Children's class: the child who comes, and who takes them home. */
+  childName?: string | null;
+  childPickupText?: string | null;
 };
 
 const BRAND = "#0F172A";
@@ -147,6 +150,16 @@ export function BookingConfirmation(props: BookingConfirmationProps) {
               <ReceiptRow label="Клиент" value={clientName} />
               <ReceiptRow label="Дата на транзакция" value={transactionDateText} />
               <ReceiptRow label="Услуга" value={`${practiceName} — ${dateText}, ${timeText}`} />
+              {props.childName && (
+                <ReceiptRow
+                  label="Дете"
+                  value={
+                    props.childPickupText
+                      ? `${props.childName} — ${props.childPickupText}`
+                      : props.childName
+                  }
+                />
+              )}
               <ReceiptRow
                 label="Стойност на транзакцията"
                 value={`${depositText} (EUR) — депозит, ${depositStatusText}`}

@@ -233,6 +233,36 @@ describe("booking engine", () => {
     }
   });
 
+  it("lets a parent book two children into the same class, but not the same child twice", async () => {
+    const classId = await makeClass({ capacity: 10 });
+    const userId = await makeUser();
+    const book = (childName: string) =>
+      createBooking(prisma, {
+        userId,
+        scheduledClassId: classId,
+        source: BookingSource.balance,
+        child: { childName, pickup: "parent", pickupName: null },
+      });
+
+    const maria = await book("Мария Иванова");
+    expect(maria.ok).toBe(true);
+    if (maria.ok) {
+      expect(maria.booking.childName).toBe("Мария Иванова");
+      expect(maria.booking.childPickup).toBe("parent");
+      expect(maria.booking.participantKey).toBe("мария иванова");
+    }
+
+    const ivan = await book("Иван Иванов");
+    expect(ivan.ok).toBe(true);
+
+    const mariaAgain = await book("мария  иванова");
+    expect(mariaAgain.ok).toBe(false);
+    if (!mariaAgain.ok) {
+      expect(mariaAgain.reason).toBe("duplicate");
+      expect(mariaAgain.message).toContain("вече е записан");
+    }
+  });
+
   it("serializes two concurrent bookings on the last spot — only one wins", async () => {
     const classId = await makeClass({ capacity: 1 });
     const u1 = await makeUser();

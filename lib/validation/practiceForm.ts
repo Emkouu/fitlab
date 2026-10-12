@@ -26,6 +26,9 @@ export const practiceFormSchema = z.object({
     )
     .optional()
     .or(z.literal("").transform(() => undefined)),
+  /// Children's class: booking it asks for the child's name and who takes the
+  /// child home (lib/booking/child.ts).
+  isForChildren: z.boolean().optional(),
 });
 
 export type PracticeFormInput = z.infer<typeof practiceFormSchema>;

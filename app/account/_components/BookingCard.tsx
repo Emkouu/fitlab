@@ -5,6 +5,7 @@ import { formatSofiaDay, formatSofiaTime, formatEurMinor } from "@/lib/format";
 import { depositAmountMinor } from "@/lib/deposit";
 import { BookingStatus, BookingSource } from "@/lib/generated/prisma/enums";
 import type { Booking, ScheduledClass } from "@/lib/generated/prisma/client";
+import { describeChildPickup } from "@/lib/booking/child";
 import { CancelBookingButton } from "./CancelBookingButton";
 import { ContinuePaymentButton } from "./ContinuePaymentButton";
 
@@ -71,6 +72,16 @@ export function BookingCard({ booking, isPast, onCancelled }: Props) {
           <p className="text-[11px] text-[color:var(--brand-purple)]/60">
             {scheduledClass.studio.name}
           </p>
+          {booking.childName && (
+            <p className="mt-1 text-[12px] text-[color:var(--brand-purple)]/80">
+              Дете: <strong>{booking.childName}</strong>
+              {booking.childPickup && (
+                <span className="text-[color:var(--brand-purple)]/60">
+                  {" "}· {describeChildPickup(booking.childPickup, booking.childPickupName)}
+                </span>
+              )}
+            </p>
+          )}
         </div>
         <span
           className={`inline-block whitespace-nowrap rounded border px-2 py-1 text-[10px] font-semibold ${STATUS_COLOR[displayStatus]}`}

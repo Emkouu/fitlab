@@ -64,6 +64,13 @@ enum DepositEntryMethod {
   manual
 }
 
+/// Who takes a child home after a children's class (Practice.isForChildren).
+enum ChildPickup {
+  parent // the parent who booked
+  alone  // the child goes home on their own
+  other  // someone else — named in Booking.childPickupName
+}
+
 enum NotificationType {
   spot_available
   class_cancelled
@@ -115,6 +122,9 @@ model Practice {
   /// costs `Studio.defaultClassPrice`. Read through `lib/pricing.ts`, never
   /// directly, so the fallback stays in one place.
   priceMinor  Int?
+  /// Children's class („Детска йога"…). Booking one asks the parent for the
+  /// child's name and who takes the child home — see lib/booking/child.ts.
+  isForChildren Boolean @default(false)
 
   classes  ScheduledClass[]
   trainers Trainer[]        @relation("TrainerSpecialties")
@@ -260,9 +270,22 @@ model Booking {
   /// later edit of the terms can't silently rewrite what the client agreed to.
   termsVersion    String?
 
+  /// Children's classes only (Practice.isForChildren): the parent's account
+  /// holds the booking, the child is who comes. NULL for adult classes.
+  childName       String?
+  /// Who takes the child home, and — for `other` — that person's name, so staff
+  /// know whom to hand the child to.
+  childPickup     ChildPickup?
+  childPickupName String?
+  /// Who this spot is for, as part of the duplicate guard: "" for the account
+  /// holder themselves, the normalised child name for a child
+  /// (`participantKeyFor()`). Lets a parent book two children into the same
+  /// class while still refusing the same child twice.
+  participantKey  String       @default("")
+
   /// Prevents double-booking the same class by the same user (SPEC §5.2).
   /// Only applies to active (non-cancelled) bookings, allowing re-booking after cancellation.
-  @@unique([userId, scheduledClassId], map: "unique_active_booking", where: raw("status != 'cancelled'"))
+  @@unique([userId, scheduledClassId, participantKey], map: "unique_active_booking", where: raw("status != 'cancelled'"))
   @@index([scheduledClassId, status])
 }
 

@@ -6,6 +6,10 @@ import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/db";
 import { createBooking } from "@/lib/booking";
 import { isFirstVisitEligible } from "@/lib/booking/firstVisit";
+import {
+  childBookingSchema,
+  type ChildBooking,
+} from "@/lib/booking/child";
 import { isProfileComplete } from "@/lib/auth/profileComplete";
 import { startEcommPaymentForBooking } from "@/lib/payments/ecomm/startPaymentForBooking";
 import { normalizeClientIp } from "@/lib/payments/ecomm/protocol";
@@ -60,7 +64,9 @@ export async function getClassesForMonth(
     },
     orderBy: { startAt: "asc" },
     include: {
-      practice: { select: { name: true, description: true, priceMinor: true } },
+      practice: {
+        select: { name: true, description: true, priceMinor: true, isForChildren: true },
+      },
       trainers: { orderBy: { name: "asc" }, select: { name: true } },
       studio: {
         select: {
@@ -115,7 +121,8 @@ export type BookClassActionResult =
         | "card_disabled"
         | "terms_not_accepted"
         | "profile_incomplete"
-        | "first_visit_used";
+        | "first_visit_used"
+        | "child_details_missing";
       message: string;
     };
 
@@ -145,6 +152,10 @@ export async function bookClassAction(input: {
   /** The client ticked „първо посещение" — reserve without a deposit, which is
    *  only allowed for someone who has never booked. Re-checked server-side. */
   firstVisit?: boolean;
+  /** Children's classes only: the child's name and who takes them home.
+   *  Required — and validated here — when the practice is a children's one;
+   *  ignored otherwise. */
+  child?: { childName?: string; pickup?: string; pickupName?: string };
 }): Promise<BookClassActionResult> {
   // 0. Terms consent. Checked before anything is written: the acquirer requires
   //    explicit agreement with the Общи условия prior to the card-data page,
@@ -212,9 +223,28 @@ export async function bookClassAction(input: {
     where: { id: input.scheduledClassId },
     select: {
       depositAmount: true,
+      practice: { select: { isForChildren: true } },
       studio: { select: { cardPaymentsEnabled: true, defaultDeposit: true } },
     },
   });
+
+  // Children's class: staff must know which child is coming and whom to hand
+  // them to afterwards, so the booking is refused without both. An adult class
+  // never stores child details, whatever the request carries.
+  let child: ChildBooking | null = null;
+  if (cls?.practice.isForChildren) {
+    const parsed = childBookingSchema.safeParse(input.child ?? {});
+    if (!parsed.success) {
+      return {
+        ok: false,
+        reason: "child_details_missing",
+        message:
+          parsed.error.issues[0]?.message ??
+          "Попълни името на детето и кой ще го вземе.",
+      };
+    }
+    child = parsed.data;
+  }
 
   // Server-side card kill-switch guard. UI hides the card option when the
   // studio has card payments off, but never trust the client.
@@ -273,6 +303,7 @@ export async function bookClassAction(input: {
     // Recorded so Attendance can show „първо посещение" — staff have to
     // explain the deposit and collect it at the desk.
     isFirstVisit,
+    child,
   });
 
   if (!r.ok) {

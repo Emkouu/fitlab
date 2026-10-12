@@ -11,6 +11,7 @@ type Practice = {
   name: string;
   slug: string;
   classCount: number;
+  isForChildren: boolean;
 };
 
 interface PracticeListProps {
@@ -86,6 +87,11 @@ export function PracticeList({ practices, isSuperAdmin }: PracticeListProps) {
               <tr key={p.id} className="hover:bg-[color:var(--brand-purple)]/2 transition-colors">
                 <td className="px-6 py-4 text-sm font-medium text-[color:var(--brand-ink)]">
                   {p.name}
+                  {p.isForChildren && (
+                    <span className="ml-2 inline-flex rounded-full bg-sky-50 px-2 py-0.5 font-display text-[10px] font-bold uppercase tracking-wider text-sky-700">
+                      Детска
+                    </span>
+                  )}
                 </td>
                 <td className="px-6 py-4 text-sm text-[color:var(--brand-ink)]/60 font-mono">
                   {p.slug}

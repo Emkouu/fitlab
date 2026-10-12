@@ -1281,13 +1281,15 @@ export async function upsertPracticeAction(
     const priceMinor =
       data.priceEur === undefined ? null : Math.round(parseFloat(data.priceEur) * 100);
 
+    const isForChildren = data.isForChildren === true;
+
     const practice = isCreate
       ? await prisma.practice.create({
-          data: { name: data.name, slug, description, priceMinor },
+          data: { name: data.name, slug, description, priceMinor, isForChildren },
         })
       : await prisma.practice.update({
           where: { id: data.id! },
-          data: { name: data.name, slug, description, priceMinor },
+          data: { name: data.name, slug, description, priceMinor, isForChildren },
         });
 
     console.log(

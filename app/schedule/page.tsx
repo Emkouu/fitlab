@@ -29,7 +29,9 @@ const ACTIVE_STATUSES: BookingStatus[] = [
 /** Everything a schedule card needs — shared by the agenda query and the
  *  single-row deep-link lookup so both produce the same `ClassCardRow`. */
 const CLASS_CARD_INCLUDE = {
-  practice: { select: { name: true, description: true, priceMinor: true } },
+  practice: {
+        select: { name: true, description: true, priceMinor: true, isForChildren: true },
+      },
   trainers: { orderBy: { name: "asc" }, select: { name: true } },
   studio: {
     select: {
@@ -140,6 +142,9 @@ export default async function SchedulePage({
   // every status, so a cancelled booking closes the door too (see
   // lib/booking/firstVisit.ts).
   let isFirstTimeVisitor = false;
+  // Children this parent has booked into a children's class before, newest
+  // first — so „Детска йога" next week is one tap, not retyping a name.
+  const knownChildren: string[] = [];
   if (user) {
     const fitlabUser = await prisma.user.findUnique({
       where: { supabaseUserId: user.id },
@@ -164,7 +169,7 @@ export default async function SchedulePage({
     userBalance = fitlabUser?.depositBalance ?? 0;
 
     if (fitlabUser) {
-      const [bookings, waitlistRows, unread, bookingsEver] = await Promise.all([
+      const [bookings, waitlistRows, unread, bookingsEver, childRows] = await Promise.all([
         prisma.booking.findMany({
           where: {
             userId: fitlabUser.id,
@@ -184,11 +189,23 @@ export default async function SchedulePage({
           where: { userId: fitlabUser.id, read: false },
         }),
         prisma.booking.count({ where: { userId: fitlabUser.id } }),
+        prisma.booking.findMany({
+          where: { userId: fitlabUser.id, childName: { not: null } },
+          orderBy: { createdAt: "desc" },
+          select: { childName: true, participantKey: true },
+          take: 50,
+        }),
       ]);
       bookedClassIds = bookings.map((b) => b.scheduledClassId);
       waitlistedClassIds = waitlistRows.map((w) => w.scheduledClassId);
       unreadNotificationCount = unread;
       isFirstTimeVisitor = isFirstVisitEligible(bookingsEver);
+      const seen = new Set<string>();
+      for (const c of childRows) {
+        if (!c.childName || seen.has(c.participantKey)) continue;
+        seen.add(c.participantKey);
+        knownChildren.push(c.childName);
+      }
     }
   }
 
@@ -208,6 +225,7 @@ export default async function SchedulePage({
       windowEndKey={publicWindowEndKey()}
       deepLinkRow={deepLinkRow}
       isFirstTimeVisitor={isFirstTimeVisitor}
+      knownChildren={knownChildren}
     />
   );
 }

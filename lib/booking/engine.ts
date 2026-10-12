@@ -9,6 +9,7 @@ import {
   PaymentStatus,
 } from "@/lib/generated/prisma/enums";
 import { ACTIVE_BOOKING_STATUSES } from "./statuses";
+import { participantKeyFor, type ChildBooking } from "./child";
 
 /**
  * How long a card-source booking can sit in `booked` status without a paid
@@ -48,6 +49,10 @@ export type CreateBookingInput = {
    *  so they can see the studio first. The caller owns the eligibility check
    *  (no bookings at all); the engine only records the fact. */
   isFirstVisit?: boolean;
+  /** Children's classes only: who comes, and who takes them home. The caller
+   *  validates it (`childBookingSchema`); the engine stores it and keys the
+   *  duplicate guard on the child, so one parent can book two children. */
+  child?: ChildBooking | null;
 };
 
 export type CreateBookingResult =
@@ -84,8 +89,8 @@ export type MarkAttendanceResult =
  * locked row, and inserts only if capacity hasn't been reached. Concurrent
  * callers on the last spot serialize on the row lock; exactly one wins.
  *
- * Duplicate prevention rides on the (userId, scheduledClassId) unique
- * index — P2002 from the insert is translated into a friendly "вече си
+ * Duplicate prevention rides on the (userId, scheduledClassId, participantKey)
+ * unique index — P2002 from the insert is translated into a friendly „вече си
  * записан" message.
  */
 export async function createBooking(
@@ -94,6 +99,7 @@ export async function createBooking(
 ): Promise<CreateBookingResult> {
   const { userId, scheduledClassId, source, onsiteMethod, termsVersion } = input;
   const isFirstVisit = input.isFirstVisit === true;
+  const child = input.child ?? null;
 
   const initialStatus =
     source === BookingSource.card || source === BookingSource.balance
@@ -182,6 +188,14 @@ export async function createBooking(
           // method is worth keeping regardless of how the spot was reserved.
           onsiteMethod: onsiteMethod ?? null,
           isFirstVisit,
+          ...(child
+            ? {
+                childName: child.childName,
+                childPickup: child.pickup,
+                childPickupName: child.pickupName,
+                participantKey: participantKeyFor(child.childName),
+              }
+            : {}),
           // Proof of consent, stamped in the same transaction as the row it
           // belongs to. NULL only when the caller didn't collect a version.
           ...(termsVersion != null
@@ -199,7 +213,9 @@ export async function createBooking(
       return {
         ok: false,
         reason: "duplicate",
-        message: "Вече си записан/а за този клас.",
+        message: child
+          ? `${child.childName} вече е записан/а за този клас.`
+          : "Вече си записан/а за този клас.",
       };
     }
     throw e;
