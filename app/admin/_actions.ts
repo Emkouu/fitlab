@@ -877,19 +877,41 @@ export async function deleteTrainerAction(
   }
 
   try {
-    // ─── Check if trainer is used in any active (non-cancelled) class ──────
-    const activeClassCount = await prisma.scheduledClass.count({
+    // ─── Refuse while the trainer still has upcoming classes ────────────────
+    const upcomingClassCount = await prisma.scheduledClass.count({
       where: {
         trainers: { some: { id: trainerId } },
         cancelledAt: null,
+        startAt: { gt: new Date() },
       },
     });
 
-    if (activeClassCount > 0) {
+    if (upcomingClassCount > 0) {
       return {
         ok: false,
         reason: "trainer_in_use",
-        message: `Треньорът води ${activeClassCount} активни класа. Премахни го от класовете, преди да го изтриеш.`,
+        message: `Треньорът води ${upcomingClassCount} предстоящи класа. Премахни го от тях, преди да го изтриеш.`,
+      };
+    }
+
+    // ─── Past classes → archive instead of deleting ─────────────────────────
+    // Deleting would strip the trainer off every class they taught, and the
+    // trainer report would lose that history. Archiving hides the profile
+    // everywhere a client or a picker sees it and keeps the past intact.
+    const pastClassCount = await prisma.scheduledClass.count({
+      where: { trainers: { some: { id: trainerId } } },
+    });
+    if (pastClassCount > 0) {
+      const archived = await prisma.trainer.update({
+        where: { id: trainerId },
+        data: { archivedAt: new Date() },
+        select: { name: true },
+      });
+      console.log(`[admin-audit] archiveTrainer by=${admin.id} trainer=${trainerId}`);
+      revalidatePath("/admin/trainers");
+      return {
+        ok: true,
+        message: `Треньорът "${archived.name}" е премахнат. Миналите му класове остават в историята.`,
       };
     }
 
@@ -1329,13 +1351,30 @@ export async function deletePracticeAction(
     return { ok: false, message: "Само super admin може да изтрива практики." };
   }
 
-  const activeClassCount = await prisma.scheduledClass.count({
-    where: { practiceId, cancelledAt: null },
+  const upcomingClassCount = await prisma.scheduledClass.count({
+    where: { practiceId, cancelledAt: null, startAt: { gt: new Date() } },
   });
-  if (activeClassCount > 0) {
+  if (upcomingClassCount > 0) {
     return {
       ok: false,
-      message: `Тази практика се използва в ${activeClassCount} активни класа. Премахни я от класовете, преди да я изтриеш.`,
+      message: `Тази практика има ${upcomingClassCount} предстоящи класа. Премахни ги, преди да я изтриеш.`,
+    };
+  }
+
+  // Past classes → archive instead of deleting: their bookings, attendance
+  // and burned deposits must survive. Archived practices vanish from the
+  // public site and from the admin pickers (see Practice.archivedAt).
+  const classCount = await prisma.scheduledClass.count({ where: { practiceId } });
+  if (classCount > 0) {
+    await prisma.practice.update({
+      where: { id: practiceId },
+      data: { archivedAt: new Date() },
+    });
+    console.log(`[admin-audit] archivePractice by=${admin.id} practice=${practiceId}`);
+    revalidatePath("/admin/practices");
+    return {
+      ok: true,
+      message: "Практиката е премахната. Миналите ѝ класове остават в историята.",
     };
   }
 

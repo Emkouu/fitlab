@@ -56,6 +56,9 @@ export default async function AdminTrainersEditPage({ params }: EditPageProps) {
   // Filter for users with non-null email
   const [practices, availableUsersRaw] = await Promise.all([
     prisma.practice.findMany({
+      where: {
+        OR: [{ archivedAt: null }, { trainers: { some: { id: trainerId } } }],
+      },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),

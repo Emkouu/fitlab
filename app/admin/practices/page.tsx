@@ -26,6 +26,7 @@ export default async function AdminPracticesPage({
     resolvedSearchParams.success === "updated";
 
   const practices = await prisma.practice.findMany({
+    where: { archivedAt: null },
     orderBy: { name: "asc" },
     include: { _count: { select: { classes: true } } },
   });

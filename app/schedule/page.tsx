@@ -124,6 +124,7 @@ export default async function SchedulePage({
     createClient(),
     getClassesForMonth(year, month),
     prisma.practice.findMany({
+      where: { archivedAt: null },
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }) as Promise<PracticeOption[]>,

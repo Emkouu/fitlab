@@ -125,6 +125,11 @@ model Practice {
   /// Children's class („Детска йога"…). Booking one asks the parent for the
   /// child's name and who takes the child home — see lib/booking/child.ts.
   isForChildren Boolean @default(false)
+  /// Set when the studio stops offering the practice. An archived practice
+  /// disappears from every public screen and from the admin pickers, but its
+  /// past classes, bookings and deposit history stay intact — which is why
+  /// „Изтрий" archives instead of deleting once the practice has any history.
+  archivedAt DateTime?
 
   classes  ScheduledClass[]
   trainers Trainer[]        @relation("TrainerSpecialties")
@@ -135,6 +140,10 @@ model Trainer {
   name     String
   photoUrl String?
   bio      String?
+  /// Set when the trainer leaves the studio. Hidden from the public trainer
+  /// directory and the admin pickers; still named on the past classes they
+  /// taught, so attendance and the trainer report keep their history.
+  archivedAt DateTime?
 
   // Many-to-many with Practice for trainer specialties
   specialties Practice[] @relation("TrainerSpecialties")

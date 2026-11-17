@@ -15,13 +15,14 @@ Mobile-first booking app for a premium yoga/fitness studio. API-first so a futur
 - **Supabase Auth** — phone/SMS OTP primary, email magic link fallback. JWT sessions. Requires an SMS gateway (Twilio/MessageBird) — per-message cost.
 - **Fibank ECOMM (виртуален ПОС)** — the card provider for the one-off deposit. See „Card payments" below. Stripe has been removed entirely.
 - **Supabase Storage** — trainer photos.
-- **Deploy:** Vercel (web) + Supabase (DB/auth/storage). Migration to a Hetzner box behind HestiaCP is planned so the Fibank virtual POS gets a static outbound IP — runbook in `fitlab-hetzner-migration.md`. Supabase (DB/auth/storage) stays either way.
+- **Deploy:** a Hetzner box behind HestiaCP (static outbound IP for the Fibank virtual POS) + Supabase (DB/auth/storage). Deploy is `ssh root@<IP> /opt/fitlab/deploy.sh`: it resets to `origin/main`, runs `npx prisma migrate deploy`, builds, restarts — so a migration only has to be pushed to `main`, never applied by hand. Runbook in `fitlab-hetzner-migration.md` §11.
 
 ## Data model (§4)
 
 - **Studio** — id, name, slug. Keep `studioId` FK on classes now (multi-location is Phase 2).
 - **Practice/Category** — class type (Виняса Флоу, Пилатес, Хатха, Ин, Терапевтична, Тай Чи…). One→many ScheduledClasses.
 - **Trainer** — id, name, photo, bio, specialties. **Many-to-many** with classes (some classes have two trainers).
+- **Archiving, not deleting.** `Practice.archivedAt` / `Trainer.archivedAt`: a practice the studio no longer offers or a trainer who left is archived — hidden from every public screen and the admin lists/pickers (edit screens still show what the record already uses), while past classes, bookings and deposit history stay. The admin „Изтрий" archives when there is any past class, hard-deletes only with no history, and refuses while upcoming classes exist. Every new public or picker query on these two models needs `where: { archivedAt: null }`.
 - **ScheduledClass** — start datetime, **duration minutes stored explicitly** (varies 45–240, never assume), practiceId, studioId, **capacity** (our addition, not in export), `depositAmount` (nullable per-class override), isSpecialEvent, eventNotes.
 - **Booking** — userId, scheduledClassId, status, createdAt, cancelledAt, paymentId (nullable), source (`card` | `onsite_deposit` | `balance`). **Partial unique index** on `(userId, scheduledClassId)` WHERE `status != 'cancelled'` — lets a user re-book a class after cancelling it.
 - **Payment** — ECOMM transaction fields (`ecommTransId`, result, RRN, card mask, refund), amount, currency (`EUR`), status. The `stripe*` columns remain only for rows from the removed Stripe integration. Every paid booking has one.

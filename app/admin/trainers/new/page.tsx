@@ -18,6 +18,7 @@ export default async function AdminTrainersNewPage() {
   // ─── Fetch all practices and available users (trainerId = null) ──────────
   const [practices, availableUsersRaw] = await Promise.all([
     prisma.practice.findMany({
+      where: { archivedAt: null },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),

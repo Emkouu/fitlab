@@ -70,13 +70,18 @@ export default async function AccountPage() {
 
   // Trainers directory — read-only, client-facing (photo + short bio).
   const trainers = await prisma.trainer.findMany({
+    where: { archivedAt: null },
     orderBy: { name: "asc" },
     select: {
       id: true,
       name: true,
       photoUrl: true,
       bio: true,
-      specialties: { orderBy: { name: "asc" }, select: { id: true, name: true } },
+      specialties: {
+        where: { archivedAt: null },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true },
+      },
     },
   });
 

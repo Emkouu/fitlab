@@ -18,10 +18,12 @@ export default async function AdminScheduleNewPage() {
   // ─── Fetch all practices, trainers, and studio default deposit ───────────
   const [practices, trainers, studio] = await Promise.all([
     prisma.practice.findMany({
+      where: { archivedAt: null },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
     prisma.trainer.findMany({
+      where: { archivedAt: null },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),

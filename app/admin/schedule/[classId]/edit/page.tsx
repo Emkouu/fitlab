@@ -41,10 +41,16 @@ export default async function AdminScheduleEditPage({ params }: EditPageProps) {
   // ─── Fetch all practices and trainers ────────────────────────────────────
   const [practices, trainers] = await Promise.all([
     prisma.practice.findMany({
+      where: {
+        OR: [{ archivedAt: null }, { classes: { some: { id: classId } } }],
+      },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
     prisma.trainer.findMany({
+      where: {
+        OR: [{ archivedAt: null }, { classes: { some: { id: classId } } }],
+      },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),

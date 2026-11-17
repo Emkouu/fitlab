@@ -29,6 +29,7 @@ export default async function AdminTrainersPage({
 
   // ─── Fetch all trainers with details ────────────────────────────────────
   const trainers = await prisma.trainer.findMany({
+    where: { archivedAt: null },
     include: {
       specialties: { select: { id: true, name: true } },
       user: { select: { id: true, email: true } },

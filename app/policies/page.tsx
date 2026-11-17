@@ -55,6 +55,7 @@ export default async function PoliciesPage() {
       },
     }),
     prisma.practice.findMany({
+      where: { archivedAt: null },
       orderBy: { name: "asc" },
       select: { id: true, name: true, priceMinor: true },
     }),
